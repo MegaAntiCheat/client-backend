@@ -16,9 +16,17 @@ use crate::settings::Settings;
 use self::command_manager::CommandManager;
 use self::logwatcher::LogWatcher;
 use self::regexes::ChatMessage;
+use self::regexes::Hostname;
+use self::regexes::Map;
+use self::regexes::PlayerCount;
 use self::regexes::PlayerKill;
+use self::regexes::ServerIP;
 use self::regexes::REGEX_CHAT;
+use self::regexes::REGEX_HOSTNAME;
+use self::regexes::REGEX_IP;
 use self::regexes::REGEX_KILL;
+use self::regexes::REGEX_MAP;
+use self::regexes::REGEX_PLAYERCOUNT;
 
 pub mod command_manager;
 pub mod logwatcher;
@@ -44,6 +52,10 @@ struct IOThread {
     // regex_lobby: Regex,
     regex_chat: Regex,
     regex_kill: Regex,
+    regex_hostname: Regex,
+    regex_ip: Regex,
+    regex_map: Regex,
+    regex_playercount: Regex,
 }
 
 /// Request an action to be done on the IO thread, such as update state, run a command in-game, etc
@@ -54,6 +66,7 @@ pub enum IORequest {
 }
 
 /// A message from the IO thread that something has happened, like a status output which needs to be handled.
+#[derive(Debug)]
 pub enum IOResponse {
     NoLogFile(std::io::Error),
     LogFileOpened,
@@ -63,6 +76,10 @@ pub enum IOResponse {
     // Lobby(LobbyLine),
     Chat(ChatMessage),
     Kill(PlayerKill),
+    Hostname(Hostname),
+    ServerIP(ServerIP),
+    Map(Map),
+    PlayerCount(PlayerCount),
 }
 
 impl IOManager {
@@ -101,10 +118,18 @@ impl IOManager {
     }
 
     /// Receive a message from the IO thread, returns none if there are no messages waiting.
-    pub fn recv(&mut self) -> Option<IOResponse> {
+    pub fn try_recv(&mut self) -> Option<IOResponse> {
         match self.receiver.try_recv() {
             Ok(resp) => Some(resp),
             Err(TryRecvError::Empty) => None,
+            Err(_) => panic!("Lost connection to IO thread"),
+        }
+    }
+
+    /// Receive a message from the IO thread, blocks until one is received.
+    pub fn recv(&mut self) -> IOResponse {
+        match self.receiver.recv() {
+            Ok(resp) => resp,
             Err(_) => panic!("Lost connection to IO thread"),
         }
     }
@@ -130,6 +155,10 @@ impl IOThread {
             // regex_lobby: Regex::new(REGEX_LOBBY).unwrap(),
             regex_chat: Regex::new(REGEX_CHAT).unwrap(),
             regex_kill: Regex::new(REGEX_KILL).unwrap(),
+            regex_hostname: Regex::new(REGEX_HOSTNAME).unwrap(),
+            regex_ip: Regex::new(REGEX_IP).unwrap(),
+            regex_map: Regex::new(REGEX_MAP).unwrap(),
+            regex_playercount: Regex::new(REGEX_PLAYERCOUNT).unwrap(),
         }
     }
 
@@ -161,6 +190,7 @@ impl IOThread {
         }
 
         while let Some(line) = self.log_watcher.as_mut().unwrap().next_line() {
+            log::debug!("New line");
             // Match status
             if let Some(caps) = self.regex_status.captures(&line) {
                 let status_line = StatusLine::parse(caps);
@@ -177,6 +207,30 @@ impl IOThread {
             if let Some(caps) = self.regex_kill.captures(&line) {
                 let kill = PlayerKill::parse(caps);
                 self.send_message(IOResponse::Kill(kill));
+                continue;
+            }
+            // Match server hostname
+            if let Some(caps) = self.regex_hostname.captures(&line) {
+                let hostname = Hostname::parse(caps);
+                self.send_message(IOResponse::Hostname(hostname));
+                continue;
+            }
+            // Match server IP
+            if let Some(caps) = self.regex_ip.captures(&line) {
+                let ip = ServerIP::parse(caps);
+                self.send_message(IOResponse::ServerIP(ip));
+                continue;
+            }
+            // Match server map
+            if let Some(caps) = self.regex_map.captures(&line) {
+                let map = Map::parse(caps);
+                self.send_message(IOResponse::Map(map));
+                continue;
+            }
+            // Match server player count
+            if let Some(caps) = self.regex_playercount.captures(&line) {
+                let playercount = PlayerCount::parse(caps);
+                self.send_message(IOResponse::PlayerCount(playercount));
                 continue;
             }
         }
@@ -221,14 +275,14 @@ impl IOThread {
             }
             Ok(resp) => {
                 self.send_message(IOResponse::RCONConnected);
-                for l in resp.lines() {
-                    // Match lobby command
-                    // if let Some(caps) = self.regex_lobby.captures(l) {
-                    //     let lobby_line = LobbyLine::parse(&caps);
-                    //     self.send_message(IOResponse::Lobby(lobby_line));
-                    //     continue;
-                    // }
-                }
+                // for l in resp.lines() {
+                // Match lobby command
+                // if let Some(caps) = self.regex_lobby.captures(l) {
+                //     let lobby_line = LobbyLine::parse(&caps);
+                //     self.send_message(IOResponse::Lobby(lobby_line));
+                //     continue;
+                // }
+                // }
             }
         }
     }

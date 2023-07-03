@@ -1,7 +1,9 @@
 #![allow(non_upper_case_globals)]
 #![allow(unused_variables)]
 
-use regex::{Captures, Regex};
+use std::sync::Arc;
+
+use regex::Captures;
 
 use crate::player::PlayerState;
 
@@ -16,6 +18,51 @@ use crate::player::PlayerState;
 
 */
 
+pub const REGEX_HOSTNAME: &str = r#"^hostname: (.*)$"#;
+#[derive(Debug)]
+pub struct Hostname(pub Arc<str>);
+impl Hostname {
+    pub fn parse(caps: Captures) -> Hostname {
+        Hostname(caps[1].into())
+    }
+}
+
+pub const REGEX_IP: &str = r#"^udp/ip  : (.*)$"#;
+#[derive(Debug)]
+pub struct ServerIP(pub Arc<str>);
+impl ServerIP {
+    pub fn parse(caps: Captures) -> ServerIP {
+        ServerIP(caps[1].into())
+    }
+}
+
+pub const REGEX_MAP: &str = r#"^map     : (.+) at: .*$"#;
+#[derive(Debug)]
+pub struct Map(pub Arc<str>);
+impl Map {
+    pub fn parse(caps: Captures) -> Map {
+        Map(caps[1].into())
+    }
+}
+
+pub const REGEX_PLAYERCOUNT: &str = r#"^players : (\d+) humans, (\d+) bots \((\d+) max\)$"#;
+#[derive(Debug)]
+pub struct PlayerCount {
+    pub players: u32,
+    pub bots: u32,
+    pub max: u32,
+}
+
+impl PlayerCount {
+    pub fn parse(caps: Captures) -> PlayerCount {
+        PlayerCount {
+            players: caps[1].parse().unwrap(),
+            bots: caps[2].parse().unwrap(),
+            max: caps[3].parse().unwrap(),
+        }
+    }
+}
+
 /// Player killed someone
 /// Matches:
 ///    0: Killer
@@ -23,23 +70,24 @@ use crate::player::PlayerState;
 ///    2: Weapon
 ///    3: Crit?
 pub const REGEX_KILL: &str = r#"^(.*)\skilled\s(.*)\swith\s(.*)\.(\s\(crit\))?$"#;
+#[derive(Debug)]
 pub struct PlayerKill {
-    pub killer_name: String,
-    pub killer_steamid: Option<String>,
-    pub victim_name: String,
-    pub victim_steamid: Option<String>,
-    pub weapon: String,
+    pub killer_name: Arc<str>,
+    pub killer_steamid: Option<Arc<str>>,
+    pub victim_name: Arc<str>,
+    pub victim_steamid: Option<Arc<str>>,
+    pub weapon: Arc<str>,
     pub crit: bool,
 }
 
 impl PlayerKill {
     pub fn parse(caps: Captures) -> PlayerKill {
         PlayerKill {
-            killer_name: caps[1].to_string(),
+            killer_name: caps[1].into(),
             killer_steamid: None,
-            victim_name: caps[2].to_string(),
+            victim_name: caps[2].into(),
             victim_steamid: None,
-            weapon: caps[3].to_string(),
+            weapon: caps[3].into(),
             crit: caps.get(4).is_some(),
         }
     }
@@ -50,6 +98,8 @@ impl PlayerKill {
 ///    0: Player
 ///    1: Message
 pub const REGEX_CHAT: &str = r#"^(?:\*DEAD\*)?(?:\(TEAM\))?\s?(.*)\s:\s\s(.*)$"#;
+
+#[derive(Debug)]
 pub struct ChatMessage {
     pub player_name: String,
     pub steamid: Option<String>,
@@ -70,28 +120,33 @@ impl ChatMessage {
 // Includes players on server, player name, state, steamid, time connected
 // If no player exists on the server with a steamid from here, it creates a new player and adds it to the list
 pub const REGEX_STATUS: &str =
-    r#"^#\s*(\d+)\s"(.*)"\s+\[(U:\d:\d+)\]\s+(\d*:?\d\d:\d\d)\s+\d+\s*\d+\s*(\w+).*$"#;
+    r#"^#\s*(\d+)\s"(.*)"\s+\[(U:\d:\d+)\]\s+(\d*:?\d\d:\d\d)\s+(\d+)\s*(\d+)\s*(\w+).*$"#;
 
+#[derive(Debug)]
 pub struct StatusLine {
-    pub userid: String,
-    pub name: String,
-    pub steamid: String,
+    pub userid: Arc<str>,
+    pub name: Arc<str>,
+    pub steamid: Arc<str>,
     pub time: u32,
+    pub ping: u32,
+    pub loss: u32,
     pub state: PlayerState,
 }
 
 impl StatusLine {
     pub fn parse(caps: Captures) -> StatusLine {
         let mut player_state = PlayerState::Spawning;
-        if caps[5].eq("active") {
+        if caps[7].eq("active") {
             player_state = PlayerState::Active;
         }
 
         StatusLine {
-            userid: caps[1].to_string(),
-            name: caps[2].to_string(),
-            steamid: caps[3].to_string(),
+            userid: caps[1].into(),
+            name: caps[2].into(),
+            steamid: caps[3].into(),
             time: get_time(&caps[4]).unwrap_or(0),
+            ping: caps[5].parse().unwrap(),
+            loss: caps[6].parse().unwrap(),
             state: player_state,
         }
     }

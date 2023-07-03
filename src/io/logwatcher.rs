@@ -5,13 +5,13 @@ use std::io::BufReader;
 use std::io::SeekFrom;
 use std::path::Path;
 use std::path::PathBuf;
-use std::time::SystemTime;
+use std::time::Instant;
 
 pub struct LogWatcher {
     filepath: Box<Path>,
     pos: u64,
     reader: BufReader<File>,
-    last_activity: SystemTime,
+    last_activity: Instant,
 }
 
 impl LogWatcher {
@@ -22,14 +22,18 @@ impl LogWatcher {
     }
 
     /// Internally called by [use_directory]
-    pub fn register(file: PathBuf) -> Result<LogWatcher, io::Error> {
-        let f = match File::open(&file) {
+    pub fn register(filepath: PathBuf) -> Result<LogWatcher, io::Error> {
+        let f = match File::open(&filepath) {
             Ok(x) => {
-                log::debug!("Successfully opened log file");
+                if let Ok(path) = filepath.clone().into_os_string().into_string() {
+                    log::error!("Successfully opened log file: {}", path);
+                } else {
+                    log::error!("Successfully opened log file");
+                }
                 x
             }
             Err(err) => {
-                if let Ok(path) = file.into_os_string().into_string() {
+                if let Ok(path) = filepath.into_os_string().into_string() {
                     log::error!("Failed to open log file {}: {}", path, err);
                 } else {
                     log::error!("Failed to open log file: {}", err);
@@ -52,10 +56,10 @@ impl LogWatcher {
             log::error!("Failed to seek in file: {}", e);
         }
         Ok(LogWatcher {
-            filepath: file.into_boxed_path(),
+            filepath: filepath.into_boxed_path(),
             pos,
             reader,
-            last_activity: SystemTime::now(),
+            last_activity: Instant::now(),
         })
     }
 
@@ -69,7 +73,7 @@ impl LogWatcher {
                 if len > 0 {
                     self.pos += len as u64;
                     self.reader.seek(SeekFrom::Start(self.pos)).unwrap();
-                    self.last_activity = SystemTime::now();
+                    self.last_activity = Instant::now();
                     return Some(line.replace('\n', ""));
                 }
 
@@ -77,12 +81,13 @@ impl LogWatcher {
                 if self.reader.get_ref().metadata().unwrap().len() < self.pos {
                     log::warn!("Console.log file was reset");
                     self.pos = self.reader.get_ref().metadata().unwrap().len();
-                    self.last_activity = SystemTime::now();
+                    self.last_activity = Instant::now();
                 }
 
                 // Reopen the log file if nothing has happened for long enough in case the file has been replaced.
-                let time = SystemTime::now().duration_since(self.last_activity);
-                if time.unwrap().as_secs() > 10 {
+                let time = Instant::now().duration_since(self.last_activity);
+                if time.as_secs() > 10 {
+                    log::debug!("No activity in 10 seconds, reopening.");
                     let f = match File::open(&self.filepath) {
                         Ok(x) => x,
                         Err(_) => return None,
@@ -99,7 +104,7 @@ impl LogWatcher {
 
                     self.pos = pos;
                     self.reader = reader;
-                    self.last_activity = SystemTime::now();
+                    self.last_activity = Instant::now();
                     return None;
                 }
 

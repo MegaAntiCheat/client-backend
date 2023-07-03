@@ -5,13 +5,16 @@ use log4rs::append::file::FileAppender;
 use log4rs::config::{Appender, Config, Root};
 use log4rs::encode::pattern::PatternEncoder;
 use log4rs::filter::threshold::ThresholdFilter;
-use server::Server;
+
 use settings::Settings;
+
+use state::STATE;
 
 mod io;
 mod player;
 mod server;
 mod settings;
+mod state;
 mod web;
 
 #[tokio::main]
@@ -35,11 +38,21 @@ async fn main() {
     let io = IOManager::start(&settings);
 
     // Main loop
-    loop {}
+    main_loop(io).await;
+}
+
+async fn main_loop(mut io: IOManager) {
+    log::debug!("Entering main loop");
+    loop {
+        let response = io.recv();
+        log::debug!("Got response: {:?}", &response);
+        let mut state = STATE.write().unwrap();
+        state.handle_io_response(response);
+    }
 }
 
 fn init_log() -> Result<(), SetLoggerError> {
-    let level = log::LevelFilter::Info;
+    let level = log::LevelFilter::Debug;
     let file_path = "./log/client_backend.log";
 
     // Build a stderr logger.
