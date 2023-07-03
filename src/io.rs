@@ -190,7 +190,6 @@ impl IOThread {
         }
 
         while let Some(line) = self.log_watcher.as_mut().unwrap().next_line() {
-            log::debug!("New line");
             // Match status
             if let Some(caps) = self.regex_status.captures(&line) {
                 let status_line = StatusLine::parse(caps);

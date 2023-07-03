@@ -45,7 +45,7 @@ async fn main_loop(mut io: IOManager) {
     log::debug!("Entering main loop");
     loop {
         let response = io.recv();
-        log::debug!("Got response: {:?}", &response);
+        println!("Got response: {:?}", &response);
         let mut state = STATE.write().unwrap();
         state.handle_io_response(response);
     }

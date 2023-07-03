@@ -1,15 +1,20 @@
 use std::net::SocketAddr;
 
 use axum::{
+    http::{header, StatusCode},
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
+use serde_json::Value;
+
+use crate::state::{State, STATE};
 
 /// Start the web API server
 pub async fn web_main() {
     let api = Router::new()
         .route("/", get(root))
-        .route("/mac/state", get(state))
+        .route("/mac/game/v1", get(game))
         .route("/mac/mark", post(mark));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
@@ -25,9 +30,14 @@ async fn root() -> &'static str {
 }
 
 /// API endpoint to retrieve the current server state
-async fn state() -> Json<()> {
+async fn game() -> impl IntoResponse {
     log::debug!("State requested");
-    Json::from(())
+    let state = STATE.read().unwrap();
+    (
+        StatusCode::OK,
+        [(header::CONTENT_TYPE, "application/json")],
+        serde_json::to_string(&*state).unwrap(),
+    )
 }
 
 /// API endpoint to mark a player

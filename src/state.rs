@@ -1,12 +1,15 @@
 use std::sync::RwLock;
 
 use lazy_static::lazy_static;
+use serde::{ser::SerializeMap, Serialize, __private::ser::serialize_tagged_newtype};
+use steamid_ng::SteamID;
 
 use crate::{
     io::{
         regexes::{self, ChatMessage, Hostname, PlayerKill, StatusLine},
         IOResponse,
     },
+    player::{GameInfo, Player, Team},
     server::Server,
 };
 
@@ -15,9 +18,9 @@ lazy_static! {
 }
 
 pub struct State {
-    log_file_state: std::io::Result<()>,
-    rcon_state: Result<(), rcon::Error>,
-    server: Server,
+    pub log_file_state: std::io::Result<()>,
+    pub rcon_state: Result<(), rcon::Error>,
+    pub server: Server,
 }
 
 impl State {
@@ -29,6 +32,7 @@ impl State {
         }
     }
 
+    /// Handle a message from the IO thread
     pub fn handle_io_response(&mut self, response: IOResponse) {
         match response {
             IOResponse::NoLogFile(e) => self.log_file_state = Err(e),
@@ -55,8 +59,39 @@ impl State {
     }
 
     fn handle_status_line(&mut self, status: StatusLine) {
-        // TODO
-        log::info!("Status: {:?}", status);
+        log::debug!("Status: {:?}", &status);
+
+        match SteamID::from_steam3(&status.steamid) {
+            Ok(steamid) => {
+                // Update existing player or insert new player
+                if let Some(player) = self.server.players.get_mut(&steamid) {
+                    player.game_info.userid = status.userid;
+                    player.name = status.name;
+                    player.game_info.ping = status.ping;
+                    player.game_info.loss = status.loss;
+                    player.game_info.state = status.state;
+                } else {
+                    let player = Player {
+                        steamid,
+                        name: status.name,
+                        game_info: GameInfo {
+                            userid: status.userid,
+                            team: Team::Unassigned,
+                            ping: status.ping,
+                            loss: status.loss,
+                            state: status.state,
+                            kills: 0,
+                            deaths: 0,
+                        },
+                    };
+
+                    self.server.players.insert(steamid, player);
+                }
+            }
+            Err(e) => {
+                log::error!("Invalid SteamID {}: {}", status.steamid, e);
+            }
+        }
     }
 
     fn handle_chat(&mut self, chat: ChatMessage) {
@@ -67,5 +102,16 @@ impl State {
     fn handle_kill(&mut self, kill: PlayerKill) {
         // TODO
         log::info!("Kill: {:?}", kill);
+    }
+}
+
+impl Serialize for State {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        let mut smap = serializer.serialize_map(Some(1))?;
+        smap.serialize_entry("server", &self.server)?;
+        smap.end()
     }
 }
