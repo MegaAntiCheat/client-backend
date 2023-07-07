@@ -84,11 +84,12 @@ impl Server {
 
         // Update existing player or insert new player
         if let Some(player) = self.players.get_mut(&status.steamid) {
-            player.game_info.userid = status.userid;
             player.name = status.name;
+            player.game_info.userid = status.userid;
             player.game_info.ping = status.ping;
             player.game_info.loss = status.loss;
             player.game_info.state = status.state;
+            player.game_info.time = status.time;
         } else {
             // Since we have already gotten a valid steamid from this status line it is safe to unwrap
             let player = Player::new(&status, None).unwrap();

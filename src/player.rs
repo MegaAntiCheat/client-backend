@@ -1,4 +1,5 @@
 use serde::Serialize;
+use serde_json::Map;
 use std::sync::Arc;
 use steamid_ng::{SteamID, SteamIDError};
 
@@ -18,7 +19,8 @@ pub struct Player {
     #[serde(rename = "steamInfo")]
     pub steam_info: Option<SteamInfo>,
     #[serde(rename = "customData")]
-    pub custom_data: Option<serde_json::Value>,
+    pub custom_data: serde_json::Value,
+    pub tags: Vec<Arc<str>>,
 }
 
 impl Player {
@@ -30,7 +32,8 @@ impl Player {
             is_self,
             game_info: GameInfo::new(status),
             steam_info: None,
-            custom_data: None,
+            custom_data: serde_json::Value::Object(Map::new()),
+            tags: Vec::new(),
         })
     }
 }

@@ -35,7 +35,10 @@ async fn game() -> impl IntoResponse {
     let state = STATE.read().unwrap();
     (
         StatusCode::OK,
-        [(header::CONTENT_TYPE, "application/json")],
+        [
+            (header::CONTENT_TYPE, "application/json"),
+            (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+        ],
         serde_json::to_string(&state.server).unwrap(),
     )
 }
