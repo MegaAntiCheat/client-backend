@@ -1,5 +1,4 @@
 use serde::{Serialize, Serializer};
-use serde_with::serde_as;
 use std::{collections::HashMap, sync::Arc};
 use steamid_ng::SteamID;
 
@@ -13,7 +12,6 @@ use crate::{
 
 // Server
 
-#[serde_as]
 #[derive(Debug, Serialize)]
 pub struct Server {
     pub map: Option<Arc<str>>,
