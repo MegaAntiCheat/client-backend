@@ -179,7 +179,7 @@ fn get_time(input: &str) -> Option<u32> {
 // NOTE: Teams are stored as INVADERS/DEFENDERS and does not swap when Red/Blu swaps so it cannot
 // be used to reliably check which team the user is on, it can only check relative to the user (same/opposite team)
 pub const REGEX_LOBBY: &str =
-    r#"^  Member\[(\d+)] \[(U:\d:\d+)]  team = TF_GC_TEAM_(\w+)  type = MATCH_PLAYER\s*$"#;
+    r#"^  Member\[(\d+)] (\[U:\d:\d+])  team = TF_GC_TEAM_(\w+)  type = MATCH_PLAYER\s*$"#;
 
 #[derive(Debug)]
 pub struct LobbyLine {
