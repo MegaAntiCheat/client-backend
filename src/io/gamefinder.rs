@@ -57,7 +57,7 @@ impl GameFinder {
         path.push(gameinfo);
 
         if path.exists() {
-            log::debug!("Passed Verification Check, Using.");
+            log::debug!("Passed Verification Check");
             return true;
         }
         log::debug!("Failed Verification Check");
@@ -72,10 +72,10 @@ impl GameFinder {
         for lib in libs {
             let mut path = lib.to_path_buf();
             path.push(tf2_folder);
+            log::debug!("Found TF2 Folder: {:?}", path);
 
             if path.exists() && self.verify_tf_location(&path) {
-                log::debug!("Found TF2 Folder: {:?}", path);
-                println!("Using: {}", path.to_string_lossy());
+                println!("Using {}", path.to_string_lossy());
                 return Some(path);
             }
         }

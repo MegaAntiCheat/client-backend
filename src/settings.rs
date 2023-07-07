@@ -13,13 +13,10 @@ impl Default for Settings {
         let tf2_directory = game_finder.read_tf2_folder();
 
         match tf2_directory {
-            Some(path) => {
-                println!("TF2 Folder found at {:?}", path);
-                Settings {
-                    tf2_directory: path,
-                    rcon_password: "mac_rcon".into(),
-                }
-            }
+            Some(path) => Settings {
+                tf2_directory: path,
+                rcon_password: "mac_rcon".into(),
+            },
             None => {
                 println!("FATAL ERROR: TF2 Folder not found.");
                 // Return a default Settings with a placeholder value for tf2_directory
