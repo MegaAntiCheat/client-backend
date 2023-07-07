@@ -10,6 +10,7 @@ use settings::Settings;
 
 use state::STATE;
 
+mod gamefinder;
 mod io;
 mod player;
 mod server;

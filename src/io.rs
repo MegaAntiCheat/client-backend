@@ -29,7 +29,6 @@ use self::regexes::REGEX_MAP;
 use self::regexes::REGEX_PLAYERCOUNT;
 
 pub mod command_manager;
-pub mod gamefinder;
 pub mod logwatcher;
 pub mod regexes;
 

@@ -1,6 +1,6 @@
 use std::{path::PathBuf, sync::Arc};
 
-use crate::io::gamefinder::GameFinder;
+use crate::gamefinder;
 
 pub struct Settings {
     pub tf2_directory: PathBuf,
@@ -9,8 +9,7 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        let mut game_finder = GameFinder;
-        let tf2_directory = game_finder.read_tf2_folder();
+        let tf2_directory = gamefinder::locate_tf2_folder();
 
         match tf2_directory {
             Some(path) => Settings {
