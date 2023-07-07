@@ -1,4 +1,6 @@
-use io::IOManager;
+use std::time::Duration;
+
+use io::{IOCommander, IOManager};
 use log::{LevelFilter, SetLoggerError};
 use log4rs::append::console::{ConsoleAppender, Target};
 use log4rs::append::file::FileAppender;
@@ -38,6 +40,12 @@ async fn main() {
     // Spawn IO thread
     let io = IOManager::start(&settings);
 
+    // Spawn refresh task
+    let commander = io.get_commander();
+    tokio::spawn(async move {
+        refresh_loop(commander).await;
+    });
+
     // Main loop
     main_loop(io).await;
 }
@@ -49,6 +57,16 @@ async fn main_loop(mut io: IOManager) {
         println!("Got response: {:?}", &response);
         let mut state = STATE.write().unwrap();
         state.handle_io_response(response);
+    }
+}
+
+async fn refresh_loop(mut io: IOCommander) {
+    log::debug!("Entering refresh loop");
+    loop {
+        io.send(io::IORequest::RunCommand("status".to_string()));
+        std::thread::sleep(Duration::from_secs(3));
+        io.send(io::IORequest::RunCommand("tf_lobby_debug".to_string()));
+        std::thread::sleep(Duration::from_secs(3));
     }
 }
 

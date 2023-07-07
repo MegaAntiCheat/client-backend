@@ -1,12 +1,48 @@
-use serde::{ser::SerializeMap, Serialize};
+use serde::Serialize;
 use std::sync::Arc;
-use steamid_ng::SteamID;
+use steamid_ng::{SteamID, SteamIDError};
+
+use crate::io::regexes::StatusLine;
+
+// Player
+
+#[derive(Debug, Serialize)]
+pub struct Player {
+    pub name: Arc<str>,
+    pub steamid: SteamID,
+    #[serde(rename = "isSelf")]
+    pub is_self: bool,
+    #[serde(rename = "gameInfo")]
+    pub game_info: GameInfo,
+    #[serde(rename = "steamInfo")]
+    pub steam_info: Option<SteamInfo>,
+    #[serde(rename = "customData")]
+    pub custom_data: Option<serde_json::Value>,
+}
+
+impl Player {
+    pub fn new(status: &StatusLine, user: Option<&SteamID>) -> Result<Player, SteamIDError> {
+        let is_self = user.map(|user| user == &status.steamid).unwrap_or(false);
+        Ok(Player {
+            name: status.name.clone(),
+            steamid: status.steamid,
+            is_self,
+            game_info: GameInfo::new(status),
+            steam_info: None,
+            custom_data: None,
+        })
+    }
+}
+
+// PlayerState
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 pub enum PlayerState {
     Active,
     Spawning,
 }
+
+// Team
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Team {
@@ -25,12 +61,16 @@ impl Serialize for Team {
     }
 }
 
-#[derive(Debug)]
+// SteamInfo
+
+#[derive(Debug, Serialize)]
 pub struct SteamInfo {
     account_name: Arc<str>,
     pfp: Arc<str>,
     // TODO
 }
+
+// GameInfo
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GameInfo {
@@ -43,23 +83,16 @@ pub struct GameInfo {
     pub deaths: u32,
 }
 
-#[derive(Debug)]
-pub struct Player {
-    pub steamid: SteamID,
-    pub name: Arc<str>,
-    pub game_info: GameInfo,
-}
-
-impl Serialize for Player {
-    fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut smap = s.serialize_map(None)?;
-
-        smap.serialize_entry("name", self.name.as_ref())?;
-        smap.serialize_entry("gameInfo", &self.game_info)?;
-
-        smap.end()
+impl GameInfo {
+    pub fn new(status: &StatusLine) -> GameInfo {
+        GameInfo {
+            userid: status.userid.clone(),
+            team: Team::Unassigned,
+            ping: status.ping,
+            loss: status.loss,
+            state: status.state,
+            kills: 0,
+            deaths: 0,
+        }
     }
 }

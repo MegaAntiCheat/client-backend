@@ -17,6 +17,7 @@ use self::command_manager::CommandManager;
 use self::logwatcher::LogWatcher;
 use self::regexes::ChatMessage;
 use self::regexes::Hostname;
+use self::regexes::LobbyLine;
 use self::regexes::Map;
 use self::regexes::PlayerCount;
 use self::regexes::PlayerKill;
@@ -25,6 +26,7 @@ use self::regexes::REGEX_CHAT;
 use self::regexes::REGEX_HOSTNAME;
 use self::regexes::REGEX_IP;
 use self::regexes::REGEX_KILL;
+use self::regexes::REGEX_LOBBY;
 use self::regexes::REGEX_MAP;
 use self::regexes::REGEX_PLAYERCOUNT;
 
@@ -32,31 +34,7 @@ pub mod command_manager;
 pub mod logwatcher;
 pub mod regexes;
 
-/// Holds stuff to communicate with the IO thread, send [IORequest]s via the IOManager to do things like run commands in the game, etc
-#[derive(Debug)]
-pub struct IOManager {
-    sender: Sender<IORequest>,
-    receiver: Receiver<IOResponse>,
-}
-
-struct IOThread {
-    sender: Sender<IOResponse>,
-    receiver: Receiver<IORequest>,
-
-    command_manager: CommandManager,
-    log_watcher: Option<LogWatcher>,
-
-    tf2_directory: PathBuf,
-
-    regex_status: Regex,
-    // regex_lobby: Regex,
-    regex_chat: Regex,
-    regex_kill: Regex,
-    regex_hostname: Regex,
-    regex_ip: Regex,
-    regex_map: Regex,
-    regex_playercount: Regex,
-}
+// Enums
 
 /// Request an action to be done on the IO thread, such as update state, run a command in-game, etc
 pub enum IORequest {
@@ -73,13 +51,34 @@ pub enum IOResponse {
     NoRCON(rcon::Error),
     RCONConnected,
     Status(StatusLine),
-    // Lobby(LobbyLine),
+    Lobby(LobbyLine),
     Chat(ChatMessage),
     Kill(PlayerKill),
     Hostname(Hostname),
     ServerIP(ServerIP),
     Map(Map),
     PlayerCount(PlayerCount),
+}
+
+// IOCommander
+
+pub struct IOCommander {
+    sender: Sender<IORequest>,
+}
+
+impl IOCommander {
+    /// Send a message to the IO thread
+    pub fn send(&mut self, msg: IORequest) {
+        self.sender.send(msg).expect("Sending message to IO thread");
+    }
+}
+
+// IOManager
+
+/// Holds stuff to communicate with the IO thread, send [IORequest]s via the IOManager to do things like run commands in the game, etc
+pub struct IOManager {
+    sender: Sender<IORequest>,
+    receiver: Receiver<IOResponse>,
 }
 
 impl IOManager {
@@ -133,6 +132,33 @@ impl IOManager {
             Err(_) => panic!("Lost connection to IO thread"),
         }
     }
+
+    pub fn get_commander(&self) -> IOCommander {
+        IOCommander {
+            sender: self.sender.clone(),
+        }
+    }
+}
+
+// IOThread
+
+struct IOThread {
+    sender: Sender<IOResponse>,
+    receiver: Receiver<IORequest>,
+
+    command_manager: CommandManager,
+    log_watcher: Option<LogWatcher>,
+
+    tf2_directory: PathBuf,
+
+    regex_status: Regex,
+    regex_lobby: Regex,
+    regex_chat: Regex,
+    regex_kill: Regex,
+    regex_hostname: Regex,
+    regex_ip: Regex,
+    regex_map: Regex,
+    regex_playercount: Regex,
 }
 
 impl IOThread {
@@ -152,7 +178,7 @@ impl IOThread {
             tf2_directory: directory.into(),
 
             regex_status: Regex::new(REGEX_STATUS).unwrap(),
-            // regex_lobby: Regex::new(REGEX_LOBBY).unwrap(),
+            regex_lobby: Regex::new(REGEX_LOBBY).unwrap(),
             regex_chat: Regex::new(REGEX_CHAT).unwrap(),
             regex_kill: Regex::new(REGEX_KILL).unwrap(),
             regex_hostname: Regex::new(REGEX_HOSTNAME).unwrap(),
@@ -192,8 +218,10 @@ impl IOThread {
         while let Some(line) = self.log_watcher.as_mut().unwrap().next_line() {
             // Match status
             if let Some(caps) = self.regex_status.captures(&line) {
-                let status_line = StatusLine::parse(caps);
-                self.send_message(IOResponse::Status(status_line));
+                match StatusLine::parse(caps) {
+                    Ok(status) => self.send_message(IOResponse::Status(status)),
+                    Err(e) => log::error!("Malformed steamid: {}", e),
+                }
                 continue;
             }
             // Match chat message
@@ -274,14 +302,16 @@ impl IOThread {
             }
             Ok(resp) => {
                 self.send_message(IOResponse::RCONConnected);
-                // for l in resp.lines() {
-                // Match lobby command
-                // if let Some(caps) = self.regex_lobby.captures(l) {
-                //     let lobby_line = LobbyLine::parse(&caps);
-                //     self.send_message(IOResponse::Lobby(lobby_line));
-                //     continue;
-                // }
-                // }
+                for l in resp.lines() {
+                    // Match lobby command
+                    if let Some(caps) = self.regex_lobby.captures(l) {
+                        match LobbyLine::parse(&caps) {
+                            Ok(lobby) => self.send_message(IOResponse::Lobby(lobby)),
+                            Err(e) => log::error!("Malformed steamid: {}", e),
+                        }
+                        continue;
+                    }
+                }
             }
         }
     }

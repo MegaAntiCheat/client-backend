@@ -4,8 +4,9 @@
 use std::sync::Arc;
 
 use regex::Captures;
+use steamid_ng::{SteamID, SteamIDError};
 
-use crate::player::PlayerState;
+use crate::player::{PlayerState, Team};
 
 /*
     Useful commands:
@@ -126,7 +127,7 @@ pub const REGEX_STATUS: &str =
 pub struct StatusLine {
     pub userid: Arc<str>,
     pub name: Arc<str>,
-    pub steamid: Arc<str>,
+    pub steamid: SteamID,
     pub time: u32,
     pub ping: u32,
     pub loss: u32,
@@ -134,21 +135,21 @@ pub struct StatusLine {
 }
 
 impl StatusLine {
-    pub fn parse(caps: Captures) -> StatusLine {
+    pub fn parse(caps: Captures) -> Result<StatusLine, SteamIDError> {
         let mut player_state = PlayerState::Spawning;
         if caps[7].eq("active") {
             player_state = PlayerState::Active;
         }
 
-        StatusLine {
+        Ok(StatusLine {
             userid: caps[1].into(),
             name: caps[2].into(),
-            steamid: caps[3].into(),
+            steamid: SteamID::from_steam3(&caps[3])?,
             time: get_time(&caps[4]).unwrap_or(0),
             ping: caps[5].parse().unwrap(),
             loss: caps[6].parse().unwrap(),
             state: player_state,
-        }
+        })
     }
 }
 
@@ -177,29 +178,32 @@ fn get_time(input: &str) -> Option<u32> {
 // Includes the team of players on the server
 // NOTE: Teams are stored as INVADERS/DEFENDERS and does not swap when Red/Blu swaps so it cannot
 // be used to reliably check which team the user is on, it can only check relative to the user (same/opposite team)
-// pub const REGEX_LOBBY: &str =
-//     r#"^  Member\[(\d+)] \[(U:\d:\d+)]  team = TF_GC_TEAM_(\w+)  type = MATCH_PLAYER\s*$"#;
+pub const REGEX_LOBBY: &str =
+    r#"^  Member\[(\d+)] \[(U:\d:\d+)]  team = TF_GC_TEAM_(\w+)  type = MATCH_PLAYER\s*$"#;
 
-// pub struct LobbyLine {
-//     pub steamid: String,
-//     pub team: Team,
-// }
+#[derive(Debug)]
+pub struct LobbyLine {
+    pub steamid: SteamID,
+    pub team: Team,
+}
 
-// impl LobbyLine {
-//     pub fn parse(caps: &Captures) -> LobbyLine {
-//         let mut team = Team::None;
-//         match &caps[3] {
-//             "INVADERS" => team = Team::Invaders,
-//             "DEFENDERS" => team = Team::Defenders,
-//             _ => {}
-//         }
+impl LobbyLine {
+    pub fn parse(caps: &Captures) -> Result<LobbyLine, SteamIDError> {
+        let mut team = Team::Unassigned;
+        match &caps[3] {
+            // TODO - This is not right since teams swap in maps like payload.
+            // This is only temporary until the g15 command is implemented
+            "INVADERS" => team = Team::BLU,
+            "DEFENDERS" => team = Team::RED,
+            _ => {}
+        }
 
-//         LobbyLine {
-//             steamid: caps[2].to_string(),
-//             team,
-//         }
-//     }
-// }
+        Ok(LobbyLine {
+            steamid: SteamID::from_steam3(&caps[2])?,
+            team,
+        })
+    }
+}
 
 const INVIS_CHARS: &[char] = &[
     '\u{00a0}',
