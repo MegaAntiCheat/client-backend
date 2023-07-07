@@ -51,7 +51,7 @@ fn fetch_libraryfolders() -> Vec<PathBuf> {
 
 fn find_default_lib() -> PathBuf {
     #[cfg(target_os = "windows")]
-    let default_dir = "C:/Program Files (x86)/Steam/steamapps/";
+    let default_dir = "C:/Program Files (x86)/Steam/steamapps/".into();
 
     #[cfg(not(target_os = "windows"))]
     let default_dir = {

@@ -1,7 +1,6 @@
 use std::sync::RwLock;
 
 use lazy_static::lazy_static;
-use serde::{ser::SerializeMap, Serialize};
 
 use crate::{io::IOResponse, server::Server};
 
@@ -37,16 +36,5 @@ impl State {
                 self.server.handle_io_response(response);
             }
         }
-    }
-}
-
-impl Serialize for State {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        let mut smap = serializer.serialize_map(Some(1))?;
-        smap.serialize_entry("server", &self.server)?;
-        smap.end()
     }
 }

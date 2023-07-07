@@ -36,7 +36,7 @@ async fn game() -> impl IntoResponse {
     (
         StatusCode::OK,
         [(header::CONTENT_TYPE, "application/json")],
-        serde_json::to_string(&*state).unwrap(),
+        serde_json::to_string(&state.server).unwrap(),
     )
 }
 

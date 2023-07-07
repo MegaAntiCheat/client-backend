@@ -9,6 +9,7 @@ use crate::io::regexes::StatusLine;
 #[derive(Debug, Serialize)]
 pub struct Player {
     pub name: Arc<str>,
+    #[serde(rename = "steamID64")]
     pub steamid: SteamID,
     #[serde(rename = "isSelf")]
     pub is_self: bool,
@@ -76,6 +77,7 @@ pub struct SteamInfo {
 pub struct GameInfo {
     pub userid: Arc<str>,
     pub team: Team,
+    pub time: u32,
     pub ping: u32,
     pub loss: u32,
     pub state: PlayerState,
@@ -88,6 +90,7 @@ impl GameInfo {
         GameInfo {
             userid: status.userid.clone(),
             team: Team::Unassigned,
+            time: status.time,
             ping: status.ping,
             loss: status.loss,
             state: status.state,
