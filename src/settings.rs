@@ -1,5 +1,7 @@
 use std::{path::PathBuf, sync::Arc};
 
+use crate::gamefinder;
+
 pub struct Settings {
     pub tf2_directory: PathBuf,
     pub rcon_password: Arc<str>,
@@ -7,21 +9,21 @@ pub struct Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        #[cfg(target_os = "windows")]
-        let tf2_directory = "C:/Program Files (x86)/Steam/steamapps/common/Team Fortress 2".into();
+        let tf2_directory = gamefinder::locate_tf2_folder();
 
-        #[cfg(not(target_os = "windows"))]
-        let tf2_directory = {
-            use std::env::var_os;
-            var_os("HOME")
-                .map(PathBuf::from)
-                .unwrap_or("~".into())
-                .join(".steam/steam/steamapps/common/Team Fortress 2")
-        };
-
-        Settings {
-            tf2_directory,
-            rcon_password: "mac_rcon".into(),
+        match tf2_directory {
+            Some(path) => Settings {
+                tf2_directory: path,
+                rcon_password: "mac_rcon".into(),
+            },
+            None => {
+                println!("FATAL ERROR: TF2 Folder not found.");
+                // Return a default Settings with a placeholder value for tf2_directory
+                Settings {
+                    tf2_directory: PathBuf::new(),
+                    rcon_password: Arc::from(""),
+                }
+            }
         }
     }
 }
