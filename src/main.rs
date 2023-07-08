@@ -10,7 +10,6 @@ use log4rs::encode::pattern::PatternEncoder;
 use log4rs::filter::threshold::ThresholdFilter;
 
 use settings::Settings;
-
 use state::STATE;
 
 mod gamefinder;
@@ -45,7 +44,20 @@ async fn main() {
     let args = Args::parse();
 
     // Load settings
-    let mut settings = Settings::default();
+    let settings = if let Some(config_path) = &args.config {
+        Settings::load_from(config_path.into())
+    } else {
+        Settings::load()
+    };
+
+    let mut settings = match settings {
+        Ok(settings) => settings,
+        Err(e) => {
+            log::error!("Failed to load settings, continuing with defaults: {:?}", e);
+            Settings::default()
+        }
+    };
+
     if let Some(port) = args.port {
         settings.port = port;
     }
