@@ -1,7 +1,8 @@
+use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use clap::Parser;
-use io::{IOCommander, IOManager};
+use io::IOManager;
 use log::{LevelFilter, SetLoggerError};
 use log4rs::append::console::{ConsoleAppender, Target};
 use log4rs::append::file::FileAppender;
@@ -73,36 +74,56 @@ async fn main() {
         web::web_main(port).await;
     });
 
-    // Spawn IO thread
-    let io = IOManager::start(&State::read_state().as_ref().unwrap().settings);
+    // Main and refresh loop
+    let io = IOManager::new();
 
-    // Spawn refresh task
-    let commander = io.get_commander();
-    tokio::spawn(async move {
-        refresh_loop(commander).await;
+    let cmd = io.get_command_requester();
+    tokio::task::spawn(async move {
+        refresh_loop(cmd).await;
     });
 
-    // Main loop
     main_loop(io).await;
 }
 
 async fn main_loop(mut io: IOManager) {
-    log::debug!("Entering main loop");
     loop {
-        let response = io.recv();
-        State::write_state()
-            .as_mut()
-            .unwrap()
-            .handle_io_response(response);
+        match io.handle_log() {
+            Ok(Some(output)) => {
+                let mut state_lock = State::write_state();
+                let state = state_lock.as_mut().unwrap();
+                state.log_file_state = Ok(());
+                state.server.handle_io_response(output);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                let mut state_lock = State::write_state();
+                state_lock.as_mut().unwrap().log_file_state = Err(e);
+            }
+        }
+
+        match io.handle_waiting_command().await {
+            Ok(Some(output)) => {
+                let mut state_lock = State::write_state();
+                let state = state_lock.as_mut().unwrap();
+                state.rcon_state = Ok(());
+                state.server.handle_io_response(output);
+            }
+            Ok(None) => {}
+            Err(e) => {
+                let mut state_lock = State::write_state();
+                state_lock.as_mut().unwrap().rcon_state = Err(e);
+            }
+        }
     }
 }
 
-async fn refresh_loop(mut io: IOCommander) {
+async fn refresh_loop(cmd: Sender<&'static str>) {
     log::debug!("Entering refresh loop");
     loop {
-        io.send(io::IORequest::RunCommand(CMD_STATUS.to_string()));
-        std::thread::sleep(Duration::from_secs(3));
-        io.send(io::IORequest::RunCommand(CMD_TF_LOBBY_DEBUG.to_string()));
+        cmd.send(CMD_STATUS).unwrap();
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        cmd.send(CMD_TF_LOBBY_DEBUG).unwrap();
+        tokio::time::sleep(Duration::from_secs(3)).await;
         std::thread::sleep(Duration::from_secs(3));
     }
 }

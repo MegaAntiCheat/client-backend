@@ -3,7 +3,7 @@ use std::{
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
-use crate::{io::IOResponse, server::Server, settings::Settings};
+use crate::{server::Server, settings::Settings};
 
 // State singleton and lock helpers
 
@@ -67,21 +67,6 @@ impl State {
             rcon_state: Ok(()),
             server: Server::new(),
             settings,
-        }
-    }
-
-    /// Handle a message from the IO thread
-    pub fn handle_io_response(&mut self, response: IOResponse) {
-        use IOResponse::*;
-        match response {
-            NoLogFile(e) => self.log_file_state = Err(e),
-            LogFileOpened => self.log_file_state = Ok(()),
-            NoRCON(e) => self.rcon_state = Err(e),
-            RCONConnected => self.rcon_state = Ok(()),
-            Lobby(_) | Status(_) | Chat(_) | Kill(_) | Hostname(_) | ServerIP(_) | Map(_)
-            | PlayerCount(_) => {
-                self.server.handle_io_response(response);
-            }
         }
     }
 }

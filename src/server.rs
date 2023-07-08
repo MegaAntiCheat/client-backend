@@ -5,7 +5,7 @@ use steamid_ng::SteamID;
 use crate::{
     io::{
         regexes::{self, ChatMessage, LobbyLine, PlayerKill, StatusLine},
-        IOResponse,
+        IOOutput,
     },
     player::{GameInfo, Player, Team},
 };
@@ -47,8 +47,8 @@ impl Server {
         }
     }
 
-    pub fn handle_io_response(&mut self, response: IOResponse) {
-        use IOResponse::*;
+    pub fn handle_io_response(&mut self, response: IOOutput) {
+        use IOOutput::*;
         match response {
             Lobby(lobby) => self.handle_lobby_line(lobby),
             Status(status) => self.handle_status_line(status),
@@ -66,9 +66,6 @@ impl Server {
             PlayerCount(playercount) => {
                 self.max_players = Some(playercount.max);
                 self.num_players = Some(playercount.players);
-            }
-            _ => {
-                log::error!("Server was given a response it's not responsible for.");
             }
         }
     }
