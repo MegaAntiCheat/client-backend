@@ -88,8 +88,8 @@ impl IOManager {
         let (tsend, mrecv) = std::sync::mpsc::channel();
         log::debug!("Spawning IO thread");
 
-        let dir = settings.tf2_directory.clone();
-        let pwd = settings.rcon_password.clone();
+        let dir: PathBuf = settings.get_tf2_directory().into();
+        let pwd = settings.get_rcon_password();
 
         // Thread to do stuff on
         std::thread::spawn(move || {

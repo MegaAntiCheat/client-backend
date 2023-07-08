@@ -52,8 +52,8 @@ pub enum PlayerState {
 pub enum Team {
     Unassigned = 0,
     Spectators = 1,
-    RED = 2,
-    BLU = 3,
+    Red = 2,
+    Blu = 3,
 }
 
 impl Serialize for Team {

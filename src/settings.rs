@@ -50,15 +50,15 @@ impl Display for Error {
 pub struct Settings {
     #[serde(skip)]
     config_path: Option<PathBuf>,
-    pub tf2_directory: PathBuf,
-    pub rcon_password: Arc<str>,
-    pub port: u16,
+    tf2_directory: PathBuf,
+    rcon_password: Arc<str>,
+    port: u16,
 }
 
 impl Settings {
     /// Attempt to load settings from the user's saved configuration file
     pub fn load() -> Result<Settings, Error> {
-        match Self::get_config_file_path() {
+        match Self::locate_config_file_path() {
             Some(path) => Self::load_from(path),
             None => Err(Error::NoValidPath),
         }
@@ -70,25 +70,63 @@ impl Settings {
         let mut settings = serde_yaml::from_str::<Settings>(&contents)?;
         settings.config_path = Some(path);
 
+        log::debug!("Successfully loaded settings.");
         Ok(settings)
     }
 
     /// Attempt to save the settings back to the loaded configuration file
     pub fn save(&self) -> Result<(), Error> {
-        let path = Self::get_config_file_path();
-        if path.is_none() {
+        if self.config_path.is_none() {
             return Err(Error::NoValidPath);
         }
-        let path = path.unwrap();
 
         let mut open_options = OpenOptions::new();
-        let mut file = open_options.create(true).write(true).open(path)?;
+        let mut file = open_options
+            .create(true)
+            .write(true)
+            .open(self.config_path.as_ref().unwrap())?;
         write!(&mut file, "{}", serde_yaml::to_string(self)?)?;
 
         Ok(())
     }
 
-    fn get_config_file_path() -> Option<PathBuf> {
+    /// Attempt to save the settings, log errors and ignore result
+    pub fn save_ok(&self) {
+        if let Err(e) = self.save() {
+            log::error!("Failed to save settings: {}", e);
+            return;
+        }
+        log::debug!("Settings saved to {:?}", self.config_path);
+    }
+
+    // Setters & Getters
+
+    pub fn get_config_path(&self) -> Option<&PathBuf> {
+        self.config_path.as_ref()
+    }
+    pub fn get_tf2_directory(&self) -> &Path {
+        &self.tf2_directory
+    }
+    pub fn get_rcon_password(&self) -> Arc<str> {
+        self.rcon_password.clone()
+    }
+    pub fn get_port(&self) -> u16 {
+        self.port
+    }
+    pub fn set_tf2_directory(&mut self, dir: PathBuf) {
+        self.tf2_directory = dir;
+        self.save_ok();
+    }
+    pub fn set_rcon_password(&mut self, pwd: Arc<str>) {
+        self.rcon_password = pwd;
+        self.save_ok();
+    }
+    pub fn set_port(&mut self, port: u16) {
+        self.port = port;
+        self.save_ok();
+    }
+
+    fn locate_config_file_path() -> Option<PathBuf> {
         let dirs = ProjectDirs::from(
             "com.megascatterbomb",
             "Mega Anti Cheat",
@@ -105,7 +143,7 @@ impl Default for Settings {
         let tf2_directory = gamefinder::locate_tf2_folder().unwrap_or(PathBuf::new());
 
         Settings {
-            config_path: Self::get_config_file_path(),
+            config_path: Self::locate_config_file_path(),
             tf2_directory,
             rcon_password: "mac_rcon".into(),
             port: 3621,

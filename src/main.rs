@@ -10,7 +10,9 @@ use log4rs::encode::pattern::PatternEncoder;
 use log4rs::filter::threshold::ThresholdFilter;
 
 use settings::Settings;
-use state::STATE;
+use state::State;
+
+use crate::io::command_manager::{CMD_STATUS, CMD_TF_LOBBY_DEBUG};
 
 mod gamefinder;
 mod io;
@@ -59,16 +61,20 @@ async fn main() {
     };
 
     if let Some(port) = args.port {
-        settings.port = port;
+        settings.set_port(port);
     }
+    let port = settings.get_port();
+
+    // Initialize State
+    *State::write_state() = Some(State::new(settings));
 
     // Spawn web server
     tokio::spawn(async move {
-        web::web_main(settings.port).await;
+        web::web_main(port).await;
     });
 
     // Spawn IO thread
-    let io = IOManager::start(&settings);
+    let io = IOManager::start(&State::read_state().as_ref().unwrap().settings);
 
     // Spawn refresh task
     let commander = io.get_commander();
@@ -84,17 +90,19 @@ async fn main_loop(mut io: IOManager) {
     log::debug!("Entering main loop");
     loop {
         let response = io.recv();
-        let mut state = STATE.write().unwrap();
-        state.handle_io_response(response);
+        State::write_state()
+            .as_mut()
+            .unwrap()
+            .handle_io_response(response);
     }
 }
 
 async fn refresh_loop(mut io: IOCommander) {
     log::debug!("Entering refresh loop");
     loop {
-        io.send(io::IORequest::RunCommand("status".to_string()));
+        io.send(io::IORequest::RunCommand(CMD_STATUS.to_string()));
         std::thread::sleep(Duration::from_secs(3));
-        io.send(io::IORequest::RunCommand("tf_lobby_debug".to_string()));
+        io.send(io::IORequest::RunCommand(CMD_TF_LOBBY_DEBUG.to_string()));
         std::thread::sleep(Duration::from_secs(3));
     }
 }

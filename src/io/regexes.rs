@@ -193,8 +193,8 @@ impl LobbyLine {
         match &caps[3] {
             // TODO - This is not right since teams swap in maps like payload.
             // This is only temporary until the g15 command is implemented
-            "INVADERS" => team = Team::BLU,
-            "DEFENDERS" => team = Team::RED,
+            "INVADERS" => team = Team::Blu,
+            "DEFENDERS" => team = Team::Red,
             _ => {}
         }
 

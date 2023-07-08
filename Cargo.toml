@@ -9,7 +9,6 @@ edition = "2021"
 axum = "0.6.18"
 clap = { version = "4.3.11", features = ["derive"] }
 directories-next = "2.0.0"
-lazy_static = "1.4.0"
 log = "0.4.19"
 log4rs = "1.2.0"
 rcon = { version = "0.6.0", features = ["rt-tokio"] }

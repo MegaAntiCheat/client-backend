@@ -282,7 +282,6 @@ dependencies = [
  "axum",
  "clap",
  "directories-next",
- "lazy_static",
  "log",
  "log4rs",
  "rcon",
