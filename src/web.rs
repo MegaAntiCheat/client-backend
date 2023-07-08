@@ -11,13 +11,13 @@ use serde_json::Value;
 use crate::state::{State, STATE};
 
 /// Start the web API server
-pub async fn web_main() {
+pub async fn web_main(port: u16) {
     let api = Router::new()
         .route("/", get(root))
         .route("/mac/game/v1", get(game))
         .route("/mac/mark", post(mark));
 
-    let addr = SocketAddr::from(([127, 0, 0, 1], 3000));
+    let addr = SocketAddr::from(([127, 0, 0, 1], port));
     log::info!("Starting web server at {addr}");
     axum::Server::bind(&addr)
         .serve(api.into_make_service())

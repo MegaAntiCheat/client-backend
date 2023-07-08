@@ -3,6 +3,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
+/// Attempts to open the TF2 directory or locate it if it's not in the expected place
 pub fn locate_tf2_folder() -> Option<PathBuf> {
     log::debug!("Fetching TF2 Folder");
     let tf2_folder: &str = "steamapps/common/Team Fortress 2";
@@ -14,7 +15,7 @@ pub fn locate_tf2_folder() -> Option<PathBuf> {
         log::debug!("Found TF2 Folder: {:?}", path);
 
         if path.exists() && verify_tf_location(&path) {
-            println!("Using {}", path.to_string_lossy());
+            log::info!("Using TF2 directory: {}", path.to_string_lossy());
             return Some(path);
         }
     }

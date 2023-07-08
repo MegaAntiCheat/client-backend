@@ -5,25 +5,23 @@ use crate::gamefinder;
 pub struct Settings {
     pub tf2_directory: PathBuf,
     pub rcon_password: Arc<str>,
+    pub port: u16,
+}
+
+impl Settings {
+    pub fn new() -> Settings {
+        Self::default()
+    }
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        let tf2_directory = gamefinder::locate_tf2_folder();
+        let tf2_directory = gamefinder::locate_tf2_folder().unwrap_or(PathBuf::new());
 
-        match tf2_directory {
-            Some(path) => Settings {
-                tf2_directory: path,
-                rcon_password: "mac_rcon".into(),
-            },
-            None => {
-                println!("FATAL ERROR: TF2 Folder not found.");
-                // Return a default Settings with a placeholder value for tf2_directory
-                Settings {
-                    tf2_directory: PathBuf::new(),
-                    rcon_password: Arc::from(""),
-                }
-            }
+        Settings {
+            tf2_directory,
+            rcon_password: "mac_rcon".into(),
+            port: 3621,
         }
     }
 }

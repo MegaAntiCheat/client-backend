@@ -1,5 +1,6 @@
 use std::time::Duration;
 
+use clap::Parser;
 use io::{IOCommander, IOManager};
 use log::{LevelFilter, SetLoggerError};
 use log4rs::append::console::{ConsoleAppender, Target};
@@ -20,6 +21,17 @@ mod settings;
 mod state;
 mod web;
 
+#[derive(Parser, Debug)]
+#[command(author, version, about, long_about = None)]
+struct Args {
+    /// Override the port to host the web-ui and API on
+    #[arg(short, long)]
+    pub port: Option<u16>,
+    /// Override the config file to use
+    #[arg(short, long)]
+    pub config: Option<String>,
+}
+
 #[tokio::main]
 async fn main() {
     if let Err(e) = init_log() {
@@ -29,12 +41,18 @@ async fn main() {
         );
     }
 
+    // Arg handling
+    let args = Args::parse();
+
     // Load settings
-    let settings = Settings::default();
+    let mut settings = Settings::default();
+    if let Some(port) = args.port {
+        settings.port = port;
+    }
 
     // Spawn web server
     tokio::spawn(async move {
-        web::web_main().await;
+        web::web_main(settings.port).await;
     });
 
     // Spawn IO thread
@@ -54,7 +72,6 @@ async fn main_loop(mut io: IOManager) {
     log::debug!("Entering main loop");
     loop {
         let response = io.recv();
-        println!("Got response: {:?}", &response);
         let mut state = STATE.write().unwrap();
         state.handle_io_response(response);
     }
