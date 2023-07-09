@@ -1,5 +1,6 @@
-use std::sync::mpsc::Sender;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc::Sender;
 
 use clap::Parser;
 use io::IOManager;
@@ -117,12 +118,12 @@ async fn main_loop(mut io: IOManager) {
     }
 }
 
-async fn refresh_loop(cmd: Sender<&'static str>) {
+async fn refresh_loop(cmd: Sender<Arc<str>>) {
     log::debug!("Entering refresh loop");
     loop {
-        cmd.send(CMD_STATUS).unwrap();
+        cmd.send(CMD_STATUS.into()).await.unwrap();
         tokio::time::sleep(Duration::from_secs(3)).await;
-        cmd.send(CMD_TF_LOBBY_DEBUG).unwrap();
+        cmd.send(CMD_TF_LOBBY_DEBUG.into()).await.unwrap();
         tokio::time::sleep(Duration::from_secs(3)).await;
         std::thread::sleep(Duration::from_secs(3));
     }

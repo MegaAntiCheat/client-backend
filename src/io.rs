@@ -2,9 +2,10 @@ use regex::Regex;
 
 use regexes::StatusLine;
 use regexes::REGEX_STATUS;
-use std::sync::mpsc::Receiver;
-use std::sync::mpsc::Sender;
+use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::Sender;
 
 use crate::state::State;
 
@@ -46,8 +47,8 @@ pub enum IOOutput {
 // IOThread
 
 pub struct IOManager {
-    command_recv: Receiver<&'static str>,
-    command_send: Sender<&'static str>,
+    command_recv: Receiver<Arc<str>>,
+    command_send: Sender<Arc<str>>,
     command_manager: CommandManager,
     log_watcher: Option<LogWatcher>,
 
@@ -64,7 +65,7 @@ pub struct IOManager {
 impl IOManager {
     pub fn new() -> IOManager {
         let command_manager = CommandManager::new();
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = tokio::sync::mpsc::channel(16);
 
         IOManager {
             command_recv: rx,
@@ -83,13 +84,15 @@ impl IOManager {
         }
     }
 
-    pub fn get_command_requester(&self) -> Sender<&'static str> {
+    pub fn get_command_requester(&self) -> Sender<Arc<str>> {
         self.command_send.clone()
     }
 
     pub async fn handle_waiting_command(&mut self) -> Result<Option<IOOutput>, rcon::Error> {
-        if let Ok(command) = self.command_recv.recv_timeout(Duration::from_millis(50)) {
-            return self.handle_command(command).await;
+        if let Ok(Some(command)) =
+            tokio::time::timeout(Duration::from_millis(50), self.command_recv.recv()).await
+        {
+            return self.handle_command(&command).await;
         }
 
         Ok(None)
