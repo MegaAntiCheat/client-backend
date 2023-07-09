@@ -1,0 +1,42 @@
+name: Rust
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-linux:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Debug
+      run: cargo build --verbose
+      
+    - name: Release
+      run: cargo build --verbose --release
+    - uses: actions/upload-artifact@v3
+      with:
+        name: client-linux
+        path: target/release/client-backend
+      
+      
+  build-windows:
+    runs-on: windows-latest
+    steps:
+    - uses: action/checkout@v3
+    
+    - name: Debug
+      run: cargo build --verbose
+      
+    - name: Release
+      run: cargo build --verbose --release
+    - uses: actions/upload-artifact@v3
+      with:
+        name: client-windows
+        path: target/release/client-backend.exe
