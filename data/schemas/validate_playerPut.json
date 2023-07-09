@@ -1,0 +1,40 @@
+{
+	"definitions": {},
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"$id": "https://example.com/object1688895985.json",
+	"title": "Root",
+	"type": "object",
+	"patternProperties": {
+		"^[0-9]{17}$": {
+			"type": "object",
+			"required": [
+				"tags",
+				"customData"
+			],
+			"properties": {
+				"tags": {
+					"title": "Tags",
+					"type": "array",
+					"default": [],
+					"items":{
+						"title": "Items",
+						"type": "string",
+						"default": "",
+						"examples": [
+							"Suspicious"
+						],
+						"pattern": "^.*$"
+					}
+				},
+				"customData": {
+					"title": "Customdata",
+					"type": "object",
+					"required": [
+					],
+					"properties": {
+					}
+				}
+			}
+		}
+	}
+}

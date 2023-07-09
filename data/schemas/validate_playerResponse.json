@@ -1,0 +1,241 @@
+{
+	"definitions": {},
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"$id": "https://example.com/object1688732225.json",
+	"title": "Root",
+	"type": "object",
+	"required": [
+		"isSelf",
+		"name",
+		"steamID64",
+		"steamInfo",
+		"gameInfo",
+		"customData",
+		"tags"
+	],
+	"properties": {
+		"isSelf": {
+			"$id": "#root/isSelf",
+			"title": "Isself",
+			"type": "boolean",
+			"examples": [
+				false
+			],
+			"default": true
+		},
+		"name": {
+			"$id": "#root/name",
+			"title": "Name",
+			"type": "string",
+			"default": "None",
+			"examples": [
+				"Lilith"
+			],
+			"pattern": "^.+$"
+		},
+		"steamID64": {
+			"$id": "#root/steamID64",
+			"title": "Steamid64",
+			"type": "integer",
+			"default": 0,
+			"examples": [
+				76561198210264393
+			],
+			"pattern": "^\\d+$"
+		},
+		"steamInfo": {
+			"$id": "#root/steamInfo",
+			"title": "Steaminfo",
+			"anyOf": [
+				{
+					"type": "object",
+					"required": [
+						"accountName",
+						"pfp",
+						"pfphash",
+						"vacBans",
+						"isFriend",
+						"timecreated",
+						"loccountrycode"
+					],
+					"properties": {
+						"accountName": {
+							"$id": "#root/steamInfo/accountName",
+							"title": "Accountname",
+							"type": "string",
+							"default": "",
+							"examples": [
+								"Lilith"
+							],
+							"pattern": "^.*$"
+						},
+						"pfp": {
+							"$id": "#root/steamInfo/pfp",
+							"title": "Pfp",
+							"type": "string",
+							"default": "",
+							"examples": [
+								"https://avatars.akamai.steamstatic.com/427ef7d5f8ad7b21678f69bc8afc95786cf38fe6_full.jpg",
+								"https://avatars.steamstatic.com/427ef7d5f8ad7b21678f69bc8afc95786cf38fe6_full.jpg"
+							],
+							"pattern": "^.*$"
+						},
+						"pfphash": {
+							"$id": "#root/steamInfo/pfphash",
+							"title": "Pfphash",
+							"type": "string",
+							"default": "",
+							"examples": [
+								"f556979c2d55a633a063ff2b7b1eae1d2c2812fc"
+							],
+							"pattern": "^.*$"
+						},
+						"vacBans": {
+							"$id": "#root/steamInfo/vacBans",
+							"title": "Vacbans",
+							"type": "string",
+							"default": "",
+							"examples": [
+								""
+							],
+							"pattern": "^.*$"
+						},
+						"isFriend": {
+							"$id": "#root/steamInfo/isFriend",
+							"title": "Isfriend",
+							"type": "boolean",
+							"examples": [
+								true
+							],
+							"default": false
+						},
+						"timecreated": {
+							"$id": "#root/steamInfo/timecreated",
+							"title": "Timecreated",
+							"type": "integer",
+							"examples": [
+								1570311509
+							],
+							"default": 0
+						},
+						"loccountrycode": {
+							"$id": "#root/steamInfo/loccountrycode",
+							"title": "Loccountrycode",
+							"type": "string",
+							"default": "",
+							"examples": [
+								"AU"
+							],
+							"pattern": "^.*$"
+						}
+					}
+				},
+				{
+					"type": "null"
+				}
+			]
+		},
+		"gameInfo": {
+			"$id": "#root/gameInfo",
+			"title": "Gameinfo",
+			"type": "object",
+			"required": [
+				"team",
+				"ping",
+				"kills",
+				"deaths",
+				"time",
+				"state",
+				"loss",
+				"userid"
+			],
+			"properties": {
+				"team": {
+					"$id": "#root/gameInfo/team",
+					"title": "Team",
+					"type": "integer",
+					"examples": [
+						3
+					],
+					"default": 0
+				},
+				"ping": {
+					"$id": "#root/gameInfo/ping",
+					"title": "Ping",
+					"type": "integer",
+					"examples": [
+						64
+					],
+					"default": 0
+				},
+				"kills": {
+					"$id": "#root/gameInfo/kills",
+					"title": "Kills",
+					"type": "integer",
+					"examples": [
+						0
+					],
+					"default": 0
+				},
+				"deaths": {
+					"$id": "#root/gameInfo/deaths",
+					"title": "Deaths",
+					"type": "integer",
+					"examples": [
+						0
+					],
+					"default": 0
+				},
+				"time": {
+					"$id": "#root/gameInfo/time",
+					"title": "Time",
+					"type": "integer",
+					"default": 0,
+					"examples": [
+						5872
+					]
+				},
+				"state": {
+					"$id": "#root/gameInfo/state",
+					"title": "State",
+					"type": "string",
+					"default": "",
+					"examples": [
+						"spawning"
+					],
+					"pattern": "^.*$"
+				},
+				"loss": {
+					"$id": "#root/gameInfo/loss",
+					"title": "Loss",
+					"type": "integer",
+					"default": 0,
+					"examples": [
+						56
+					]
+				},
+				"userid": {
+					"$id": "#root/gameInfo/userid",
+					"title": "Userid",
+					"type": "string",
+					"default": "",
+					"examples": [
+						"301"
+					]
+				}
+			}
+		},
+		"customData": {
+			"$id": "#root/customData",
+			"title": "Customdata",
+			"type": "object"
+		},
+		"tags": {
+			"$id": "#root/tags",
+			"title": "Tags",
+			"type": "array",
+			"default": []
+		}
+	}
+}
+

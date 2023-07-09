@@ -1,0 +1,41 @@
+{
+	"definitions": {},
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"$id": "https://example.com/object1688897808.json",
+	"title": "Root",
+	"type": "object",
+	"required": [
+		"changes",
+		"errors"
+	],
+	"properties": {
+		"changes": {
+			"$id": "#root/changes",
+			"title": "Changes",
+			"type": "object",
+			"required": [
+				"internal",
+				"external"
+			],
+			"properties": {
+				"internal": {
+					"$id": "#root/changes/internal",
+					"title": "Internal",
+					"type": "object"
+				},
+				"external": {
+					"$id": "#root/changes/external",
+					"title": "External",
+					"type": "object"
+				}
+
+			}
+		},
+		"errors": {
+			"$id": "#root/errors",
+			"title": "Errors",
+			"type": "object"
+		}
+
+	}
+}

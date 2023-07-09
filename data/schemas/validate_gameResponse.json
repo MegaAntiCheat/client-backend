@@ -1,0 +1,121 @@
+{
+	"definitions": {},
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"$id": "https://example.com/object1688894919.json",
+	"title": "Root",
+	"type": "object",
+	"required": [
+		"players",
+		"map",
+		"ip",
+		"hostname",
+		"maxPlayers",
+		"numPlayers",
+		"gamemode"
+	],
+	"properties": {
+		"players": {
+			"$id": "#root/players",
+			"title": "Players",
+			"type": "array",
+			"default": [],
+			"items": {
+				"$ref": "validate_playerResponse.json"
+            }
+
+		},
+		"map": {
+			"$id": "#root/map",
+			"title": "Map",
+			"type": "string",
+			"default": "",
+			"examples": [
+				"ctf_2fort"
+			],
+			"pattern": "^.+$"
+		},
+		"ip": {
+			"$id": "#root/ip",
+			"title": "Ip",
+			"type": "string",
+			"default": "",
+			"examples": [
+				"127.0.0.1"
+			],
+			"pattern": "^.+$"
+		},
+		"hostname": {
+			"$id": "#root/hostname",
+			"title": "Hostname",
+			"type": "string",
+			"default": "",
+			"examples": [
+				"Uncletopia Sydney #1"
+			],
+			"pattern": "^.+$"
+		},
+		"maxPlayers": {
+			"$id": "#root/maxPlayers",
+			"title": "Maxplayers",
+			"type": "integer",
+			"examples": [
+				32
+			],
+			"default": 0
+		},
+		"numPlayers": {
+			"$id": "#root/numPlayers",
+			"title": "Numplayers",
+			"type": "integer",
+			"examples": [
+				17
+			],
+			"default": 0
+		},
+		"gamemode": {
+			"$id": "#root/gamemode",
+			"title": "Gamemode",
+			"type": "object",
+			"required": [
+				"matchmaking",
+				"type",
+				"vanilla"
+			],
+			"properties": {
+				"matchmaking": {
+					"$id": "#root/gamemode/matchmaking",
+					"title": "Matchmaking",
+					"type": "boolean",
+					"examples": [
+						false
+					],
+					"default": false
+				},
+				"type": {
+					"$id": "#root/gamemode/type",
+					"title": "Type",
+					"type": "string",
+					"default": "",
+					"examples": [
+						"ctf",
+						"Capture the Flag",
+						"Arena",
+						"vsh",
+						"Versus Saxton Hale"
+					],
+					"pattern": "^.*$"
+				},
+				"vanilla": {
+					"$id": "#root/gamemode/vanilla",
+					"title": "Vanilla",
+					"type": "boolean",
+					"examples": [
+						false
+					],
+					"default": false
+				}
+			}
+		}
+
+	}
+}

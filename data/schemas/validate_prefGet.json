@@ -1,0 +1,23 @@
+{
+	"definitions": {},
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"$id": "https://example.com/object1688897693.json",
+	"title": "Root",
+	"type": "object",
+	"required": [
+		"internal",
+		"external"
+	],
+	"properties": {
+		"internal": {
+			"$id": "#root/internal",
+			"title": "Internal",
+			"type": "object"
+		},
+		"external": {
+			"$id": "#root/external",
+			"title": "External",
+			"type": "object"
+		}
+	}
+}
