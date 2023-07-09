@@ -17,13 +17,10 @@ jobs:
     
     - name: Debug
       run: cargo build --verbose
-      
-    - name: Release
-      run: cargo build --verbose --release
     - uses: actions/upload-artifact@v3
       with:
         name: client-linux
-        path: target/release/client-backend
+        path: target/debug/client-backend
       
       
   build-windows:
@@ -33,10 +30,7 @@ jobs:
     
     - name: Debug
       run: cargo build --verbose
-      
-    - name: Release
-      run: cargo build --verbose --release
     - uses: actions/upload-artifact@v3
       with:
         name: client-windows
-        path: target/release/client-backend.exe
+        path: target/debug/client-backend.exe
