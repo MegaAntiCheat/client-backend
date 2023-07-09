@@ -1,0 +1,27 @@
+{
+	"definitions": {},
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"$id": "https://example.com/object1688895775.json",
+	"title": "Root",
+	"type": "object",
+	"required": [
+		"users"
+	],
+	"properties": {
+		"users": {
+			"$id": "#root/users",
+			"title": "Users",
+			"type": "array",
+			"default": [],
+			"items":{
+				"$id": "#root/users/items",
+				"title": "Items",
+				"type": "integer",
+				"examples": [
+					76561198137175279
+				],
+				"default": 0
+			}
+		}
+	}
+}
