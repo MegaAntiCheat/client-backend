@@ -1,5 +1,7 @@
 use std::sync::Arc;
 use std::time::Duration;
+use steamapi::steam_api_loop;
+use steamid_ng::SteamID;
 use tokio::sync::mpsc::Sender;
 
 use clap::Parser;
@@ -22,6 +24,7 @@ mod player;
 mod server;
 mod settings;
 mod state;
+mod steamapi;
 mod web;
 
 #[derive(Parser, Debug)]
@@ -65,7 +68,10 @@ async fn main() {
     if let Some(port) = args.port {
         settings.set_port(port);
     }
+
+    // Just some settings we'll need later
     let port = settings.get_port();
+    let steam_api_key = settings.get_steam_api_key();
 
     // Initialize State
     *State::write_state() = Some(State::new(settings));
@@ -73,6 +79,12 @@ async fn main() {
     // Spawn web server
     tokio::spawn(async move {
         web::web_main(port).await;
+    });
+
+    // Steam API loop
+    let (steam_api_requester, steam_api_receiver) = tokio::sync::mpsc::channel(32);
+    tokio::task::spawn(async move {
+        steam_api_loop(steam_api_receiver, steam_api_key).await;
     });
 
     // Main and refresh loop
@@ -83,17 +95,26 @@ async fn main() {
         refresh_loop(cmd).await;
     });
 
-    main_loop(io).await;
+    steam_api_requester
+        .send(SteamID::from(76561198096136958))
+        .await
+        .unwrap();
+
+    main_loop(io, steam_api_requester).await;
 }
 
-async fn main_loop(mut io: IOManager) {
+async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
+    let mut new_players = Vec::new();
+
     loop {
         match io.handle_log() {
             Ok(Some(output)) => {
                 let mut state_lock = State::write_state();
                 let state = state_lock.as_mut().unwrap();
                 state.log_file_state = Ok(());
-                state.server.handle_io_response(output);
+                if let Some(new_player) = state.server.handle_io_response(output) {
+                    new_players.push(new_player);
+                }
             }
             Ok(None) => {}
             Err(e) => {
@@ -107,7 +128,9 @@ async fn main_loop(mut io: IOManager) {
                 let mut state_lock = State::write_state();
                 let state = state_lock.as_mut().unwrap();
                 state.rcon_state = Ok(());
-                state.server.handle_io_response(output);
+                if let Some(new_player) = state.server.handle_io_response(output) {
+                    new_players.push(new_player);
+                }
             }
             Ok(None) => {}
             Err(e) => {
@@ -115,6 +138,13 @@ async fn main_loop(mut io: IOManager) {
                 state_lock.as_mut().unwrap().rcon_state = Err(e);
             }
         }
+
+        // Request steam API stuff on new players and clear
+        for player in &new_players {
+            steam_api_requester.send(*player).await.unwrap();
+        }
+
+        new_players.clear();
     }
 }
 

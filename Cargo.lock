@@ -1701,8 +1701,7 @@ dependencies = [
 [[package]]
 name = "steam-language-gen"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1da38ca318d68eb61213064eeb50fba4c69f695f5022ba28c00a1a76401b50bc"
+source = "git+https://github.com/Bash-09/SteamHelper-rs#f44cccbc5cf85fc28e5698b11ac4cc4a3912b057"
 dependencies = [
  "arrayref",
  "bincode",
@@ -1720,8 +1719,7 @@ dependencies = [
 [[package]]
 name = "steam-language-gen-derive"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "66642c0f7719695ea0651dfa4f42647212ca413e4446ccfe121f872c3bcb301b"
+source = "git+https://github.com/Bash-09/SteamHelper-rs#f44cccbc5cf85fc28e5698b11ac4cc4a3912b057"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1731,8 +1729,7 @@ dependencies = [
 [[package]]
 name = "steam-protobuf"
 version = "0.1.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "dbe8b52eed167b9163b886f129032f4e6701fd4ecfe731792ebf348e87fda315"
+source = "git+https://github.com/Bash-09/SteamHelper-rs#f44cccbc5cf85fc28e5698b11ac4cc4a3912b057"
 dependencies = [
  "glob",
  "protobuf",
@@ -1805,8 +1802,7 @@ dependencies = [
 [[package]]
 name = "tappet"
 version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa37c1bcdb459c34f7a4b143c71e5b4fea3ebbb6bd165dd44ea9bcda6b9a363c"
+source = "git+https://github.com/Bash-09/SteamHelper-rs#f44cccbc5cf85fc28e5698b11ac4cc4a3912b057"
 dependencies = [
  "async-trait",
  "cfg-if",
@@ -1826,8 +1822,7 @@ dependencies = [
 [[package]]
 name = "tappet-derive"
 version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aa2f1984d2be57ef92d0615361ace19c8fc9c4a3d82a4ef1069d3e23c2d17ec0"
+source = "git+https://github.com/Bash-09/SteamHelper-rs#f44cccbc5cf85fc28e5698b11ac4cc4a3912b057"
 dependencies = [
  "proc-macro2",
  "quote",

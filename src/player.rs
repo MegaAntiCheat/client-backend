@@ -24,7 +24,10 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new(status: &StatusLine, user: Option<&SteamID>) -> Result<Player, SteamIDError> {
+    pub fn new_from_status(
+        status: &StatusLine,
+        user: Option<&SteamID>,
+    ) -> Result<Player, SteamIDError> {
         let is_self = user.map(|user| user == &status.steamid).unwrap_or(false);
         Ok(Player {
             name: status.name.clone(),
@@ -67,11 +70,50 @@ impl Serialize for Team {
 
 // SteamInfo
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SteamInfo {
-    account_name: Arc<str>,
-    pfp: Arc<str>,
-    // TODO
+    #[serde(rename = "name")]
+    pub account_name: Arc<str>,
+    pub profile_url: Arc<str>,
+    #[serde(rename = "pfp")]
+    pub pfp_url: Arc<str>,
+    pub pfp_hash: Arc<str>,
+    pub profile_visibility: ProfileVisibility,
+    pub time_created: Option<i64>,
+    pub country_code: Option<Arc<str>>,
+
+    pub vac_bans: i64,
+    pub game_bans: i64,
+    pub days_since_last_ban: Option<i64>,
+
+    pub friends: Vec<Friend>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Friend {
+    #[serde(rename = "steamID64")]
+    pub steamid: SteamID,
+    #[serde(rename = "friendSince")]
+    pub friend_since: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub enum ProfileVisibility {
+    Private = 1,
+    FriendsOnly = 2,
+    Public = 3,
+}
+
+impl From<i32> for ProfileVisibility {
+    fn from(value: i32) -> Self {
+        match value {
+            1 => ProfileVisibility::Private,
+            2 => ProfileVisibility::FriendsOnly,
+            3 => ProfileVisibility::Public,
+            _ => ProfileVisibility::Private,
+        }
+    }
 }
 
 // GameInfo

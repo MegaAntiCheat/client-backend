@@ -7,23 +7,23 @@ use crate::{
         regexes::{self, ChatMessage, LobbyLine, PlayerKill, StatusLine},
         IOOutput,
     },
-    player::{GameInfo, Player, Team},
+    player::{Player, SteamInfo},
 };
 
 // Server
 
 #[derive(Debug, Serialize)]
 pub struct Server {
-    pub map: Option<Arc<str>>,
-    pub ip: Option<Arc<str>>,
-    pub hostname: Option<Arc<str>>,
+    map: Option<Arc<str>>,
+    ip: Option<Arc<str>>,
+    hostname: Option<Arc<str>>,
     #[serde(rename = "maxPlayers")]
-    pub max_players: Option<u32>,
+    max_players: Option<u32>,
     #[serde(rename = "numPlayers")]
-    pub num_players: Option<u32>,
+    num_players: Option<u32>,
     #[serde(serialize_with = "serialize_player_map")]
-    pub players: HashMap<SteamID, Player>,
-    pub gamemode: Option<Gamemode>,
+    players: HashMap<SteamID, Player>,
+    gamemode: Option<Gamemode>,
 }
 
 #[derive(Debug, Serialize)]
@@ -47,11 +47,14 @@ impl Server {
         }
     }
 
-    pub fn handle_io_response(&mut self, response: IOOutput) {
+    pub fn handle_io_response(&mut self, response: IOOutput) -> Option<SteamID> {
+        // TODO - Maybe move this back into state instead of inside server?
         use IOOutput::*;
         match response {
             Lobby(lobby) => self.handle_lobby_line(lobby),
-            Status(status) => self.handle_status_line(status),
+            Status(status) => {
+                return self.add_or_update_player(status, None);
+            }
             Chat(chat) => self.handle_chat(chat),
             Kill(kill) => self.handle_kill(kill),
             Hostname(regexes::Hostname(hostname)) => {
@@ -68,6 +71,14 @@ impl Server {
                 self.num_players = Some(playercount.players);
             }
         }
+
+        None
+    }
+
+    pub fn insert_steam_info(&mut self, player: SteamID, info: SteamInfo) {
+        if let Some(player) = self.players.get_mut(&player) {
+            player.steam_info = Some(info);
+        }
     }
 
     fn handle_lobby_line(&mut self, lobby: LobbyLine) {
@@ -76,9 +87,13 @@ impl Server {
         }
     }
 
-    fn handle_status_line(&mut self, status: StatusLine) {
-        log::debug!("Status: {:?}", &status);
-
+    /// Given a status line, update an existing or add a new one to the server.
+    /// Returns the SteamID if a new player was created.
+    fn add_or_update_player(
+        &mut self,
+        status: StatusLine,
+        user: Option<&SteamID>,
+    ) -> Option<SteamID> {
         // Update existing player or insert new player
         if let Some(player) = self.players.get_mut(&status.steamid) {
             player.name = status.name;
@@ -87,10 +102,12 @@ impl Server {
             player.game_info.loss = status.loss;
             player.game_info.state = status.state;
             player.game_info.time = status.time;
+            None
         } else {
             // Since we have already gotten a valid steamid from this status line it is safe to unwrap
-            let player = Player::new(&status, None).unwrap();
+            let player = Player::new_from_status(&status, user).unwrap();
             self.players.insert(status.steamid, player);
+            Some(status.steamid)
         }
     }
 
