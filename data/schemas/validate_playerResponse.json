@@ -138,92 +138,99 @@
 		"gameInfo": {
 			"$id": "#root/gameInfo",
 			"title": "Gameinfo",
-			"type": "object",
-			"required": [
-				"team",
-				"ping",
-				"kills",
-				"deaths",
-				"time",
-				"state",
-				"loss",
-				"userid"
-			],
-			"properties": {
-				"team": {
-					"$id": "#root/gameInfo/team",
-					"title": "Team",
-					"type": "integer",
-					"examples": [
-						3
+			"anyOf": [
+				{
+					"type": "object",
+					"required": [
+						"team",
+						"ping",
+						"kills",
+						"deaths",
+						"time",
+						"state",
+						"loss",
+						"userid"
 					],
-					"default": 0
+					"properties": {
+						"team": {
+							"$id": "#root/gameInfo/team",
+							"title": "Team",
+							"type": "integer",
+							"examples": [
+								3
+							],
+							"default": 0
+						},
+						"ping": {
+							"$id": "#root/gameInfo/ping",
+							"title": "Ping",
+							"type": "integer",
+							"examples": [
+								64
+							],
+							"default": 0
+						},
+						"kills": {
+							"$id": "#root/gameInfo/kills",
+							"title": "Kills",
+							"type": "integer",
+							"examples": [
+								0
+							],
+							"default": 0
+						},
+						"deaths": {
+							"$id": "#root/gameInfo/deaths",
+							"title": "Deaths",
+							"type": "integer",
+							"examples": [
+								0
+							],
+							"default": 0
+						},
+						"time": {
+							"$id": "#root/gameInfo/time",
+							"title": "Time",
+							"type": "integer",
+							"default": 0,
+							"examples": [
+								5872
+							]
+						},
+						"state": {
+							"$id": "#root/gameInfo/state",
+							"title": "State",
+							"type": "string",
+							"default": "",
+							"examples": [
+								"spawning"
+							],
+							"pattern": "^.*$"
+						},
+						"loss": {
+							"$id": "#root/gameInfo/loss",
+							"title": "Loss",
+							"type": "integer",
+							"default": 0,
+							"examples": [
+								56
+							]
+						},
+						"userid": {
+							"$id": "#root/gameInfo/userid",
+							"title": "Userid",
+							"type": "string",
+							"default": "",
+							"examples": [
+								"301"
+							]
+						}
+					}
 				},
-				"ping": {
-					"$id": "#root/gameInfo/ping",
-					"title": "Ping",
-					"type": "integer",
-					"examples": [
-						64
-					],
-					"default": 0
-				},
-				"kills": {
-					"$id": "#root/gameInfo/kills",
-					"title": "Kills",
-					"type": "integer",
-					"examples": [
-						0
-					],
-					"default": 0
-				},
-				"deaths": {
-					"$id": "#root/gameInfo/deaths",
-					"title": "Deaths",
-					"type": "integer",
-					"examples": [
-						0
-					],
-					"default": 0
-				},
-				"time": {
-					"$id": "#root/gameInfo/time",
-					"title": "Time",
-					"type": "integer",
-					"default": 0,
-					"examples": [
-						5872
-					]
-				},
-				"state": {
-					"$id": "#root/gameInfo/state",
-					"title": "State",
-					"type": "string",
-					"default": "",
-					"examples": [
-						"spawning"
-					],
-					"pattern": "^.*$"
-				},
-				"loss": {
-					"$id": "#root/gameInfo/loss",
-					"title": "Loss",
-					"type": "integer",
-					"default": 0,
-					"examples": [
-						56
-					]
-				},
-				"userid": {
-					"$id": "#root/gameInfo/userid",
-					"title": "Userid",
-					"type": "string",
-					"default": "",
-					"examples": [
-						"301"
-					]
+				{
+					"type": "null"
 				}
-			}
+			]
 		},
 		"customData": {
 			"$id": "#root/customData",
