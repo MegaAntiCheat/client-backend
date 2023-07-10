@@ -53,9 +53,9 @@
 						"name",
 						"profileUrl",
 						"pfp",
-						"pfphash",
+						"pfpHash",
 						"profileVisibility",
-						"timecreated",
+						"timeCreated",
 						"countryCode",
 						"vacBans",
 						"gameBans",
@@ -105,9 +105,9 @@
 							],
 							"pattern": "^.*$"
 						},
-						"pfphash": {
-							"$id": "#root/steamInfo/pfphash",
-							"title": "Pfphash",
+						"pfpHash": {
+							"$id": "#root/steamInfo/pfpHash",
+							"title": "PfpHash",
 							"type": "string",
 							"default": "",
 							"examples": [
@@ -173,9 +173,9 @@
 							},
 							"default": []
 						},
-						"timecreated": {
-							"$id": "#root/steamInfo/timecreated",
-							"title": "Timecreated",
+						"timeCreated": {
+							"$id": "#root/steamInfo/timeCreated",
+							"title": "TimeCreated",
 							"type": "integer",
 							"examples": [
 								1570311509
