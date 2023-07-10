@@ -50,22 +50,36 @@
 				{
 					"type": "object",
 					"required": [
-						"accountName",
+						"name",
+						"profileUrl",
 						"pfp",
-						"pfphash",
+						"pfpHash",
+						"profileVisibility",
+						"timeCreated",
+						"countryCode",
 						"vacBans",
-						"isFriend",
-						"timecreated",
-						"loccountrycode"
+						"gameBans",
+						"daysSinceLastBan",
+						"friends"
 					],
 					"properties": {
-						"accountName": {
-							"$id": "#root/steamInfo/accountName",
-							"title": "Accountname",
+						"name": {
+							"$id": "#root/steamInfo/name",
+							"title": "name",
 							"type": "string",
 							"default": "",
 							"examples": [
 								"Lilith"
+							],
+							"pattern": "^.*$"
+						},
+						"profileUrl": {
+							"$id": "#root/steamInfo/profileUrl",
+							"title": "ProfileUrl",
+							"type": "string",
+							"default": "",
+							"examples": [
+								"https://steamcommunity.com/id/__lilith"	
 							],
 							"pattern": "^.*$"
 						},
@@ -80,9 +94,20 @@
 							],
 							"pattern": "^.*$"
 						},
-						"pfphash": {
-							"$id": "#root/steamInfo/pfphash",
-							"title": "Pfphash",
+						"profileVisibility": {
+							"$id": "#root/steamInfo/profileVisibility",
+							"title": "ProfileVisibility",
+							"type": "string",
+							"default": "Private",
+							"examples": [
+								"Public",
+								"Private"
+							],
+							"pattern": "^.*$"
+						},
+						"pfpHash": {
+							"$id": "#root/steamInfo/pfpHash",
+							"title": "PfpHash",
 							"type": "string",
 							"default": "",
 							"examples": [
@@ -92,35 +117,81 @@
 						},
 						"vacBans": {
 							"$id": "#root/steamInfo/vacBans",
-							"title": "Vacbans",
-							"type": "string",
-							"default": "",
+							"title": "VacBans",
+							"type": "integer",
+							"default": 0,
 							"examples": [
-								""
-							],
-							"pattern": "^.*$"
+								1
+							]
 						},
-						"isFriend": {
-							"$id": "#root/steamInfo/isFriend",
-							"title": "Isfriend",
-							"type": "boolean",
+						"gameBans": {
+							"$id": "#root/steamInfo/gameBans",
+							"title": "GameBans",
+							"type": "integer",
+							"default": 0,
 							"examples": [
-								true
-							],
-							"default": false
+								1
+							]
 						},
-						"timecreated": {
-							"$id": "#root/steamInfo/timecreated",
-							"title": "Timecreated",
+						"daysSinceLastBan": {
+							"$id": "#root/steamInfo/daysSinceLastBan",
+							"title": "DaysSinceLastBan",
+							"anyOf": [
+								{
+									"type": "integer",
+									"default": 0,
+									"examples": [
+										726
+									]
+								},
+								{
+									"type": "null"
+								}
+							]
+						},
+						"friends": {
+							"$id": "#root/steamInfo/friends",
+							"title": "Friends",
+							"type": "array",
+							"items": {
+								"type": "object",
+								"required": [
+									"steamID64",
+									"friendSince"
+								],
+								"properties": {
+									"steamID64": {
+										"title": "friendsSteamID64",
+										"type": "integer",
+										"default": 0,
+										"examples": [
+											76561198033416930
+										]
+									},
+									"friendSince": {
+										"title": "friendsFriendSince",
+										"type": "integer",
+										"default": 0,
+										"examples": [
+											1428650342
+										]
+									}
+								}
+							},
+							"default": []
+						},
+						"timeCreated": {
+							"$id": "#root/steamInfo/timeCreated",
+							"title": "TimeCreated",
 							"type": "integer",
 							"examples": [
 								1570311509
 							],
 							"default": 0
 						},
-						"loccountrycode": {
-							"$id": "#root/steamInfo/loccountrycode",
-							"title": "Loccountrycode",
+						"countryCode": {
+							"$id": "#root/steamInfo/countryCode",
+							"title": "CountryCode",
 							"type": "string",
 							"default": "",
 							"examples": [
