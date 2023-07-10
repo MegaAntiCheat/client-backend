@@ -119,14 +119,15 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
         }
 
         match io.handle_waiting_command().await {
-            Ok(Some(output)) => {
+            Ok(output) => {
                 let mut state = State::write_state();
                 state.rcon_state = Ok(());
-                if let Some(new_player) = state.server.handle_io_response(output) {
-                    new_players.push(new_player);
+                for output in output {
+                    if let Some(new_player) = state.server.handle_io_response(output) {
+                        new_players.push(new_player);
+                    }
                 }
             }
-            Ok(None) => {}
             Err(e) => {
                 State::write_state().rcon_state = Err(e);
             }

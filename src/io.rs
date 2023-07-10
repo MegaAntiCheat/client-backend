@@ -88,32 +88,33 @@ impl IOManager {
         self.command_send.clone()
     }
 
-    pub async fn handle_waiting_command(&mut self) -> Result<Option<IOOutput>, rcon::Error> {
+    pub async fn handle_waiting_command(&mut self) -> Result<Vec<IOOutput>, rcon::Error> {
         if let Ok(Some(command)) =
             tokio::time::timeout(Duration::from_millis(50), self.command_recv.recv()).await
         {
             return self.handle_command(&command).await;
         }
 
-        Ok(None)
+        Ok(Vec::new())
     }
 
     /// Run a command and handle the response from it
-    pub async fn handle_command(&mut self, command: &str) -> Result<Option<IOOutput>, rcon::Error> {
+    pub async fn handle_command(&mut self, command: &str) -> Result<Vec<IOOutput>, rcon::Error> {
         let resp = self.command_manager.run_command(command).await?;
 
+        let mut out = Vec::new();
         for l in resp.lines() {
             // Match lobby command
             if let Some(caps) = self.regex_lobby.captures(l) {
                 match LobbyLine::parse(&caps) {
-                    Ok(lobby) => return Ok(Some(IOOutput::Lobby(lobby))),
+                    Ok(lobby) => out.push(IOOutput::Lobby(lobby)),
                     Err(e) => log::error!("Malformed steamid: {}", e),
                 }
                 continue;
             }
         }
 
-        Ok(None)
+        Ok(out)
     }
 
     /// Parse all of the new log entries that have been written
