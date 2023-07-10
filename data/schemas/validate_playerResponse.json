@@ -136,10 +136,17 @@
 						"daysSinceLastBan": {
 							"$id": "#root/steamInfo/daysSinceLastBan",
 							"title": "DaysSinceLastBan",
-							"type": "integer",
-							"default": 0,
-							"examples": [
-								726
+							"anyOf": [
+								{
+									"type": "integer",
+									"default": 0,
+									"examples": [
+										726
+									]
+								},
+								{
+									"type": "null"
+								}
 							]
 						},
 						"friends": {
