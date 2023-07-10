@@ -97,11 +97,6 @@ async fn main() {
         refresh_loop(cmd).await;
     });
 
-    steam_api_requester
-        .send(SteamID::from(76561198096136958))
-        .await
-        .unwrap();
-
     main_loop(io, steam_api_requester).await;
 }
 

@@ -35,7 +35,6 @@ pub async fn steam_api_loop(mut requests: Receiver<SteamID>, api_key: Arc<str>) 
                     .insert_steam_info(request, steam_info),
                 Err(e) => {
                     log::error!("Can't request to steam API: {:?}", e);
-                    panic!();
                 }
             }
         }
