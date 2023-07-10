@@ -1,5 +1,8 @@
 use serde::{Serialize, Serializer};
-use std::{collections::HashMap, sync::Arc};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 use steamid_ng::SteamID;
 
 use crate::{
@@ -13,16 +16,16 @@ use crate::{
 // Server
 
 #[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct Server {
     map: Option<Arc<str>>,
     ip: Option<Arc<str>>,
     hostname: Option<Arc<str>>,
-    #[serde(rename = "maxPlayers")]
     max_players: Option<u32>,
-    #[serde(rename = "numPlayers")]
     num_players: Option<u32>,
     #[serde(serialize_with = "serialize_player_map")]
     players: HashMap<SteamID, Player>,
+    player_history: VecDeque<Player>,
     gamemode: Option<Gamemode>,
 }
 
@@ -43,6 +46,7 @@ impl Server {
             max_players: None,
             num_players: None,
             players: HashMap::new(),
+            player_history: VecDeque::with_capacity(100),
             gamemode: None,
         }
     }

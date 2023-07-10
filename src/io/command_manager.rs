@@ -41,11 +41,7 @@ impl CommandManager {
     }
 
     pub async fn try_connect(&mut self) -> Result<(), rcon::Error> {
-        let password = State::read_state()
-            .as_ref()
-            .unwrap()
-            .settings
-            .get_rcon_password();
+        let password = State::read_state().settings.get_rcon_password();
 
         log::debug!("Attempting to reconnect to RCon");
         match Connection::connect("127.0.0.1:27015", &password).await {

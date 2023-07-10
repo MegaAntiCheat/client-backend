@@ -14,10 +14,10 @@ pub struct StateReadLock<'a> {
 }
 
 impl Deref for StateReadLock<'_> {
-    type Target = Option<State>;
+    type Target = State;
 
     fn deref(&self) -> &Self::Target {
-        &self.lock
+        self.lock.as_ref().unwrap()
     }
 }
 
@@ -26,15 +26,15 @@ pub struct StateWriteLock<'a> {
 }
 
 impl Deref for StateWriteLock<'_> {
-    type Target = Option<State>;
+    type Target = State;
 
     fn deref(&self) -> &Self::Target {
-        &self.lock
+        self.lock.as_ref().unwrap()
     }
 }
 impl DerefMut for StateWriteLock<'_> {
-    fn deref_mut(&mut self) -> &mut Option<State> {
-        &mut self.lock
+    fn deref_mut(&mut self) -> &mut State {
+        self.lock.as_mut().unwrap()
     }
 }
 
@@ -49,6 +49,10 @@ pub struct State {
 }
 
 impl State {
+    pub fn initialize_state(state: State) {
+        *STATE.write().unwrap() = Some(state);
+    }
+
     pub fn read_state() -> StateReadLock<'static> {
         StateReadLock {
             lock: STATE.read().unwrap(),

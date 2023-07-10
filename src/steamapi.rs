@@ -30,14 +30,9 @@ pub async fn steam_api_loop(mut requests: Receiver<SteamID>, api_key: Arc<str>) 
     loop {
         if let Some(request) = requests.recv().await {
             match request_steam_info(&mut client, request).await {
-                Ok(steam_info) => {
-                    let mut state = State::write_state();
-                    state
-                        .as_mut()
-                        .unwrap()
-                        .server
-                        .insert_steam_info(request, steam_info)
-                }
+                Ok(steam_info) => State::write_state()
+                    .server
+                    .insert_steam_info(request, steam_info),
                 Err(e) => {
                     log::error!("Can't request to steam API: {:?}", e);
                     panic!();

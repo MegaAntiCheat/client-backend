@@ -31,14 +31,13 @@ async fn root() -> &'static str {
 /// API endpoint to retrieve the current server state
 async fn game() -> impl IntoResponse {
     log::debug!("State requested");
-    let state = State::read_state();
     (
         StatusCode::OK,
         [
             (header::CONTENT_TYPE, "application/json"),
             (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
         ],
-        serde_json::to_string(&state.as_ref().unwrap().server).unwrap(),
+        serde_json::to_string(&State::read_state().server).unwrap(),
     )
 }
 

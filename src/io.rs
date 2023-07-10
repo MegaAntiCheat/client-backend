@@ -170,7 +170,7 @@ impl IOManager {
     /// If the log file fails to be opened, an [LogOutput::NoLogFile] is sent back to the main thread and [Self::log_watcher] is set to [None]
     fn reopen_log(&mut self) -> std::io::Result<()> {
         let state = State::read_state();
-        let dir = state.as_ref().unwrap().settings.get_tf2_directory();
+        let dir = state.settings.get_tf2_directory();
 
         match LogWatcher::use_directory(dir.into()) {
             Ok(lw) => {

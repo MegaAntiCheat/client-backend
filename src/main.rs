@@ -74,7 +74,7 @@ async fn main() {
     let steam_api_key = settings.get_steam_api_key();
 
     // Initialize State
-    *State::write_state() = Some(State::new(settings));
+    State::initialize_state(State::new(settings));
 
     // Spawn web server
     tokio::spawn(async move {
@@ -109,8 +109,7 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
     loop {
         match io.handle_log() {
             Ok(Some(output)) => {
-                let mut state_lock = State::write_state();
-                let state = state_lock.as_mut().unwrap();
+                let mut state = State::write_state();
                 state.log_file_state = Ok(());
                 if let Some(new_player) = state.server.handle_io_response(output) {
                     new_players.push(new_player);
@@ -118,15 +117,13 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
             }
             Ok(None) => {}
             Err(e) => {
-                let mut state_lock = State::write_state();
-                state_lock.as_mut().unwrap().log_file_state = Err(e);
+                State::write_state().log_file_state = Err(e);
             }
         }
 
         match io.handle_waiting_command().await {
             Ok(Some(output)) => {
-                let mut state_lock = State::write_state();
-                let state = state_lock.as_mut().unwrap();
+                let mut state = State::write_state();
                 state.rcon_state = Ok(());
                 if let Some(new_player) = state.server.handle_io_response(output) {
                     new_players.push(new_player);
@@ -134,8 +131,7 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
             }
             Ok(None) => {}
             Err(e) => {
-                let mut state_lock = State::write_state();
-                state_lock.as_mut().unwrap().rcon_state = Err(e);
+                State::write_state().rcon_state = Err(e);
             }
         }
 
