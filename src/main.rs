@@ -1,3 +1,5 @@
+#![feature(hash_extract_if)]
+
 use std::sync::Arc;
 use std::time::Duration;
 use steamapi::steam_api_loop;
@@ -147,6 +149,8 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
 async fn refresh_loop(cmd: Sender<Arc<str>>) {
     log::debug!("Entering refresh loop");
     loop {
+        State::write_state().server.refresh();
+
         cmd.send(CMD_STATUS.into()).await.unwrap();
         tokio::time::sleep(Duration::from_secs(3)).await;
         cmd.send(CMD_TF_LOBBY_DEBUG.into()).await.unwrap();

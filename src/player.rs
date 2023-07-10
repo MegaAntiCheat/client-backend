@@ -128,6 +128,9 @@ pub struct GameInfo {
     pub state: PlayerState,
     pub kills: u32,
     pub deaths: u32,
+
+    #[serde(skip)]
+    pub accounted: bool,
 }
 
 impl GameInfo {
@@ -141,6 +144,8 @@ impl GameInfo {
             state: status.state,
             kills: 0,
             deaths: 0,
+
+            accounted: true,
         }
     }
 }
