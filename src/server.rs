@@ -86,12 +86,18 @@ impl Server {
     /// Moves any old players from the server into history. Any console commands (status, tf_lobby_debug, etc)
     /// should be run before calling this function again to prevent removing all players from the player list.
     pub fn refresh(&mut self) {
-        // Get old players to remove
+        // Get old players
         let unaccounted_players: Vec<Player> = self
             .players
-            .extract_if(|_, p| !p.game_info.accounted)
-            .map(|(_, v)| v)
+            .values()
+            .filter(|p| !p.game_info.accounted)
+            .cloned()
             .collect();
+
+        // Remove old players from server
+        for p in &unaccounted_players {
+            self.players.remove(&p.steamid);
+        }
 
         // Remove any of them from the history as they will be added more recently
         self.player_history
