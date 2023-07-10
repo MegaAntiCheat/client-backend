@@ -63,7 +63,7 @@
 						"friends"
 					],
 					"properties": {
-						"accountName": {
+						"name": {
 							"$id": "#root/steamInfo/name",
 							"title": "name",
 							"type": "string",
