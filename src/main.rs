@@ -1,5 +1,3 @@
-#![feature(hash_extract_if)]
-
 use std::sync::Arc;
 use std::time::Duration;
 use steamapi::steam_api_loop;

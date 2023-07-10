@@ -7,7 +7,7 @@ use crate::io::regexes::StatusLine;
 
 // Player
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct Player {
     pub name: Arc<str>,
     #[serde(rename = "steamID64")]
