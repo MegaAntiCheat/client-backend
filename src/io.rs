@@ -29,6 +29,7 @@ use self::regexes::REGEX_PLAYERCOUNT;
 pub mod command_manager;
 pub mod logwatcher;
 pub mod regexes;
+pub mod g15;
 
 // Enums
 
