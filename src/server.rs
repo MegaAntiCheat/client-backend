@@ -122,10 +122,22 @@ impl Server {
         }
     }
 
-    pub fn insert_steam_info(&mut self, player: SteamID, info: SteamInfo) {
+    /// Add the provided SteamInfo to the given player. Returns true if that player was
+    /// found in the server.
+    pub fn insert_steam_info(&mut self, player: SteamID, info: SteamInfo) -> bool {
+        let mut found = false;
+
         if let Some(player) = self.players.get_mut(&player) {
-            player.steam_info = Some(info);
+            player.steam_info = Some(info.clone());
+            found = true;
         }
+
+        if let Some(player) = self.player_history.iter_mut().find(|p| p.steamid == player) {
+            player.steam_info = Some(info);
+            found = true;
+        }
+
+        found
     }
 
     pub fn get_history(&self, range: Range<usize>) -> Vec<&Player> {
