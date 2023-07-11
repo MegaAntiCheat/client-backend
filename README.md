@@ -14,5 +14,8 @@ Documentation for the API can be found at https://github.com/MegaAntiCheat/clien
 Troubleshooting:
 * Update rust with `rustup update`
 
+## Testing
+1. Run all tests in `./test/` with `cargo test`
+
 ## Contributing
 Always run `cargo fmt` before submitting your Merge Request
