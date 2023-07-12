@@ -10,8 +10,9 @@ use crate::{
     io::{
         regexes::{self, ChatMessage, LobbyLine, PlayerKill, StatusLine},
         IOOutput,
+        g15,
     },
-    player::{Player, SteamInfo},
+    player::{Player, SteamInfo, Team},
 };
 
 const MAX_HISTORY_LEN: usize = 100;
@@ -59,6 +60,7 @@ impl Server {
         // TODO - Maybe move this back into state instead of inside server?
         use IOOutput::*;
         match response {
+            G15(players) => self.handle_g15_parse(players),
             Lobby(lobby) => self.handle_lobby_line(lobby),
             Status(status) => {
                 return self.add_or_update_player(status, None);
@@ -139,6 +141,30 @@ impl Server {
         if let Some(player) = self.players.get_mut(&lobby.steamid) {
             player.game_info.team = lobby.team;
             player.game_info.accounted = true;
+        }
+    }
+
+    fn handle_g15_parse(&mut self, players: Vec<g15::G15Player>) {
+        for pl in players {
+            if let Some(sid3) = &pl.sid3 {
+                let Ok(sid64) = SteamID::from_steam3(&sid3) else {
+                    continue;
+                };
+                if let Some(player) = self.players.get_mut(&sid64) {
+                    if let Some(scr) = pl.score {
+                        player.game_info.kills = scr;
+                    }
+                    if let Some(dth) = pl.deaths {
+                        player.game_info.deaths = dth;
+                    }
+                    if let Some(png) = pl.ping {
+                        player.game_info.ping = png;
+                    }
+                    if let Some(tm) = pl.team {
+                        player.game_info.team = tm;
+                    }
+                }
+            }
         }
     }
 

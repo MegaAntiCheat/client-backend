@@ -5,6 +5,8 @@ use tokio::net::TcpStream;
 
 use crate::state::State;
 
+use super::Commands;
+
 #[derive(Debug)]
 pub enum KickReason {
     None,
@@ -28,8 +30,9 @@ pub struct CommandManager {
     rcon: Option<Connection<TcpStream>>,
 }
 
-pub const CMD_STATUS: &str = "status";
-pub const CMD_TF_LOBBY_DEBUG: &str = "tf_lobby_debug";
+pub const CMD_STATUS: Commands = Commands::Status;
+// pub const CMD_TF_LOBBY_DEBUG: &str = "tf_lobby_debug";
+pub const CMD_G15_DUMPPLAYER: Commands = Commands::G15;
 
 impl CommandManager {
     pub fn new() -> CommandManager {

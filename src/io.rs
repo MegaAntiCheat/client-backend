@@ -2,6 +2,7 @@ use regex::Regex;
 
 use regexes::StatusLine;
 use regexes::REGEX_STATUS;
+use std::fmt::Display;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::Receiver;
@@ -10,6 +11,7 @@ use tokio::sync::mpsc::Sender;
 use crate::state::State;
 
 use self::command_manager::CommandManager;
+use self::command_manager::KickReason;
 use self::logwatcher::LogWatcher;
 use self::regexes::ChatMessage;
 use self::regexes::Hostname;
@@ -43,13 +45,30 @@ pub enum IOOutput {
     Map(Map),
     PlayerCount(PlayerCount),
     Lobby(LobbyLine),
+    G15(Vec<g15::G15Player>),
 }
+
+pub enum Commands {
+    G15,
+    Status,
+    Kick(Arc<str>, KickReason),
+}
+impl Display for Commands {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Commands::G15 => f.write_str("g15_dumpplayer"),
+            Commands::Status => f.write_str("status"),
+            Commands::Kick(player, reason) => write!(f, "callvote kick \"{} {}\"", player, reason),
+        }
+    }
+}
+
 
 // IOThread
 
 pub struct IOManager {
-    command_recv: Receiver<Arc<str>>,
-    command_send: Sender<Arc<str>>,
+    command_recv: Receiver<Commands>,
+    command_send: Sender<Commands>,
     command_manager: CommandManager,
     log_watcher: Option<LogWatcher>,
 
@@ -85,37 +104,38 @@ impl IOManager {
         }
     }
 
-    pub fn get_command_requester(&self) -> Sender<Arc<str>> {
+    pub fn get_command_requester(&self) -> Sender<Commands> {
         self.command_send.clone()
     }
 
-    pub async fn handle_waiting_command(&mut self) -> Result<Vec<IOOutput>, rcon::Error> {
+    pub async fn handle_waiting_command(&mut self) -> Result<Option<IOOutput>, rcon::Error> {
         if let Ok(Some(command)) =
             tokio::time::timeout(Duration::from_millis(50), self.command_recv.recv()).await
         {
-            return self.handle_command(&command).await;
+            return self.handle_command(command).await;
         }
 
-        Ok(Vec::new())
+        Ok(None)
     }
 
     /// Run a command and handle the response from it
-    pub async fn handle_command(&mut self, command: &str) -> Result<Vec<IOOutput>, rcon::Error> {
-        let resp = self.command_manager.run_command(command).await?;
-
-        let mut out = Vec::new();
-        for l in resp.lines() {
-            // Match lobby command
-            if let Some(caps) = self.regex_lobby.captures(l) {
-                match LobbyLine::parse(&caps) {
-                    Ok(lobby) => out.push(IOOutput::Lobby(lobby)),
-                    Err(e) => log::error!("Malformed steamid: {}", e),
-                }
-                continue;
+    pub async fn handle_command(&mut self, command: Commands) -> Result<Option<IOOutput>, rcon::Error> {
+        let resp: String = self.command_manager.run_command(&format!("{}", command)).await?;
+        let res: Option<IOOutput> = match command {
+            Commands::G15 => {
+                let parser = g15::G15Parser::new();
+                let players = parser.parse_g15(&resp);
+                Some(IOOutput::G15(players))
+            },
+            Commands::Kick(_, _) => {
+                None // No return from a kick invocation.
+            },
+            Commands::Status => {
+                None // No return via RCON for status.
             }
-        }
+        };
 
-        Ok(out)
+        Ok(res)
     }
 
     /// Parse all of the new log entries that have been written
