@@ -61,7 +61,7 @@ pub enum Team {
 
 impl TryFrom<u32> for Team {
     type Error = &'static str;
-    fn try_from(val: u32) -> Result<Self, Self::Error>  {
+    fn try_from(val: u32) -> Result<Self, Self::Error> {
         match val {
             0 => Ok(Team::Unassigned),
             1 => Ok(Team::Spectators),

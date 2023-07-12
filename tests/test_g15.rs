@@ -3,8 +3,8 @@ use std::fs;
 pub mod g15;
 
 pub fn read_log(path: &str) -> String {
-    let g15_log = fs::read_to_string(format!("tests/data/{}.log", path))
-        .expect("No g15 log file found?");
+    let g15_log =
+        fs::read_to_string(format!("tests/data/{}.log", path)).expect("No g15 log file found?");
     g15_log
 }
 
@@ -13,7 +13,6 @@ pub fn read_expected(path: &str) -> String {
         .expect("No g15 log file found?");
     g15_expected
 }
-
 
 #[cfg(test)]
 mod tests {

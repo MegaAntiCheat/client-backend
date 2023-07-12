@@ -6,7 +6,7 @@ use std::sync::Arc;
 use regex::Captures;
 use steamid_ng::{SteamID, SteamIDError};
 
-use crate::player::{PlayerState, Team};
+use crate::player::PlayerState;
 
 /*
     Useful commands:

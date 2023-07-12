@@ -27,9 +27,9 @@ use self::regexes::REGEX_MAP;
 use self::regexes::REGEX_PLAYERCOUNT;
 
 pub mod command_manager;
+pub mod g15;
 pub mod logwatcher;
 pub mod regexes;
-pub mod g15;
 
 // Enums
 
@@ -49,6 +49,7 @@ pub enum Commands {
     G15,
     Status,
     Kick(Arc<str>, KickReason),
+    Say(String),
 }
 impl Display for Commands {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -56,10 +57,10 @@ impl Display for Commands {
             Commands::G15 => f.write_str("g15_dumpplayer"),
             Commands::Status => f.write_str("status"),
             Commands::Kick(player, reason) => write!(f, "callvote kick \"{} {}\"", player, reason),
+            Commands::Say(message) => write!(f, "say \"{}\"", message),
         }
     }
 }
-
 
 // IOThread
 
@@ -114,23 +115,30 @@ impl IOManager {
     }
 
     /// Run a command and handle the response from it
-    pub async fn handle_command(&mut self, command: Commands) -> Result<Option<IOOutput>, rcon::Error> {
-        let resp: String = self.command_manager.run_command(&format!("{}", command)).await?;
-        let res: Option<IOOutput> = match command {
+    pub async fn handle_command(
+        &mut self,
+        command: Commands,
+    ) -> Result<Option<IOOutput>, rcon::Error> {
+        let resp: String = self
+            .command_manager
+            .run_command(&format!("{}", command))
+            .await?;
+        Ok(match command {
             Commands::G15 => {
                 let parser = g15::G15Parser::new();
                 let players = parser.parse_g15(&resp);
                 Some(IOOutput::G15(players))
-            },
+            }
             Commands::Kick(_, _) => {
                 None // No return from a kick invocation.
-            },
+            }
             Commands::Status => {
                 None // No return via RCON for status.
             }
-        };
-
-        Ok(res)
+            Commands::Say(_) => {
+                None // No return from a say invocation.
+            }
+        })
     }
 
     /// Parse all of the new log entries that have been written

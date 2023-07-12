@@ -5,7 +5,7 @@ use steamid_ng::SteamID;
 use tokio::sync::mpsc::Sender;
 
 use clap::Parser;
-use io::{IOManager, Commands};
+use io::{Commands, IOManager};
 use log::{LevelFilter, SetLoggerError};
 use log4rs::append::console::{ConsoleAppender, Target};
 use log4rs::append::file::FileAppender;
@@ -16,7 +16,7 @@ use log4rs::filter::threshold::ThresholdFilter;
 use settings::Settings;
 use state::State;
 
-use crate::io::command_manager::{CMD_STATUS, CMD_G15_DUMPPLAYER};
+use crate::io::command_manager::{CMD_G15_DUMPPLAYER, CMD_STATUS};
 
 mod gamefinder;
 mod io;
@@ -120,7 +120,7 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
             Ok(output) => {
                 let mut state = State::write_state();
                 state.rcon_state = Ok(());
-                for output in output {
+                if let Some(output) = output {
                     if let Some(new_player) = state.server.handle_io_response(output) {
                         new_players.push(new_player);
                     }

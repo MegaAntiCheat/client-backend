@@ -8,11 +8,11 @@ use steamid_ng::SteamID;
 
 use crate::{
     io::{
+        g15,
         regexes::{self, ChatMessage, PlayerKill, StatusLine},
         IOOutput,
-        g15,
     },
-    player::{Player, SteamInfo, Team},
+    player::{Player, SteamInfo},
 };
 
 const MAX_HISTORY_LEN: usize = 100;
