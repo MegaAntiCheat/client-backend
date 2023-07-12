@@ -31,7 +31,6 @@ pub struct CommandManager {
 }
 
 pub const CMD_STATUS: Commands = Commands::Status;
-// pub const CMD_TF_LOBBY_DEBUG: &str = "tf_lobby_debug";
 pub const CMD_G15_DUMPPLAYER: Commands = Commands::G15;
 
 impl CommandManager {

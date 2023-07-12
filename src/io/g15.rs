@@ -105,10 +105,7 @@ pub fn parse_team(caps: Captures, players: &mut [G15Player]) -> Result<(), Error
     let idx: usize = caps[1].parse()?;
     let team:u32 = caps[2].parse()?;
     let mut player_ref = players.get_mut(idx).ok_or(Error::IndexOutOfBounds)?;
-    player_ref.team = match Team::try_from(team) {
-        Ok(val) => Some(val),
-        Err(err) => None,
-    };
+    player_ref.team = Team::try_from(team).ok();
     Ok(())
 }
 

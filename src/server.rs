@@ -8,7 +8,7 @@ use steamid_ng::SteamID;
 
 use crate::{
     io::{
-        regexes::{self, ChatMessage, LobbyLine, PlayerKill, StatusLine},
+        regexes::{self, ChatMessage, PlayerKill, StatusLine},
         IOOutput,
         g15,
     },
@@ -61,7 +61,6 @@ impl Server {
         use IOOutput::*;
         match response {
             G15(players) => self.handle_g15_parse(players),
-            Lobby(lobby) => self.handle_lobby_line(lobby),
             Status(status) => {
                 return self.add_or_update_player(status, None);
             }
@@ -85,7 +84,7 @@ impl Server {
         None
     }
 
-    /// Moves any old players from the server into history. Any console commands (status, tf_lobby_debug, etc)
+    /// Moves any old players from the server into history. Any console commands (status, g15_dumpplayer, etc)
     /// should be run before calling this function again to prevent removing all players from the player list.
     pub fn refresh(&mut self) {
         // Get old players
@@ -137,17 +136,10 @@ impl Server {
             .collect()
     }
 
-    fn handle_lobby_line(&mut self, lobby: LobbyLine) {
-        if let Some(player) = self.players.get_mut(&lobby.steamid) {
-            player.game_info.team = lobby.team;
-            player.game_info.accounted = true;
-        }
-    }
-
     fn handle_g15_parse(&mut self, players: Vec<g15::G15Player>) {
         for pl in players {
             if let Some(sid3) = &pl.sid3 {
-                let Ok(sid64) = SteamID::from_steam3(&sid3) else {
+                let Ok(sid64) = SteamID::from_steam3(sid3) else {
                     continue;
                 };
                 if let Some(player) = self.players.get_mut(&sid64) {

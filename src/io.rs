@@ -15,7 +15,6 @@ use self::command_manager::KickReason;
 use self::logwatcher::LogWatcher;
 use self::regexes::ChatMessage;
 use self::regexes::Hostname;
-use self::regexes::LobbyLine;
 use self::regexes::Map;
 use self::regexes::PlayerCount;
 use self::regexes::PlayerKill;
@@ -24,7 +23,6 @@ use self::regexes::REGEX_CHAT;
 use self::regexes::REGEX_HOSTNAME;
 use self::regexes::REGEX_IP;
 use self::regexes::REGEX_KILL;
-use self::regexes::REGEX_LOBBY;
 use self::regexes::REGEX_MAP;
 use self::regexes::REGEX_PLAYERCOUNT;
 
@@ -44,7 +42,6 @@ pub enum IOOutput {
     ServerIP(ServerIP),
     Map(Map),
     PlayerCount(PlayerCount),
-    Lobby(LobbyLine),
     G15(Vec<g15::G15Player>),
 }
 
@@ -73,7 +70,6 @@ pub struct IOManager {
     log_watcher: Option<LogWatcher>,
 
     regex_status: Regex,
-    regex_lobby: Regex,
     regex_chat: Regex,
     regex_kill: Regex,
     regex_hostname: Regex,
@@ -94,7 +90,6 @@ impl IOManager {
             log_watcher: None,
 
             regex_status: Regex::new(REGEX_STATUS).unwrap(),
-            regex_lobby: Regex::new(REGEX_LOBBY).unwrap(),
             regex_chat: Regex::new(REGEX_CHAT).unwrap(),
             regex_kill: Regex::new(REGEX_KILL).unwrap(),
             regex_hostname: Regex::new(REGEX_HOSTNAME).unwrap(),
