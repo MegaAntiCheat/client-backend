@@ -145,9 +145,9 @@ async fn refresh_loop(cmd: Sender<Commands>) {
     loop {
         State::write_state().server.refresh();
 
-        cmd.send(CMD_STATUS).await.unwrap();
+        cmd.send(Commands::Status).await.unwrap();
         tokio::time::sleep(Duration::from_secs(3)).await;
-        cmd.send(CMD_G15_DUMPPLAYER).await.unwrap();
+        cmd.send(Commands::G15).await.unwrap();
         tokio::time::sleep(Duration::from_secs(3)).await;
         std::thread::sleep(Duration::from_secs(3));
     }

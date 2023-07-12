@@ -30,9 +30,6 @@ pub struct CommandManager {
     rcon: Option<Connection<TcpStream>>,
 }
 
-pub const CMD_STATUS: Commands = Commands::Status;
-pub const CMD_G15_DUMPPLAYER: Commands = Commands::G15;
-
 impl CommandManager {
     pub fn new() -> CommandManager {
         CommandManager { rcon: None }
@@ -74,10 +71,6 @@ impl CommandManager {
         }
 
         out
-    }
-
-    pub fn kick_player_command(player_userid: &str, reason: KickReason) -> String {
-        format!("callvote kick \"{} {}\"", player_userid, reason)
     }
 
     pub fn send_chat_command(message: &str) -> String {
