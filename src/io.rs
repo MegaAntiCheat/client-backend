@@ -69,7 +69,7 @@ pub struct IOManager {
     command_send: Sender<Commands>,
     command_manager: CommandManager,
     log_watcher: Option<LogWatcher>,
-
+    parser: g15::G15Parser,
     regex_status: Regex,
     regex_chat: Regex,
     regex_kill: Regex,
@@ -89,7 +89,7 @@ impl IOManager {
             command_send: tx,
             command_manager,
             log_watcher: None,
-
+            parser: g15::G15Parser::new(),
             regex_status: Regex::new(REGEX_STATUS).unwrap(),
             regex_chat: Regex::new(REGEX_CHAT).unwrap(),
             regex_kill: Regex::new(REGEX_KILL).unwrap(),
@@ -125,8 +125,7 @@ impl IOManager {
             .await?;
         Ok(match command {
             Commands::G15 => {
-                let parser = g15::G15Parser::new();
-                let players = parser.parse_g15(&resp);
+                let players = self.parser.parse_g15(&resp);
                 Some(IOOutput::G15(players))
             }
             Commands::Kick(_, _) => {
