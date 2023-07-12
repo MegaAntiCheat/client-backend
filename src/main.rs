@@ -16,8 +16,6 @@ use log4rs::filter::threshold::ThresholdFilter;
 use settings::Settings;
 use state::State;
 
-use crate::io::command_manager::{CMD_G15_DUMPPLAYER, CMD_STATUS};
-
 mod gamefinder;
 mod io;
 mod player;
