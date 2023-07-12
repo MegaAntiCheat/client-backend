@@ -10,6 +10,7 @@ use tokio::sync::mpsc::Sender;
 
 use crate::state::State;
 
+use self::g15::G15Parser;
 use self::command_manager::CommandManager;
 use self::command_manager::KickReason;
 use self::logwatcher::LogWatcher;
@@ -69,7 +70,7 @@ pub struct IOManager {
     command_send: Sender<Commands>,
     command_manager: CommandManager,
     log_watcher: Option<LogWatcher>,
-    parser: g15::G15Parser,
+    parser: G15Parser,
     regex_status: Regex,
     regex_chat: Regex,
     regex_kill: Regex,
@@ -89,7 +90,7 @@ impl IOManager {
             command_send: tx,
             command_manager,
             log_watcher: None,
-            parser: g15::G15Parser::new(),
+            parser: G15Parser::new(),
             regex_status: Regex::new(REGEX_STATUS).unwrap(),
             regex_chat: Regex::new(REGEX_CHAT).unwrap(),
             regex_kill: Regex::new(REGEX_KILL).unwrap(),
