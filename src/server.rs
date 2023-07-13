@@ -8,7 +8,8 @@ use steamid_ng::SteamID;
 
 use crate::{
     io::{
-        regexes::{self, ChatMessage, LobbyLine, PlayerKill, StatusLine},
+        g15,
+        regexes::{self, ChatMessage, PlayerKill, StatusLine},
         IOOutput,
     },
     player::{Player, SteamInfo},
@@ -59,7 +60,7 @@ impl Server {
         // TODO - Maybe move this back into state instead of inside server?
         use IOOutput::*;
         match response {
-            Lobby(lobby) => self.handle_lobby_line(lobby),
+            G15(players) => self.handle_g15_parse(players),
             Status(status) => {
                 return self.add_or_update_player(status, None);
             }
@@ -83,7 +84,7 @@ impl Server {
         None
     }
 
-    /// Moves any old players from the server into history. Any console commands (status, tf_lobby_debug, etc)
+    /// Moves any old players from the server into history. Any console commands (status, g15_dumpplayer, etc)
     /// should be run before calling this function again to prevent removing all players from the player list.
     pub fn refresh(&mut self) {
         // Get old players
@@ -135,10 +136,27 @@ impl Server {
             .collect()
     }
 
-    fn handle_lobby_line(&mut self, lobby: LobbyLine) {
-        if let Some(player) = self.players.get_mut(&lobby.steamid) {
-            player.game_info.team = lobby.team;
-            player.game_info.accounted = true;
+    fn handle_g15_parse(&mut self, players: Vec<g15::G15Player>) {
+        for pl in players {
+            if let Some(sid3) = &pl.sid3 {
+                let Ok(sid64) = SteamID::from_steam3(sid3) else {
+                    continue;
+                };
+                if let Some(player) = self.players.get_mut(&sid64) {
+                    if let Some(scr) = pl.score {
+                        player.game_info.kills = scr;
+                    }
+                    if let Some(dth) = pl.deaths {
+                        player.game_info.deaths = dth;
+                    }
+                    if let Some(png) = pl.ping {
+                        player.game_info.ping = png;
+                    }
+                    if let Some(tm) = pl.team {
+                        player.game_info.team = tm;
+                    }
+                }
+            }
         }
     }
 

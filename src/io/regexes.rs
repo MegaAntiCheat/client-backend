@@ -6,13 +6,12 @@ use std::sync::Arc;
 use regex::Captures;
 use steamid_ng::{SteamID, SteamIDError};
 
-use crate::player::{PlayerState, Team};
+use crate::player::PlayerState;
 
 /*
     Useful commands:
         status
-        tf_lobby_debug
-        tf_party_debug //Not sure if this is actually useful, not really necessary
+        g15_dumpplayer
 
         callvote kick <userid>
         vote option<1/2> // Can't really use
@@ -172,37 +171,6 @@ fn get_time(input: &str) -> Option<u32> {
     }
 
     Some(t)
-}
-
-// Reads lines from output of the "tf_lobby_debug" command
-// Includes the team of players on the server
-// NOTE: Teams are stored as INVADERS/DEFENDERS and does not swap when Red/Blu swaps so it cannot
-// be used to reliably check which team the user is on, it can only check relative to the user (same/opposite team)
-pub const REGEX_LOBBY: &str =
-    r#"^  Member\[(\d+)] (\[U:\d:\d+])  team = TF_GC_TEAM_(\w+)  type = MATCH_PLAYER\s*$"#;
-
-#[derive(Debug)]
-pub struct LobbyLine {
-    pub steamid: SteamID,
-    pub team: Team,
-}
-
-impl LobbyLine {
-    pub fn parse(caps: &Captures) -> Result<LobbyLine, SteamIDError> {
-        let mut team = Team::Unassigned;
-        match &caps[3] {
-            // TODO - This is not right since teams swap in maps like payload.
-            // This is only temporary until the g15 command is implemented
-            "INVADERS" => team = Team::Blu,
-            "DEFENDERS" => team = Team::Red,
-            _ => {}
-        }
-
-        Ok(LobbyLine {
-            steamid: SteamID::from_steam3(&caps[2])?,
-            team,
-        })
-    }
 }
 
 const INVIS_CHARS: &[char] = &[

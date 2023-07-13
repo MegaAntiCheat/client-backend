@@ -59,6 +59,19 @@ pub enum Team {
     Blu = 3,
 }
 
+impl TryFrom<u32> for Team {
+    type Error = &'static str;
+    fn try_from(val: u32) -> Result<Self, Self::Error> {
+        match val {
+            0 => Ok(Team::Unassigned),
+            1 => Ok(Team::Spectators),
+            2 => Ok(Team::Red),
+            3 => Ok(Team::Blu),
+            _ => Err("Not a valid team value"),
+        }
+    }
+}
+
 impl Serialize for Team {
     fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
     where

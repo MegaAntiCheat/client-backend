@@ -15,7 +15,7 @@ Troubleshooting:
 * Update rust with `rustup update`
 
 ## Testing
-1. Run all tests in `./test/` with `cargo test`
+1. Run all tests in `./tests/` with `cargo test`
 
 ## Contributing
 Always run `cargo fmt` before submitting your Merge Request
