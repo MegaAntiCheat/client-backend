@@ -9,6 +9,8 @@ use std::{
     string::String,
     time::SystemTime,
 };
+
+/// Used to shuttle data out of read_lines into get_line
 struct ReadMD(Option<SystemTime>, Cursor<Vec<u8>>);
 
 pub struct FileWatcher {
@@ -18,7 +20,8 @@ pub struct FileWatcher {
     pub cpos: u64,
     /// Data from last file read, split on 0xA <u8> bytes
     pub lines_buf: VecDeque<String>,
-    /// epoch time (u64) of the last time this file was read
+    /// system time of the last time this file was read (tracked by `file modified` timestamp,
+    /// will be time of UNIX EPOCH if not implemented by the host OS. Would this ever happen?)
     pub last_read: Option<SystemTime>,
 }
 
