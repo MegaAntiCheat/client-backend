@@ -10,9 +10,9 @@ use tokio::sync::mpsc::Sender;
 
 use crate::state::State;
 
-use self::g15::G15Parser;
 use self::command_manager::CommandManager;
 use self::command_manager::KickReason;
+use self::g15::G15Parser;
 use self::logwatcher::FileWatcher;
 use self::regexes::ChatMessage;
 use self::regexes::Hostname;

@@ -2,13 +2,14 @@
 #![allow(unused_variables)]
 
 use std::{
-    fs::File, 
-    time::SystemTime, 
-    path::{PathBuf, Path}, 
-    io::{self, Read, Cursor},
-    string::String, collections::VecDeque
+    collections::VecDeque,
+    fs::File,
+    io::{self, Cursor, Read},
+    path::{Path, PathBuf},
+    string::String,
+    time::SystemTime,
 };
-struct ReadMD (Option<SystemTime>, Cursor<Vec<u8>>);
+struct ReadMD(Option<SystemTime>, Cursor<Vec<u8>>);
 
 pub struct FileWatcher {
     /// Used to reopen the file for the next bulk read
@@ -28,40 +29,37 @@ impl FileWatcher {
     }
 
     pub fn new(path: PathBuf) -> Result<FileWatcher, io::Error> {
-        let result = match FileWatcher::open_file(path.clone()) {
+        match FileWatcher::open_file(path.clone()) {
             Ok(file) => {
                 let pos = file.metadata().unwrap().len();
                 let last = file.metadata().unwrap().modified().ok();
-                Ok(FileWatcher { 
-                    file_path: path.into_boxed_path(), 
-                    cpos: pos, 
-                    lines_buf: VecDeque::new(), 
+                Ok(FileWatcher {
+                    file_path: path.into_boxed_path(),
+                    cpos: pos,
+                    lines_buf: VecDeque::new(),
                     last_read: last,
                 })
-            },
-            Err(err) => Err(err)
-        };
-        result
+            }
+            Err(err) => Err(err),
+        }
     }
 
     fn open_file(filepath: PathBuf) -> Result<File, io::Error> {
-        let f = match File::open(&filepath) {
-            Ok(x) => {
-                return Ok(x);
-            }
+        match File::open(&filepath) {
+            Ok(x) => Ok(x),
             Err(err) => {
                 if let Ok(path) = filepath.into_os_string().into_string() {
                     log::error!("Failed to open log file {}: {}", path, err);
                 } else {
                     log::error!("Failed to open log file: {}", err);
                 }
-                return Err(err);
+                Err(err)
             }
-        };
+        }
     }
 
     fn seek_to_pos(&self) -> Option<ReadMD> {
-        if let Some(mut file) = FileWatcher::open_file(self.file_path.clone().into_path_buf()).ok() {
+        if let Ok(mut file) = FileWatcher::open_file(self.file_path.clone().into_path_buf()) {
             if let Ok(modified) = file.metadata().unwrap().modified() {
                 if let Some(last_read) = self.last_read {
                     if modified <= last_read {
@@ -78,7 +76,7 @@ impl FileWatcher {
 
             let mut reader = Cursor::new(buff);
             reader.set_position(self.cpos);
-            
+
             if let Ok(mod_time) = file.metadata().unwrap().modified() {
                 Some(ReadMD(Some(mod_time), reader))
             } else {
@@ -93,9 +91,9 @@ impl FileWatcher {
         if let Some(mut read_md) = self.seek_to_pos() {
             self.last_read = read_md.0;
 
-            let mut data: Vec<u8> = Vec::new(); 
+            let mut data: Vec<u8> = Vec::new();
             if let Ok(bytes_read) = read_md.1.read_to_end(&mut data) {
-                self.cpos = self.cpos + bytes_read as u64;
+                self.cpos += bytes_read as u64;
             } else {
                 log::error!("Could not read file data!");
                 return;
@@ -103,7 +101,7 @@ impl FileWatcher {
 
             let mut lines: VecDeque<String> = VecDeque::new();
             // Gross predicate to split on the u8 repr of a newline.
-            let line_iter = data.split(|&x| x==0xAu8);
+            let line_iter = data.split(|&x| x == 0xAu8);
             for byte_str in line_iter {
                 let s = String::from_utf8_lossy(byte_str);
                 if s.is_empty() || s.trim().is_empty() {
@@ -113,8 +111,7 @@ impl FileWatcher {
             }
 
             self.lines_buf = lines;
-            
-        } 
+        }
     }
 
     pub fn get_line(&mut self) -> Option<String> {
