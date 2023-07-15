@@ -1,36 +1,53 @@
-use std::fs::File;
-use std::io;
-use std::io::prelude::*;
-use std::io::BufReader;
-use std::io::SeekFrom;
-use std::path::Path;
-use std::path::PathBuf;
-use std::time::Instant;
+#![allow(non_upper_case_globals)]
+#![allow(unused_variables)]
 
-pub struct LogWatcher {
-    filepath: Box<Path>,
-    pos: u64,
-    reader: BufReader<File>,
-    last_activity: Instant,
+use std::{
+    fs::File, 
+    time::SystemTime, 
+    path::{PathBuf, Path}, 
+    io::{self, Read, Cursor},
+    string::String, collections::VecDeque
+};
+struct ReadMD (Option<SystemTime>, Cursor<Vec<u8>>);
+
+pub struct FileWatcher {
+    /// Used to reopen the file for the next bulk read
+    pub file_path: Box<Path>,
+    /// Cursor position after the last read
+    pub cpos: u64,
+    /// Data from last file read, split on 0xA <u8> bytes
+    pub lines_buf: VecDeque<String>,
+    /// epoch time (u64) of the last time this file was read
+    pub last_read: Option<SystemTime>,
 }
 
-impl LogWatcher {
-    // Try to open this TF2 directory
-    pub fn use_directory(mut dir: PathBuf) -> Result<LogWatcher, io::Error> {
+impl FileWatcher {
+    pub fn use_directory(mut dir: PathBuf) -> Result<FileWatcher, io::Error> {
         dir.push("tf/console.log");
-        LogWatcher::register(dir)
+        FileWatcher::new(dir)
     }
 
-    /// Internally called by [use_directory]
-    pub fn register(filepath: PathBuf) -> Result<LogWatcher, io::Error> {
+    pub fn new(path: PathBuf) -> Result<FileWatcher, io::Error> {
+        let result = match FileWatcher::open_file(path.clone()) {
+            Ok(file) => {
+                let pos = file.metadata().unwrap().len();
+                let last = file.metadata().unwrap().modified().ok();
+                Ok(FileWatcher { 
+                    file_path: path.into_boxed_path(), 
+                    cpos: pos, 
+                    lines_buf: VecDeque::new(), 
+                    last_read: last,
+                })
+            },
+            Err(err) => Err(err)
+        };
+        result
+    }
+
+    fn open_file(filepath: PathBuf) -> Result<File, io::Error> {
         let f = match File::open(&filepath) {
             Ok(x) => {
-                if let Ok(path) = filepath.clone().into_os_string().into_string() {
-                    log::error!("Successfully opened log file: {}", path);
-                } else {
-                    log::error!("Successfully opened log file");
-                }
-                x
+                return Ok(x);
             }
             Err(err) => {
                 if let Ok(path) = filepath.into_os_string().into_string() {
@@ -41,81 +58,70 @@ impl LogWatcher {
                 return Err(err);
             }
         };
-
-        let metadata = match f.metadata() {
-            Ok(x) => x,
-            Err(err) => {
-                log::error!("Failed to get file metadata: {}", err);
-                return Err(err);
-            }
-        };
-
-        let mut reader = BufReader::new(f);
-        let pos = metadata.len();
-        if let Err(e) = reader.seek(SeekFrom::Start(pos)) {
-            log::error!("Failed to seek in file: {}", e);
-        }
-        Ok(LogWatcher {
-            filepath: filepath.into_boxed_path(),
-            pos,
-            reader,
-            last_activity: Instant::now(),
-        })
     }
 
-    pub fn next_line(&mut self) -> Option<String> {
-        let mut line = String::new();
-        let resp = self.reader.read_line(&mut line);
-
-        match resp {
-            Ok(len) => {
-                // Get next line
-                if len > 0 {
-                    self.pos += len as u64;
-                    self.reader.seek(SeekFrom::Start(self.pos)).unwrap();
-                    self.last_activity = Instant::now();
-                    return Some(line.replace('\n', ""));
+    fn seek_to_pos(&self) -> Option<ReadMD> {
+        if let Some(mut file) = FileWatcher::open_file(self.file_path.clone().into_path_buf()).ok() {
+            if let Ok(modified) = file.metadata().unwrap().modified() {
+                if let Some(last_read) = self.last_read {
+                    if modified <= last_read {
+                        return None;
+                    }
+                } else {
+                    log::error!("No stored last mod time.");
                 }
-
-                // Check if file has been shortened
-                if self.reader.get_ref().metadata().unwrap().len() < self.pos {
-                    log::warn!("Console.log file was reset");
-                    self.pos = self.reader.get_ref().metadata().unwrap().len();
-                    self.last_activity = Instant::now();
-                }
-
-                // Reopen the log file if nothing has happened for long enough in case the file has been replaced.
-                let time = Instant::now().duration_since(self.last_activity);
-                if time.as_secs() > 10 {
-                    log::debug!("No activity in 10 seconds, reopening.");
-                    let f = match File::open(&self.filepath) {
-                        Ok(x) => x,
-                        Err(_) => return None,
-                    };
-
-                    let metadata = match f.metadata() {
-                        Ok(x) => x,
-                        Err(_) => return None,
-                    };
-
-                    let mut reader = BufReader::new(f);
-                    let pos = metadata.len();
-                    reader.seek(SeekFrom::Start(pos)).unwrap();
-
-                    self.pos = pos;
-                    self.reader = reader;
-                    self.last_activity = Instant::now();
-                    return None;
-                }
-
-                self.reader.seek(SeekFrom::Start(self.pos)).unwrap();
-                return None;
+            } else {
+                log::error!("Unable to read modification time of watched file.");
             }
-            Err(err) => {
-                log::error!("Logwatcher error: {}", err);
+            let mut buff: Vec<u8> = Vec::new();
+            let _ = file.read_to_end(&mut buff);
+
+            let mut reader = Cursor::new(buff);
+            reader.set_position(self.cpos);
+            
+            if let Ok(mod_time) = file.metadata().unwrap().modified() {
+                Some(ReadMD(Some(mod_time), reader))
+            } else {
+                Some(ReadMD(None, reader)) // TODO: fix this grossness
             }
+        } else {
+            None
+        }
+    }
+
+    fn read_lines(&mut self) {
+        if let Some(mut read_md) = self.seek_to_pos() {
+            self.last_read = read_md.0;
+
+            let mut data: Vec<u8> = Vec::new(); 
+            if let Ok(bytes_read) = read_md.1.read_to_end(&mut data) {
+                self.cpos = self.cpos + bytes_read as u64;
+            } else {
+                log::error!("Could not read file data!");
+                return;
+            }
+
+            let mut lines: VecDeque<String> = VecDeque::new();
+            // Gross predicate to split on the u8 repr of a newline.
+            let line_iter = data.split(|&x| x==0xAu8);
+            for byte_str in line_iter {
+                let s = String::from_utf8_lossy(byte_str);
+                if s.is_empty() || s.trim().is_empty() {
+                    continue;
+                }
+                lines.push_back(s.to_string());
+            }
+
+            self.lines_buf = lines;
+            
+        } 
+    }
+
+    pub fn get_line(&mut self) -> Option<String> {
+        if self.lines_buf.is_empty() {
+            self.read_lines();
         }
 
-        None
+        self.lines_buf.pop_front()
     }
 }
