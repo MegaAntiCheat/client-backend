@@ -12,8 +12,8 @@ use crate::state::State;
 
 use self::command_manager::CommandManager;
 use self::command_manager::KickReason;
+use self::filewatcher::FileWatcher;
 use self::g15::G15Parser;
-use self::logwatcher::FileWatcher;
 use self::regexes::ChatMessage;
 use self::regexes::Hostname;
 use self::regexes::Map;
@@ -28,8 +28,8 @@ use self::regexes::REGEX_MAP;
 use self::regexes::REGEX_PLAYERCOUNT;
 
 pub mod command_manager;
+pub mod filewatcher;
 pub mod g15;
-pub mod logwatcher;
 pub mod regexes;
 
 // Enums

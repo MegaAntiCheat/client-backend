@@ -103,16 +103,13 @@ impl FileWatcher {
 
             let data_str = String::from_utf8_lossy(&data);
             let mut lines: VecDeque<String> = VecDeque::new();
-            let iter = data_str.split('\n');
 
-            for str in iter {
-                if str.is_empty() || str.trim().is_empty() {
-                    continue;
-                }
-                lines.push_back(str.to_string());
-            }
-
-            self.lines_buf = lines;
+            self.lines_buf.extend(
+                data_str
+                    .lines()
+                    .filter(|x| !(x.trim().is_empty()))
+                    .map(str::to_string),
+            );
         }
     }
 
