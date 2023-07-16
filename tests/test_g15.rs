@@ -26,7 +26,6 @@ mod tests {
         let log = read_log(path);
         let parser = G15Parser::new();
         let players = parser.parse_g15(&log);
-        // println!("{:?}", players);
         let expected = read_expected(path);
         assert!(expected == format!("{:?}", players));
     }
@@ -37,7 +36,6 @@ mod tests {
         let log = read_log(path);
         let parser = G15Parser::new();
         let players = parser.parse_g15(&log);
-        // println!("{:?}", players);
         let expected = read_expected(path);
         assert!(expected == format!("{:?}", players));
     }
@@ -48,7 +46,6 @@ mod tests {
         let log = read_log(path);
         let parser = G15Parser::new();
         let players = parser.parse_g15(&log);
-        // println!("{:?}", players);
         let expected = read_expected(path);
         assert!(expected == format!("{:?}", players));
     }
@@ -59,7 +56,6 @@ mod tests {
         let log = read_log(path);
         let parser = G15Parser::new();
         let players = parser.parse_g15(&log);
-        // println!("{:?}", players);
         let expected = read_expected(path);
         assert!(expected == format!("{:?}", players));
     }

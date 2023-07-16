@@ -24,13 +24,8 @@ pub struct FileWatcher {
 }
 
 impl FileWatcher {
-    pub fn use_directory(mut dir: PathBuf) -> Result<FileWatcher> {
-        dir.push("tf/console.log");
-        FileWatcher::new(dir)
-    }
-
     pub fn new(path: PathBuf) -> Result<FileWatcher> {
-        let file = FileWatcher::open_file(&path)?;
+        let file = FileWatcher::open_file(&path).context("Failed to open file to watch.")?;
         let meta = file
             .metadata()
             .context("File didn't have metadata associated")?;
@@ -93,13 +88,13 @@ impl FileWatcher {
         Ok(())
     }
 
-    pub fn get_line(&mut self) -> Option<String> {
+    /// Return the next
+    pub fn get_line(&mut self) -> Result<Option<String>> {
         if self.lines_buf.is_empty() {
-            if let Err(e) = self.read_new_file_lines() {
-                log::error!("Failed to read log file: {}", e);
-            }
+            self.read_new_file_lines()
+                .context("Failed to read new file lines.")?
         }
 
-        self.lines_buf.pop_front()
+        Ok(self.lines_buf.pop_front())
     }
 }

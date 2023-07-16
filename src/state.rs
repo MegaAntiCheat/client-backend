@@ -18,7 +18,7 @@ impl Deref for StateReadLock<'_> {
     type Target = State;
 
     fn deref(&self) -> &Self::Target {
-        self.lock.as_ref().unwrap()
+        self.lock.as_ref().expect("State lock")
     }
 }
 
@@ -30,12 +30,12 @@ impl Deref for StateWriteLock<'_> {
     type Target = State;
 
     fn deref(&self) -> &Self::Target {
-        self.lock.as_ref().unwrap()
+        self.lock.as_ref().expect("State lock")
     }
 }
 impl DerefMut for StateWriteLock<'_> {
     fn deref_mut(&mut self) -> &mut State {
-        self.lock.as_mut().unwrap()
+        self.lock.as_mut().expect("State lock")
     }
 }
 
@@ -51,18 +51,18 @@ pub struct State {
 
 impl State {
     pub fn initialize_state(state: State) {
-        *STATE.write().unwrap() = Some(state);
+        *STATE.write().expect("State lock") = Some(state);
     }
 
     pub fn read_state() -> StateReadLock<'static> {
         StateReadLock {
-            lock: STATE.read().unwrap(),
+            lock: STATE.read().expect("State lock"),
         }
     }
 
     pub fn write_state() -> StateWriteLock<'static> {
         StateWriteLock {
-            lock: STATE.write().unwrap(),
+            lock: STATE.write().expect("State lock"),
         }
     }
 

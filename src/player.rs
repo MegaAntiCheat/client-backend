@@ -1,7 +1,7 @@
 use serde::Serialize;
 use serde_json::Map;
 use std::sync::Arc;
-use steamid_ng::{SteamID, SteamIDError};
+use steamid_ng::SteamID;
 
 use crate::io::regexes::StatusLine;
 
@@ -24,12 +24,9 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new_from_status(
-        status: &StatusLine,
-        user: Option<&SteamID>,
-    ) -> Result<Player, SteamIDError> {
+    pub fn new_from_status(status: &StatusLine, user: Option<&SteamID>) -> Player {
         let is_self = user.map(|user| user == &status.steamid).unwrap_or(false);
-        Ok(Player {
+        Player {
             name: status.name.clone(),
             steamid: status.steamid,
             is_self,
@@ -37,7 +34,7 @@ impl Player {
             steam_info: None,
             custom_data: serde_json::Value::Object(Map::new()),
             tags: Vec::new(),
-        })
+        }
     }
 }
 

@@ -99,38 +99,47 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
     let mut new_players = Vec::new();
 
     loop {
+        // Log
         match io.handle_log() {
-            Ok(Some(output)) => {
+            Ok(output) => {
                 let mut state = State::write_state();
                 state.log_file_state = Ok(());
                 if let Some(new_player) = state.server.handle_io_response(output) {
                     new_players.push(new_player);
                 }
             }
-            Ok(None) => {}
             Err(e) => {
-                State::write_state().log_file_state = Err(e);
+                let mut state = State::write_state();
+                // This one runs very frequently so we'll only print diagnostics
+                // once when it first fails.
+                if state.log_file_state.is_ok() {
+                    log::error!("Failed to get log file contents: {:?}", e);
+                }
+                state.log_file_state = Err(e);
             }
         }
 
+        // Commands
         match io.handle_waiting_command().await {
             Ok(output) => {
                 let mut state = State::write_state();
                 state.rcon_state = Ok(());
-                if let Some(output) = output {
-                    if let Some(new_player) = state.server.handle_io_response(output) {
-                        new_players.push(new_player);
-                    }
+                if let Some(new_player) = state.server.handle_io_response(output) {
+                    new_players.push(new_player);
                 }
             }
             Err(e) => {
-                State::write_state().rcon_state = Err(e.into());
+                log::error!("Failed to run command: {:?}", e);
+                State::write_state().rcon_state = Err(e);
             }
         }
 
         // Request steam API stuff on new players and clear
         for player in &new_players {
-            steam_api_requester.send(*player).await.unwrap();
+            steam_api_requester
+                .send(*player)
+                .await
+                .expect("Steam API task ded");
         }
 
         new_players.clear();
@@ -142,9 +151,9 @@ async fn refresh_loop(cmd: Sender<Commands>) {
     loop {
         State::write_state().server.refresh();
 
-        cmd.send(Commands::Status).await.unwrap();
+        cmd.send(Commands::Status).await.expect("Command loop ded");
         tokio::time::sleep(Duration::from_secs(3)).await;
-        cmd.send(Commands::G15).await.unwrap();
+        cmd.send(Commands::G15).await.expect("Command loop ded");
         tokio::time::sleep(Duration::from_secs(3)).await;
         std::thread::sleep(Duration::from_secs(3));
     }

@@ -44,7 +44,7 @@ fn fetch_libraryfolders() -> Vec<PathBuf> {
             paths
         }
         Err(err) => {
-            log::error!("Failed to read libraryfolders.vdf: {}", err);
+            log::error!("Failed to read libraryfolders.vdf: {:?}", err);
             Vec::new()
         }
     }

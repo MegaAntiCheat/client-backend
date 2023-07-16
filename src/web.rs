@@ -42,7 +42,7 @@ async fn game() -> impl IntoResponse {
             (header::CONTENT_TYPE, "application/json"),
             (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
         ],
-        serde_json::to_string(&State::read_state().server).unwrap(),
+        serde_json::to_string(&State::read_state().server).expect("Serialize game state"),
     )
 }
 
@@ -74,13 +74,13 @@ async fn get_history(page: Query<Pagination>) -> impl IntoResponse {
                 .server
                 .get_history(page.0.from..page.0.to),
         )
-        .unwrap(),
+        .expect("Serialize player history"),
     )
 }
 
 // Mark
 
 /// API endpoint to mark a player
-async fn mark(Json(mark): Json<()>) {
+async fn mark(Json(_mark): Json<()>) {
     log::debug!("Mark player requested");
 }

@@ -1,25 +1,14 @@
 use std::sync::Arc;
 
+use anyhow::{anyhow, Context, Result};
 use steamid_ng::SteamID;
-use tappet::{errors::SteamAPIError, ExecutorResponse, SteamAPI};
+use tappet::{ExecutorResponse, SteamAPI};
 use tokio::sync::mpsc::Receiver;
 
 use crate::{
     player::{Friend, SteamInfo},
     state::State,
 };
-
-#[derive(Debug)]
-pub enum Error {
-    APIError(SteamAPIError),
-    InvalidNumberOfResponses,
-}
-
-impl From<tappet::errors::SteamAPIError> for Error {
-    fn from(value: tappet::errors::SteamAPIError) -> Self {
-        Error::APIError(value)
-    }
-}
 
 /// Enter a loop to wait for steam lookup requests, make those requests from the Steam web API,
 /// and update the state to include that data. Intended to be run inside a new tokio::task
@@ -34,7 +23,7 @@ pub async fn steam_api_loop(mut requests: Receiver<SteamID>, api_key: Arc<str>) 
                     .server
                     .insert_steam_info(request, steam_info),
                 Err(e) => {
-                    log::error!("Can't request to steam API: {:?}", e);
+                    log::error!("Failed to get player info from SteamAPI: {:?}", e);
                 }
             }
         }
@@ -42,7 +31,7 @@ pub async fn steam_api_loop(mut requests: Receiver<SteamID>, api_key: Arc<str>) 
 }
 
 /// Make a request to the Steam web API for the chosen player and return the important steam info.
-async fn request_steam_info(client: &mut SteamAPI, player: SteamID) -> Result<SteamInfo, Error> {
+async fn request_steam_info(client: &mut SteamAPI, player: SteamID) -> Result<SteamInfo> {
     log::debug!("Requesting steam account: {}", u64::from(player));
 
     let summary = client
@@ -50,19 +39,22 @@ async fn request_steam_info(client: &mut SteamAPI, player: SteamID) -> Result<St
         .ISteamUser()
         .GetPlayerSummaries(vec![format!("{}", u64::from(player))])
         .execute_with_response()
-        .await?;
+        .await
+        .context("Failed to get player summary from SteamAPI.")?;
     let summary = summary
         .response
         .players
         .get(0)
-        .ok_or(Error::InvalidNumberOfResponses)?;
+        .ok_or(anyhow!("Invalid number of responses from SteamAPI."))
+        .context("Failed to get player sumarry from SteamAPI.")?;
 
     let friends = client
         .get()
         .ISteamUser()
         .GetFriendList(player.into(), "all".to_string())
         .execute_with_response()
-        .await?;
+        .await
+        .context("Failed to get account friends from SteamAPI.")?;
     let friends = friends
         .friendslist
         .map(|fl| fl.friends)
@@ -82,8 +74,13 @@ async fn request_steam_info(client: &mut SteamAPI, player: SteamID) -> Result<St
         .ISteamUser()
         .GetPlayerBans(vec![format!("{}", u64::from(player))])
         .execute_with_response()
-        .await?;
-    let bans = bans.players.get(0).ok_or(Error::InvalidNumberOfResponses)?;
+        .await
+        .context("Failed to get player bans from SteamAPI")?;
+    let bans = bans
+        .players
+        .get(0)
+        .ok_or(anyhow!("Invalid number of responses from SteamAPI"))
+        .context("Failed to get player bans from SteamAPI.")?;
 
     Ok(SteamInfo {
         account_name: summary.personaname.clone().into(),
