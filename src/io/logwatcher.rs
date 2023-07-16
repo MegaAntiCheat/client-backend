@@ -12,7 +12,10 @@ use std::{
 };
 #[cfg(target_os = "linux")]
 mod utf16_upport {
-    use std::os::unix::ffi::OsStringExt;
+    use std::{
+        ffi::OsString,
+        os::unix::ffi::OsStringExt,
+    };
     pub fn from_bytes(buf: &[u8]) -> OsStringExt {
         OsString::from_vec(&buf.to_vec())
     }
