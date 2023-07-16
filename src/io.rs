@@ -1,5 +1,7 @@
+use log::ParseLevelError;
 use regex::Regex;
 
+use anyhow::Result;
 use regexes::StatusLine;
 use regexes::REGEX_STATUS;
 use std::fmt::Display;
@@ -14,6 +16,7 @@ use self::command_manager::CommandManager;
 use self::command_manager::KickReason;
 use self::filewatcher::FileWatcher;
 use self::g15::G15Parser;
+use self::g15::G15Player;
 use self::regexes::ChatMessage;
 use self::regexes::Hostname;
 use self::regexes::Map;
@@ -43,7 +46,7 @@ pub enum IOOutput {
     ServerIP(ServerIP),
     Map(Map),
     PlayerCount(PlayerCount),
-    G15(Vec<g15::G15Player>),
+    G15(Vec<G15Player>),
 }
 
 pub enum Commands {
@@ -142,7 +145,7 @@ impl IOManager {
     }
 
     /// Parse all of the new log entries that have been written
-    pub fn handle_log(&mut self) -> std::io::Result<Option<IOOutput>> {
+    pub fn handle_log(&mut self) -> Result<Option<IOOutput>> {
         if self.log_watcher.as_ref().is_none() {
             self.reopen_log()?;
         }
@@ -193,20 +196,18 @@ impl IOManager {
 
     /// Attempt to reopen the log file with the currently set directory.
     /// If the log file fails to be opened, an [LogOutput::NoLogFile] is sent back to the main thread and [Self::log_watcher] is set to [None]
-    fn reopen_log(&mut self) -> std::io::Result<()> {
+    fn reopen_log(&mut self) -> Result<()> {
         let state = State::read_state();
         let dir = state.settings.get_tf2_directory();
 
         match FileWatcher::use_directory(dir.into()) {
             Ok(lw) => {
-                log::debug!("Successfully opened log file");
                 self.log_watcher = Some(lw);
                 Ok(())
             }
             Err(e) => {
                 self.log_watcher = None;
-                log::error!("Failed to open log file: {:?}", e);
-                Err(e)
+                Err(e.into())
             }
         }
     }

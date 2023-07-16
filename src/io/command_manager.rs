@@ -72,8 +72,4 @@ impl CommandManager {
 
         out
     }
-
-    pub fn send_chat_command(message: &str) -> String {
-        format!("say \"{}\"", message)
-    }
 }

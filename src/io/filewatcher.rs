@@ -4,120 +4,102 @@
 use std::{
     collections::VecDeque,
     fs::File,
-    io::{self, Cursor, Read},
+    io::Read,
     path::{Path, PathBuf},
     time::SystemTime,
 };
 
-/// Used to shuttle data out of read_lines into get_line
-struct ReadMD(Option<SystemTime>, Cursor<Vec<u8>>);
+use anyhow::{Context, Result};
 
 pub struct FileWatcher {
     /// Used to reopen the file for the next bulk read
-    pub file_path: Box<Path>,
+    file_path: PathBuf,
     /// Cursor position after the last read
-    pub cpos: u64,
+    cpos: usize,
     /// Data from last file read, split on 0xA <u8> bytes
-    pub lines_buf: VecDeque<String>,
+    lines_buf: VecDeque<String>,
     /// system time of the last time this file was read (tracked by `file modified` timestamp,
     /// will be time of UNIX EPOCH if not implemented by the host OS. Would this ever happen?)
-    pub last_read: Option<SystemTime>,
+    last_read: Option<SystemTime>,
 }
 
 impl FileWatcher {
-    pub fn use_directory(mut dir: PathBuf) -> Result<FileWatcher, io::Error> {
+    pub fn use_directory(mut dir: PathBuf) -> Result<FileWatcher> {
         dir.push("tf/console.log");
         FileWatcher::new(dir)
     }
 
-    pub fn new(path: PathBuf) -> Result<FileWatcher, io::Error> {
-        match FileWatcher::open_file(path.clone()) {
-            Ok(file) => {
-                let pos = file.metadata().unwrap().len();
-                let last = file.metadata().unwrap().modified().ok();
-                Ok(FileWatcher {
-                    file_path: path.into_boxed_path(),
-                    cpos: pos,
-                    lines_buf: VecDeque::new(),
-                    last_read: last,
-                })
-            }
-            Err(err) => Err(err),
-        }
+    pub fn new(path: PathBuf) -> Result<FileWatcher> {
+        let file = FileWatcher::open_file(&path)?;
+        let meta = file
+            .metadata()
+            .context("File didn't have metadata associated")?;
+        let pos = meta.len();
+        let last = meta.modified().ok();
+        Ok(FileWatcher {
+            file_path: path,
+            cpos: pos as usize,
+            lines_buf: VecDeque::new(),
+            last_read: last,
+        })
     }
 
-    fn open_file(filepath: PathBuf) -> Result<File, io::Error> {
-        match File::open(&filepath) {
-            Ok(x) => Ok(x),
-            Err(err) => {
-                if let Ok(path) = filepath.into_os_string().into_string() {
-                    log::error!("Failed to open log file {}: {}", path, err);
-                } else {
-                    log::error!("Failed to open log file: {}", err);
-                }
-                Err(err)
-            }
-        }
+    fn open_file<P: AsRef<Path>>(filepath: P) -> Result<File> {
+        File::open(filepath).context("Failed to open log file")
     }
 
-    fn seek_to_pos(&self) -> Option<ReadMD> {
-        if let Ok(mut file) = FileWatcher::open_file(self.file_path.clone().into_path_buf()) {
-            if let Ok(modified) = file.metadata().unwrap().modified() {
-                if let Some(last_read) = self.last_read {
-                    if modified <= last_read {
-                        return None;
-                    }
-                } else {
-                    log::error!("No stored last mod time.");
-                }
-            } else {
-                log::error!("Unable to read modification time of watched file.");
-            }
-            let mut buff: Vec<u8> = Vec::new();
-            let _ = file.read_to_end(&mut buff);
+    /// Attempts to read the new contents of the observed file and updates the internal state
+    /// with any new lines that have been appended since last call.
+    fn read_new_file_lines(&mut self) -> Result<()> {
+        // Get file and metadata
+        let mut file =
+            FileWatcher::open_file(&self.file_path).context("Failed to reopen log file")?;
+        let meta = file
+            .metadata()
+            .context("File didn't have associated metadata")?;
 
-            let mut reader = Cursor::new(buff);
-            reader.set_position(self.cpos);
-
-            if let Ok(mod_time) = file.metadata().unwrap().modified() {
-                Some(ReadMD(Some(mod_time), reader))
-            } else {
-                Some(ReadMD(None, reader)) // TODO: fix this grossness
+        // Check it's been modified
+        if let Some(last_read) = self.last_read {
+            if meta.modified().context("Last read time has diappeared")? <= last_read {
+                // Nothing to update
+                return Ok(());
             }
         } else {
-            None
+            log::error!("No stored last mod time.");
         }
-    }
 
-    fn read_lines(&mut self) {
-        if let Some(mut read_md) = self.seek_to_pos() {
-            self.last_read = read_md.0;
+        // Get new file contents
+        let mut buff: Vec<u8> = Vec::new();
+        let _ = file.read_to_end(&mut buff);
+        let mut start_idx = self.cpos;
 
-            let mut data: Vec<u8> = Vec::new();
-            if let Ok(bytes_read) = read_md.1.read_to_end(&mut data) {
-                self.cpos += bytes_read as u64;
-            } else {
-                log::error!("Could not read file data!");
-                return;
-            }
-
-            let data_str = String::from_utf8_lossy(&data);
-            let mut lines: VecDeque<String> = VecDeque::new();
-
-            self.lines_buf.extend(
-                data_str
-                    .lines()
-                    .filter(|x| !(x.trim().is_empty()))
-                    .map(str::to_string),
-            );
+        // Reset if file has been remade (i.e. is shorter) and update state
+        if buff.len() < self.cpos {
+            start_idx = 0;
         }
+
+        self.cpos = buff.len() - start_idx;
+        self.last_read = meta.modified().ok();
+
+        // Get strings
+        let data_str = String::from_utf8_lossy(&buff[start_idx..]);
+        self.lines_buf.extend(
+            data_str
+                .lines()
+                .filter(|x| !x.trim().is_empty())
+                .map(str::to_string),
+        );
+
+        Ok(())
     }
 
     pub fn get_line(&mut self) -> Option<String> {
         if self.lines_buf.is_empty() {
-            self.read_lines();
+            if let Err(e) = self.read_new_file_lines() {
+                log::error!("Failed to read log file: {}", e);
+            }
         }
-        // log::warn!("Got data: {:?}", self.lines_buf.front());
+
         self.lines_buf.pop_front()
     }
 }

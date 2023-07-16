@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
@@ -125,7 +124,7 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
                 }
             }
             Err(e) => {
-                State::write_state().rcon_state = Err(e);
+                State::write_state().rcon_state = Err(e.into());
             }
         }
 

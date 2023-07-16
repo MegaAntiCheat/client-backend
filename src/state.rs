@@ -1,3 +1,4 @@
+use anyhow::Result;
 use std::{
     ops::{Deref, DerefMut},
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
@@ -42,8 +43,8 @@ impl DerefMut for StateWriteLock<'_> {
 
 #[derive(Debug)]
 pub struct State {
-    pub log_file_state: std::io::Result<()>,
-    pub rcon_state: Result<(), rcon::Error>,
+    pub log_file_state: Result<()>,
+    pub rcon_state: Result<()>,
     pub server: Server,
     pub settings: Settings,
 }
