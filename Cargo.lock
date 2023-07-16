@@ -302,6 +302,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "clap",
+ "clap_lex",
  "directories-next",
  "log",
  "log4rs",

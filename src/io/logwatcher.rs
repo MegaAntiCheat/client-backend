@@ -1,14 +1,54 @@
 #![allow(non_upper_case_globals)]
 #![allow(unused_variables)]
 
+use clap_lex::OsStrExt;
 use std::{
     collections::VecDeque,
+    ffi::OsString,
     fs::File,
     io::{self, Cursor, Read},
     path::{Path, PathBuf},
-    string::String,
     time::SystemTime,
 };
+#[cfg(target_os = "linux")]
+mod utf16_upport {
+    use std::os::unix::ffi::OsStringExt;
+    pub fn from_bytes(buf: &[u8]) -> OsStringExt {
+        OsString::from_vec(&buf.to_vec())
+    }
+}
+
+#[cfg(target_os = "windows")]
+mod utf16_support {
+    use std::{
+        ffi::{OsStr, OsString},
+        os::windows::{ffi::OsStringExt, prelude::OsStrExt},
+    };
+
+    /// Rust jank to handle windows Unicode https://gist.github.com/sunnyone/e660fe7f73e2becd4b2c
+    fn to_wide_chars(s: &str) -> Vec<u16> {
+        OsStr::new(s)
+            .encode_wide()
+            .chain(Some(0).into_iter())
+            .collect::<Vec<_>>()
+    }
+
+    /// Convert a buf of bytes to a Windows unicode-supporting OsString using unsafe string conversion
+    pub fn from_bytes(buf: &[u8]) -> OsString {
+        unsafe {
+            OsStringExt::from_wide(&to_wide_chars(&String::from_utf8_unchecked(buf.to_vec())))
+        }
+        ///// This is the alternative (i think this works?)
+        // unsafe {
+        //     let conv = String::from_utf8_unchecked(buf.to_vec());
+        //     if let Ok(res) = OsString::from_str(&conv) {
+        //         res
+        //     } else {
+        //         OsString::new()
+        //     }
+        // }
+    }
+}
 
 /// Used to shuttle data out of read_lines into get_line
 struct ReadMD(Option<SystemTime>, Cursor<Vec<u8>>);
@@ -19,7 +59,7 @@ pub struct FileWatcher {
     /// Cursor position after the last read
     pub cpos: u64,
     /// Data from last file read, split on 0xA <u8> bytes
-    pub lines_buf: VecDeque<String>,
+    pub lines_buf: VecDeque<OsString>,
     /// system time of the last time this file was read (tracked by `file modified` timestamp,
     /// will be time of UNIX EPOCH if not implemented by the host OS. Would this ever happen?)
     pub last_read: Option<SystemTime>,
@@ -102,22 +142,24 @@ impl FileWatcher {
                 return;
             }
 
-            let mut lines: VecDeque<String> = VecDeque::new();
-            // Gross predicate to split on the u8 repr of a newline.
-            let line_iter = data.split(|&x| x == 0xAu8);
-            for byte_str in line_iter {
-                let s = String::from_utf8_lossy(byte_str);
-                if s.is_empty() || s.trim().is_empty() {
+            let data_str: OsString = utf16_support::from_bytes(&data);
+
+            let mut lines: VecDeque<OsString> = VecDeque::new();
+            let iter = data_str.split("\n");
+
+            for os_str in iter {
+                if os_str.to_string_lossy().is_empty() || os_str.to_string_lossy().trim().is_empty()
+                {
                     continue;
                 }
-                lines.push_back(s.to_string());
+                lines.push_back(os_str.to_os_string());
             }
 
             self.lines_buf = lines;
         }
     }
 
-    pub fn get_line(&mut self) -> Option<String> {
+    pub fn get_line(&mut self) -> Option<OsString> {
         if self.lines_buf.is_empty() {
             self.read_lines();
         }

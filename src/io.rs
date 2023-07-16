@@ -147,7 +147,8 @@ impl IOManager {
             self.reopen_log()?;
         }
 
-        while let Some(line) = self.log_watcher.as_mut().unwrap().get_line() {
+        while let Some(os_line) = self.log_watcher.as_mut().unwrap().get_line() {
+            let line = os_line.to_string_lossy();
             // Match status
             if let Some(caps) = self.regex_status.captures(&line) {
                 match StatusLine::parse(caps) {
