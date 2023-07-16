@@ -17,7 +17,7 @@ mod utf16_support {
         os::unix::ffi::OsStringExt,
     };
     pub fn from_bytes(buf: &[u8]) -> OsString {
-        OsString::from_vec(&buf.to_vec())
+        OsString::from_vec(buf.to_vec())
     }
 }
 
