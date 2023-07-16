@@ -302,6 +302,7 @@ version = "0.1.0"
 dependencies = [
  "axum",
  "clap",
+ "clap_lex",
  "directories-next",
  "log",
  "log4rs",
@@ -1359,9 +1360,8 @@ dependencies = [
 
 [[package]]
 name = "rcon"
-version = "0.6.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "618babf41c041e7d6f4baf27f6d92434be58c1eb637edac7f9af7900f247417b"
+version = "0.5.2"
+source = "git+https://github.com/MegaAntiCheat/rust-rcon#aef1cb15a4956abbc8de166fb93c6fbca92c532d"
 dependencies = [
  "err-derive",
  "tokio",

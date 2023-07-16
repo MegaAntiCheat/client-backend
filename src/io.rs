@@ -10,10 +10,10 @@ use tokio::sync::mpsc::Sender;
 
 use crate::state::State;
 
-use self::g15::G15Parser;
 use self::command_manager::CommandManager;
 use self::command_manager::KickReason;
-use self::logwatcher::LogWatcher;
+use self::filewatcher::FileWatcher;
+use self::g15::G15Parser;
 use self::regexes::ChatMessage;
 use self::regexes::Hostname;
 use self::regexes::Map;
@@ -28,8 +28,8 @@ use self::regexes::REGEX_MAP;
 use self::regexes::REGEX_PLAYERCOUNT;
 
 pub mod command_manager;
+pub mod filewatcher;
 pub mod g15;
-pub mod logwatcher;
 pub mod regexes;
 
 // Enums
@@ -69,7 +69,7 @@ pub struct IOManager {
     command_recv: Receiver<Commands>,
     command_send: Sender<Commands>,
     command_manager: CommandManager,
-    log_watcher: Option<LogWatcher>,
+    log_watcher: Option<FileWatcher>,
     parser: G15Parser,
     regex_status: Regex,
     regex_chat: Regex,
@@ -147,7 +147,7 @@ impl IOManager {
             self.reopen_log()?;
         }
 
-        while let Some(line) = self.log_watcher.as_mut().unwrap().next_line() {
+        while let Some(line) = self.log_watcher.as_mut().unwrap().get_line() {
             // Match status
             if let Some(caps) = self.regex_status.captures(&line) {
                 match StatusLine::parse(caps) {
@@ -197,7 +197,7 @@ impl IOManager {
         let state = State::read_state();
         let dir = state.settings.get_tf2_directory();
 
-        match LogWatcher::use_directory(dir.into()) {
+        match FileWatcher::use_directory(dir.into()) {
             Ok(lw) => {
                 log::debug!("Successfully opened log file");
                 self.log_watcher = Some(lw);
