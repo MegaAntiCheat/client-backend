@@ -11,12 +11,12 @@ use std::{
     time::SystemTime,
 };
 #[cfg(target_os = "linux")]
-mod utf16_upport {
+mod utf16_support {
     use std::{
         ffi::OsString,
         os::unix::ffi::OsStringExt,
     };
-    pub fn from_bytes(buf: &[u8]) -> OsStringExt {
+    pub fn from_bytes(buf: &[u8]) -> OsString {
         OsString::from_vec(&buf.to_vec())
     }
 }
