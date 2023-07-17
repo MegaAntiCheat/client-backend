@@ -48,21 +48,21 @@ impl FileWatcher {
             return Ok(());
         }
 
+        let mut start_idx = self.last_size;
+
+        // Reset if file has been remade (i.e. is shorter) and update state
+        if (meta.len() as usize) < self.last_size {
+            start_idx = 0;
+        }
+
+        self.last_size = meta.len() as usize;
+
         // Get new file contents
         let mut file =
             FileWatcher::open_file(&self.file_path).context("Failed to reopen log file")?;
         let mut buff: Vec<u8> = Vec::new();
         let _ = file.read_to_end(&mut buff);
-        let mut start_idx = self.last_size;
 
-        // Reset if file has been remade (i.e. is shorter) and update state
-        if buff.len() < self.last_size {
-            start_idx = 0;
-        }
-
-        self.last_size = buff.len();
-
-        // Get strings
         let data_str = String::from_utf8_lossy(&buff[start_idx..]);
         self.lines_buf.extend(
             data_str

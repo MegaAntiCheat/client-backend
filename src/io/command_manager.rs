@@ -50,13 +50,13 @@ impl CommandManager {
         };
 
         tracing::debug!("Running command \"{}\"", command);
-        match rcon.cmd(command).await.context("Failed to run command") {
-            Ok(out) => Ok(out),
-            Err(e) => {
+        rcon.cmd(command)
+            .await
+            .map_err(|e| {
                 self.rcon = None;
-                Err(e)
-            }
-        }
+                e
+            })
+            .context("Failed to run command")
     }
 
     async fn try_connect(&mut self) -> Result<&mut Connection<TcpStream>> {

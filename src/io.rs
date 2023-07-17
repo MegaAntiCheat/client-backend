@@ -2,34 +2,21 @@ use anyhow::Context;
 use regex::Regex;
 
 use anyhow::{anyhow, Result};
-use regexes::StatusLine;
-use regexes::REGEX_STATUS;
 use std::fmt::Display;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc::Receiver;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::state::State;
 
-use self::command_manager::CommandManager;
-use self::command_manager::KickReason;
+use self::command_manager::{CommandManager, KickReason};
 use self::filewatcher::FileWatcher;
-use self::g15::G15Parser;
-use self::g15::G15Player;
-use self::regexes::ChatMessage;
-use self::regexes::Hostname;
-use self::regexes::Map;
-use self::regexes::PlayerCount;
-use self::regexes::PlayerKill;
-use self::regexes::ServerIP;
-use self::regexes::REGEX_CHAT;
-use self::regexes::REGEX_HOSTNAME;
-use self::regexes::REGEX_IP;
-use self::regexes::REGEX_KILL;
-use self::regexes::REGEX_MAP;
-use self::regexes::REGEX_PLAYERCOUNT;
+use self::g15::{G15Parser, G15Player};
+use self::regexes::{
+    ChatMessage, Hostname, Map, PlayerCount, PlayerKill, ServerIP, StatusLine, REGEX_CHAT,
+    REGEX_HOSTNAME, REGEX_IP, REGEX_KILL, REGEX_MAP, REGEX_PLAYERCOUNT, REGEX_STATUS,
+};
 
 pub mod command_manager;
 pub mod filewatcher;

@@ -49,7 +49,7 @@ async fn main() {
     let mut settings = match settings {
         Ok(settings) => settings,
         Err(e) => {
-            tracing::error!("Failed to load settings, continuing with defaults: {:?}", e);
+            tracing::warn!("Failed to load settings, continuing with defaults: {:?}", e);
             Settings::default()
         }
     };
@@ -143,9 +143,13 @@ async fn refresh_loop(cmd: Sender<Commands>) {
     loop {
         State::write_state().server.refresh();
 
-        cmd.send(Commands::Status).await.expect("Command loop ded");
+        cmd.send(Commands::Status)
+            .await
+            .expect("communication with main loop from refresh loop");
         tokio::time::sleep(Duration::from_secs(3)).await;
-        cmd.send(Commands::G15).await.expect("Command loop ded");
+        cmd.send(Commands::G15)
+            .await
+            .expect("communication with main loop from refresh loop");
         tokio::time::sleep(Duration::from_secs(3)).await;
         std::thread::sleep(Duration::from_secs(3));
     }
