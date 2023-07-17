@@ -1,12 +1,12 @@
 use std::fmt::Display;
 
+use anyhow::{Context, Result};
 use rcon::Connection;
 use tokio::net::TcpStream;
 
 use crate::state::State;
 
-use super::Commands;
-
+#[allow(dead_code)]
 #[derive(Debug)]
 pub enum KickReason {
     None,
@@ -30,6 +30,7 @@ pub struct CommandManager {
     rcon: Option<Connection<TcpStream>>,
 }
 
+#[allow(dead_code)]
 impl CommandManager {
     pub fn new() -> CommandManager {
         CommandManager { rcon: None }
@@ -39,41 +40,39 @@ impl CommandManager {
         self.rcon.is_some()
     }
 
-    pub async fn try_connect(&mut self) -> Result<(), rcon::Error> {
+    pub async fn run_command(&mut self, command: &str) -> Result<String> {
+        let rcon = if let Some(rcon) = self.rcon.as_mut() {
+            rcon
+        } else {
+            self.try_connect()
+                .await
+                .context("Failed to reconnect to RCon.")?
+        };
+
+        tracing::debug!("Running command \"{}\"", command);
+        rcon.cmd(command)
+            .await
+            .map_err(|e| {
+                self.rcon = None;
+                e
+            })
+            .context("Failed to run command")
+    }
+
+    async fn try_connect(&mut self) -> Result<&mut Connection<TcpStream>> {
         let password = State::read_state().settings.get_rcon_password();
 
-        log::debug!("Attempting to reconnect to RCon");
+        tracing::debug!("Attempting to reconnect to RCon");
         match Connection::connect("127.0.0.1:27015", &password).await {
             Ok(con) => {
                 self.rcon = Some(con);
-                log::debug!("RCon successfully connected");
-                Ok(())
+                tracing::info!("RCon reconnected.");
+                Ok(self.rcon.as_mut().expect(""))
             }
             Err(e) => {
                 self.rcon = None;
-                log::debug!("RCon failed to connect: {:?}", e);
-                Err(e)
+                Err(e).context("Failed to establish connection")
             }
         }
-    }
-
-    pub async fn run_command(&mut self, command: &str) -> rcon::Result<String> {
-        if self.rcon.is_none() {
-            self.try_connect().await?;
-        }
-
-        log::debug!("Running command \"{}\"", command);
-        let out = self.rcon.as_mut().unwrap().cmd(command).await;
-
-        if let Err(e) = &out {
-            self.rcon = None;
-            log::debug!("Rcon connection was lost: {}", e);
-        }
-
-        out
-    }
-
-    pub fn send_chat_command(message: &str) -> String {
-        format!("say \"{}\"", message)
     }
 }

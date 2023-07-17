@@ -3,8 +3,10 @@
 
 use std::sync::Arc;
 
+use anyhow::Context;
+use anyhow::Result;
 use regex::Captures;
-use steamid_ng::{SteamID, SteamIDError};
+use steamid_ng::SteamID;
 
 use crate::player::PlayerState;
 
@@ -56,9 +58,11 @@ pub struct PlayerCount {
 impl PlayerCount {
     pub fn parse(caps: Captures) -> PlayerCount {
         PlayerCount {
-            players: caps[1].parse().unwrap(),
-            bots: caps[2].parse().unwrap(),
-            max: caps[3].parse().unwrap(),
+            // Regex should guarantee the input is valid, but in the ridiculous case there's an invalid
+            // number I would prefer it has the incorrect value (0) than crash.
+            players: caps[1].parse().unwrap_or(0),
+            bots: caps[2].parse().unwrap_or(0),
+            max: caps[3].parse().unwrap_or(0),
         }
     }
 }
@@ -134,7 +138,7 @@ pub struct StatusLine {
 }
 
 impl StatusLine {
-    pub fn parse(caps: Captures) -> Result<StatusLine, SteamIDError> {
+    pub fn parse(caps: Captures) -> Result<StatusLine> {
         let mut player_state = PlayerState::Spawning;
         if caps[7].eq("active") {
             player_state = PlayerState::Active;
@@ -143,10 +147,10 @@ impl StatusLine {
         Ok(StatusLine {
             userid: caps[1].into(),
             name: caps[2].into(),
-            steamid: SteamID::from_steam3(&caps[3])?,
+            steamid: SteamID::from_steam3(&caps[3]).context("Failed to decode steamid.")?,
             time: get_time(&caps[4]).unwrap_or(0),
-            ping: caps[5].parse().unwrap(),
-            loss: caps[6].parse().unwrap(),
+            ping: caps[5].parse().unwrap_or(0),
+            loss: caps[6].parse().unwrap_or(0),
             state: player_state,
         })
     }
@@ -161,18 +165,14 @@ fn get_time(input: &str) -> Option<u32> {
 
     for (i, v) in splits.iter().enumerate() {
         // let dt: u32 = v.parse::<u32>().expect(&format!("Had trouble parsing {} as u32", v));
-        let dt = v.parse::<u32>();
-
-        if dt.is_err() {
-            return None;
-        }
-
-        t += 60u32.pow((n - i - 1) as u32) * dt.unwrap();
+        let dt = v.parse::<u32>().ok()?;
+        t += 60u32.pow((n - i - 1) as u32) * dt;
     }
 
     Some(t)
 }
 
+#[allow(dead_code)]
 const INVIS_CHARS: &[char] = &[
     '\u{00a0}',
     '\u{00ad}',

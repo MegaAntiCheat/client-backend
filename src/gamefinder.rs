@@ -5,17 +5,17 @@ use std::{
 
 /// Attempts to open the TF2 directory or locate it if it's not in the expected place
 pub fn locate_tf2_folder() -> Option<PathBuf> {
-    log::debug!("Fetching TF2 Folder");
+    tracing::debug!("Fetching TF2 Folder");
     let tf2_folder: &str = "steamapps/common/Team Fortress 2";
     let libs: Vec<PathBuf> = fetch_libraryfolders();
 
     for lib in libs {
         let mut path = lib.to_path_buf();
         path.push(tf2_folder);
-        log::debug!("Found TF2 Folder: {:?}", path);
+        tracing::debug!("Found TF2 Folder: {:?}", path);
 
         if path.exists() && verify_tf_location(&path) {
-            log::info!("Using TF2 directory: {}", path.to_string_lossy());
+            tracing::info!("Using TF2 directory: {}", path.to_string_lossy());
             return Some(path);
         }
     }
@@ -23,7 +23,7 @@ pub fn locate_tf2_folder() -> Option<PathBuf> {
 }
 
 fn fetch_libraryfolders() -> Vec<PathBuf> {
-    log::debug!("Attempting to open libraryfolders.vdf");
+    tracing::debug!("Attempting to open libraryfolders.vdf");
     const LIBFILE: &str = "libraryfolders.vdf";
     let libraryfolders = fs::read_to_string(Path::join(&find_default_lib(), LIBFILE));
 
@@ -40,11 +40,11 @@ fn fetch_libraryfolders() -> Vec<PathBuf> {
                 }
             }
 
-            log::debug!("Successfully read libraryfolders");
+            tracing::debug!("Successfully read libraryfolders");
             paths
         }
         Err(err) => {
-            log::error!("Failed to read libraryfolders.vdf: {}", err);
+            tracing::error!("Failed to read libraryfolders.vdf: {:?}", err);
             Vec::new()
         }
     }
@@ -67,15 +67,15 @@ fn find_default_lib() -> PathBuf {
 }
 
 fn verify_tf_location(lib: &Path) -> bool {
-    log::debug!("Start TF2 Verification of {:?}", lib.to_string_lossy());
+    tracing::debug!("Start TF2 Verification of {:?}", lib.to_string_lossy());
     let gameinfo = "tf/gameinfo.txt";
     let mut path = lib.to_path_buf();
     path.push(gameinfo);
 
     if path.exists() {
-        log::debug!("Passed Verification Check");
+        tracing::debug!("Passed Verification Check");
         return true;
     }
-    log::debug!("Failed Verification Check");
+    tracing::debug!("Failed Verification Check");
     false
 }

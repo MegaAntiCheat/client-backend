@@ -1,4 +1,3 @@
-use std::sync::Arc;
 use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
@@ -6,15 +5,12 @@ use tokio::sync::mpsc::Sender;
 
 use clap::Parser;
 use io::{Commands, IOManager};
-use log::{LevelFilter, SetLoggerError};
-use log4rs::append::console::{ConsoleAppender, Target};
-use log4rs::append::file::FileAppender;
-use log4rs::config::{Appender, Config, Root};
-use log4rs::encode::pattern::PatternEncoder;
-use log4rs::filter::threshold::ThresholdFilter;
-
 use settings::Settings;
 use state::State;
+use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::{
+    fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
+};
 
 mod gamefinder;
 mod io;
@@ -38,12 +34,7 @@ struct Args {
 
 #[tokio::main]
 async fn main() {
-    if let Err(e) = init_log() {
-        eprintln!(
-            "Failed to initialise logger, continuing without logs: {:?}",
-            e
-        );
-    }
+    let _guard = init_tracing();
 
     // Arg handling
     let args = Args::parse();
@@ -58,7 +49,7 @@ async fn main() {
     let mut settings = match settings {
         Ok(settings) => settings,
         Err(e) => {
-            log::error!("Failed to load settings, continuing with defaults: {:?}", e);
+            tracing::warn!("Failed to load settings, continuing with defaults: {:?}", e);
             Settings::default()
         }
     };
@@ -100,38 +91,47 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
     let mut new_players = Vec::new();
 
     loop {
+        // Log
         match io.handle_log() {
-            Ok(Some(output)) => {
+            Ok(output) => {
                 let mut state = State::write_state();
                 state.log_file_state = Ok(());
                 if let Some(new_player) = state.server.handle_io_response(output) {
                     new_players.push(new_player);
                 }
             }
-            Ok(None) => {}
             Err(e) => {
-                State::write_state().log_file_state = Err(e);
+                let mut state = State::write_state();
+                // This one runs very frequently so we'll only print diagnostics
+                // once when it first fails.
+                if state.log_file_state.is_ok() {
+                    tracing::error!("Failed to get log file contents: {:?}", e);
+                }
+                state.log_file_state = Err(e);
             }
         }
 
+        // Commands
         match io.handle_waiting_command().await {
             Ok(output) => {
                 let mut state = State::write_state();
                 state.rcon_state = Ok(());
-                if let Some(output) = output {
-                    if let Some(new_player) = state.server.handle_io_response(output) {
-                        new_players.push(new_player);
-                    }
+                if let Some(new_player) = state.server.handle_io_response(output) {
+                    new_players.push(new_player);
                 }
             }
             Err(e) => {
+                tracing::error!("Failed to run command: {:?}", e);
                 State::write_state().rcon_state = Err(e);
             }
         }
 
         // Request steam API stuff on new players and clear
         for player in &new_players {
-            steam_api_requester.send(*player).await.unwrap();
+            steam_api_requester
+                .send(*player)
+                .await
+                .expect("Steam API task ded");
         }
 
         new_players.clear();
@@ -139,50 +139,52 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
 }
 
 async fn refresh_loop(cmd: Sender<Commands>) {
-    log::debug!("Entering refresh loop");
+    tracing::debug!("Entering refresh loop");
     loop {
         State::write_state().server.refresh();
 
-        cmd.send(Commands::Status).await.unwrap();
+        cmd.send(Commands::Status)
+            .await
+            .expect("communication with main loop from refresh loop");
         tokio::time::sleep(Duration::from_secs(3)).await;
-        cmd.send(Commands::G15).await.unwrap();
+        cmd.send(Commands::G15)
+            .await
+            .expect("communication with main loop from refresh loop");
         tokio::time::sleep(Duration::from_secs(3)).await;
         std::thread::sleep(Duration::from_secs(3));
     }
 }
 
-fn init_log() -> Result<(), SetLoggerError> {
-    let level = log::LevelFilter::Debug;
-    let file_path = "./log/client_backend.log";
+fn init_tracing() -> Option<WorkerGuard> {
+    if std::env::var("RUST_LOG").is_err() {
+        std::env::set_var("RUST_LOG", "info,hyper::proto=warn");
+    }
 
-    // Build a stderr logger.
-    let stderr = ConsoleAppender::builder().target(Target::Stderr).build();
+    let subscriber = tracing_subscriber::registry().with(
+        tracing_subscriber::fmt::layer()
+            .with_writer(std::io::stderr)
+            .with_filter(EnvFilter::from_default_env()),
+    );
 
-    // Logging to log file.
-    let logfile = FileAppender::builder()
-        // Pattern: https://docs.rs/log4rs/*/log4rs/encode/pattern/index.html
-        .encoder(Box::new(PatternEncoder::new("{l} - {m}\n")))
-        .build(file_path)
-        .unwrap();
-
-    // Log Trace level output to file where trace is the default level
-    // and the programmatically specified level to stderr.
-    let config = Config::builder()
-        .appender(Appender::builder().build("logfile", Box::new(logfile)))
-        .appender(
-            Appender::builder()
-                .filter(Box::new(ThresholdFilter::new(level)))
-                .build("stderr", Box::new(stderr)),
-        )
-        .build(
-            Root::builder()
-                .appender("logfile")
-                .appender("stderr")
-                .build(LevelFilter::Trace),
-        )
-        .unwrap();
-
-    let _handle = log4rs::init_config(config)?;
-
-    Ok(())
+    match std::fs::File::create("./macclient.log") {
+        Ok(latest_log) => {
+            let (file_writer, guard) = tracing_appender::non_blocking(latest_log);
+            subscriber
+                .with(
+                    tracing_subscriber::fmt::layer()
+                        .with_ansi(false)
+                        .with_writer(file_writer.with_max_level(tracing::Level::TRACE)),
+                )
+                .init();
+            Some(guard)
+        }
+        Err(e) => {
+            subscriber.init();
+            tracing::error!(
+                "Failed to create log file, continuing without persistent logs: {}",
+                e
+            );
+            None
+        }
+    }
 }

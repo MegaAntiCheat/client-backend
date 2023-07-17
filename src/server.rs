@@ -60,6 +60,7 @@ impl Server {
         // TODO - Maybe move this back into state instead of inside server?
         use IOOutput::*;
         match response {
+            NoOutput => {}
             G15(players) => self.handle_g15_parse(players),
             Status(status) => {
                 return self.add_or_update_player(status, None);
@@ -178,8 +179,7 @@ impl Server {
             player.game_info.accounted = true;
             None
         } else {
-            // Since we have already gotten a valid steamid from this status line it is safe to unwrap
-            let player = Player::new_from_status(&status, user).unwrap();
+            let player = Player::new_from_status(&status, user);
             self.players.insert(status.steamid, player);
             Some(status.steamid)
         }
@@ -187,12 +187,12 @@ impl Server {
 
     fn handle_chat(&mut self, chat: ChatMessage) {
         // TODO
-        log::info!("Chat: {:?}", chat);
+        tracing::info!("Chat: {:?}", chat);
     }
 
     fn handle_kill(&mut self, kill: PlayerKill) {
         // TODO
-        log::info!("Kill: {:?}", kill);
+        tracing::info!("Kill: {:?}", kill);
     }
 }
 

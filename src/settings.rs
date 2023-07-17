@@ -1,49 +1,15 @@
 use std::{
-    fmt::Display,
     fs::OpenOptions,
     io::Write,
     path::{Path, PathBuf},
     sync::Arc,
 };
 
+use anyhow::{anyhow, Context, Result};
 use directories_next::ProjectDirs;
 use serde::{Deserialize, Serialize};
 
 use crate::gamefinder;
-
-#[derive(Debug)]
-pub enum Error {
-    IO(std::io::Error),
-    Serde(serde_yaml::Error),
-    NoValidPath,
-}
-
-impl From<std::io::Error> for Error {
-    fn from(value: std::io::Error) -> Self {
-        Self::IO(value)
-    }
-}
-impl From<serde_yaml::Error> for Error {
-    fn from(value: serde_yaml::Error) -> Self {
-        Self::Serde(value)
-    }
-}
-
-impl Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::IO(io) => {
-                write!(f, "IO: {}", io)
-            }
-            Self::Serde(serde) => {
-                write!(f, "Serialize/Deserialize: {}", serde)
-            }
-            Self::NoValidPath => {
-                write!(f, "No valid home directory was found.")
-            }
-        }
-    }
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -56,37 +22,44 @@ pub struct Settings {
     port: u16,
 }
 
+#[allow(dead_code)]
 impl Settings {
     /// Attempt to load settings from the user's saved configuration file
-    pub fn load() -> Result<Settings, Error> {
+    pub fn load() -> Result<Settings> {
         match Self::locate_config_file_path() {
             Some(path) => Self::load_from(path),
-            None => Err(Error::NoValidPath),
+            None => Err(anyhow!("No valid home directory could be found.")),
         }
     }
 
     /// Attempt to load settings from a provided configuration file, or just use default config
-    pub fn load_from(path: PathBuf) -> Result<Settings, Error> {
-        let contents = std::fs::read_to_string(&path)?;
-        let mut settings = serde_yaml::from_str::<Settings>(&contents)?;
+    pub fn load_from(path: PathBuf) -> Result<Settings> {
+        let contents =
+            std::fs::read_to_string(&path).context("Failed to load existing config file.")?;
+        let mut settings =
+            serde_yaml::from_str::<Settings>(&contents).context("Failed to parse settings.")?;
         settings.config_path = Some(path);
 
-        log::debug!("Successfully loaded settings.");
+        tracing::debug!("Successfully loaded settings.");
         Ok(settings)
     }
 
     /// Attempt to save the settings back to the loaded configuration file
-    pub fn save(&self) -> Result<(), Error> {
-        if self.config_path.is_none() {
-            return Err(Error::NoValidPath);
-        }
+    pub fn save(&self) -> Result<()> {
+        let config_path = self.config_path.as_ref().context("No config file set.")?;
 
         let mut open_options = OpenOptions::new();
         let mut file = open_options
             .create(true)
             .write(true)
-            .open(self.config_path.as_ref().unwrap())?;
-        write!(&mut file, "{}", serde_yaml::to_string(self)?)?;
+            .open(config_path)
+            .context("Failed to create or open config file.")?;
+        write!(
+            &mut file,
+            "{}",
+            serde_yaml::to_string(self).context("Failed to serialize configuration.")?
+        )
+        .context("Failed to write to config file.")?;
 
         Ok(())
     }
@@ -94,10 +67,10 @@ impl Settings {
     /// Attempt to save the settings, log errors and ignore result
     pub fn save_ok(&self) {
         if let Err(e) = self.save() {
-            log::error!("Failed to save settings: {}", e);
+            tracing::error!("Failed to save settings: {:?}", e);
             return;
         }
-        log::debug!("Settings saved to {:?}", self.config_path);
+        tracing::debug!("Settings saved to {:?}", self.config_path);
     }
 
     // Setters & Getters

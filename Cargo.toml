@@ -6,12 +6,11 @@ edition = "2021"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+anyhow = { version = "1.0.72", features = ["backtrace"] }
 axum = "0.6.18"
 clap = { version = "4.3.11", features = ["derive"] }
 clap_lex = "0.5.0"
 directories-next = "2.0.0"
-log = "0.4.19"
-log4rs = "1.2.0"
 rcon = { version = "0.5.2", features = ["rt-tokio"], git = "https://github.com/MegaAntiCheat/rust-rcon" }
 regex = "1.8.4"
 serde = { version = "1.0.164", features = ["rc"] }
@@ -19,4 +18,8 @@ serde_json = "1.0.99"
 serde_yaml = "0.9.22"
 steamid-ng = "1.0.0"
 tappet = { git = "https://github.com/Bash-09/SteamHelper-rs" }
+thiserror = "1.0.43"
 tokio = { version = "1.29.1", features = ["full"] }
+tracing = "0.1.37"
+tracing-appender = "0.2.2"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }

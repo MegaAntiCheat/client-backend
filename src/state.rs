@@ -1,3 +1,4 @@
+use anyhow::Result;
 use std::{
     ops::{Deref, DerefMut},
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
@@ -17,7 +18,7 @@ impl Deref for StateReadLock<'_> {
     type Target = State;
 
     fn deref(&self) -> &Self::Target {
-        self.lock.as_ref().unwrap()
+        self.lock.as_ref().expect("State lock")
     }
 }
 
@@ -29,12 +30,12 @@ impl Deref for StateWriteLock<'_> {
     type Target = State;
 
     fn deref(&self) -> &Self::Target {
-        self.lock.as_ref().unwrap()
+        self.lock.as_ref().expect("State lock")
     }
 }
 impl DerefMut for StateWriteLock<'_> {
     fn deref_mut(&mut self) -> &mut State {
-        self.lock.as_mut().unwrap()
+        self.lock.as_mut().expect("State lock")
     }
 }
 
@@ -42,26 +43,26 @@ impl DerefMut for StateWriteLock<'_> {
 
 #[derive(Debug)]
 pub struct State {
-    pub log_file_state: std::io::Result<()>,
-    pub rcon_state: Result<(), rcon::Error>,
+    pub log_file_state: Result<()>,
+    pub rcon_state: Result<()>,
     pub server: Server,
     pub settings: Settings,
 }
 
 impl State {
     pub fn initialize_state(state: State) {
-        *STATE.write().unwrap() = Some(state);
+        *STATE.write().expect("State lock") = Some(state);
     }
 
     pub fn read_state() -> StateReadLock<'static> {
         StateReadLock {
-            lock: STATE.read().unwrap(),
+            lock: STATE.read().expect("State lock"),
         }
     }
 
     pub fn write_state() -> StateWriteLock<'static> {
         StateWriteLock {
-            lock: STATE.write().unwrap(),
+            lock: STATE.write().expect("State lock"),
         }
     }
 

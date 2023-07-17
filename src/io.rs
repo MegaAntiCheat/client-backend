@@ -1,31 +1,22 @@
+use anyhow::Context;
 use regex::Regex;
 
-use regexes::StatusLine;
-use regexes::REGEX_STATUS;
+use anyhow::{anyhow, Result};
 use std::fmt::Display;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc::Receiver;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Receiver, Sender};
 
 use crate::state::State;
 
-use self::command_manager::CommandManager;
-use self::command_manager::KickReason;
+use self::command_manager::{CommandManager, KickReason};
 use self::filewatcher::FileWatcher;
-use self::g15::G15Parser;
-use self::regexes::ChatMessage;
-use self::regexes::Hostname;
-use self::regexes::Map;
-use self::regexes::PlayerCount;
-use self::regexes::PlayerKill;
-use self::regexes::ServerIP;
-use self::regexes::REGEX_CHAT;
-use self::regexes::REGEX_HOSTNAME;
-use self::regexes::REGEX_IP;
-use self::regexes::REGEX_KILL;
-use self::regexes::REGEX_MAP;
-use self::regexes::REGEX_PLAYERCOUNT;
+use self::g15::{G15Parser, G15Player};
+use self::regexes::{
+    ChatMessage, Hostname, Map, PlayerCount, PlayerKill, ServerIP, StatusLine, REGEX_CHAT,
+    REGEX_HOSTNAME, REGEX_IP, REGEX_KILL, REGEX_MAP, REGEX_PLAYERCOUNT, REGEX_STATUS,
+};
 
 pub mod command_manager;
 pub mod filewatcher;
@@ -36,6 +27,7 @@ pub mod regexes;
 
 #[derive(Debug)]
 pub enum IOOutput {
+    NoOutput,
     Status(StatusLine),
     Chat(ChatMessage),
     Kill(PlayerKill),
@@ -43,9 +35,10 @@ pub enum IOOutput {
     ServerIP(ServerIP),
     Map(Map),
     PlayerCount(PlayerCount),
-    G15(Vec<g15::G15Player>),
+    G15(Vec<G15Player>),
 }
 
+#[allow(dead_code)]
 pub enum Commands {
     G15,
     Status,
@@ -91,13 +84,13 @@ impl IOManager {
             command_manager,
             log_watcher: None,
             parser: G15Parser::new(),
-            regex_status: Regex::new(REGEX_STATUS).unwrap(),
-            regex_chat: Regex::new(REGEX_CHAT).unwrap(),
-            regex_kill: Regex::new(REGEX_KILL).unwrap(),
-            regex_hostname: Regex::new(REGEX_HOSTNAME).unwrap(),
-            regex_ip: Regex::new(REGEX_IP).unwrap(),
-            regex_map: Regex::new(REGEX_MAP).unwrap(),
-            regex_playercount: Regex::new(REGEX_PLAYERCOUNT).unwrap(),
+            regex_status: Regex::new(REGEX_STATUS).expect("Compile static regex"),
+            regex_chat: Regex::new(REGEX_CHAT).expect("Compile static regex"),
+            regex_kill: Regex::new(REGEX_KILL).expect("Compile static regex"),
+            regex_hostname: Regex::new(REGEX_HOSTNAME).expect("Compile static regex"),
+            regex_ip: Regex::new(REGEX_IP).expect("Compile static regex"),
+            regex_map: Regex::new(REGEX_MAP).expect("Compile static regex"),
+            regex_playercount: Regex::new(REGEX_PLAYERCOUNT).expect("Compile static regex"),
         }
     }
 
@@ -105,107 +98,112 @@ impl IOManager {
         self.command_send.clone()
     }
 
-    pub async fn handle_waiting_command(&mut self) -> Result<Option<IOOutput>, rcon::Error> {
+    pub async fn handle_waiting_command(&mut self) -> Result<IOOutput> {
         if let Ok(Some(command)) =
             tokio::time::timeout(Duration::from_millis(50), self.command_recv.recv()).await
         {
             return self.handle_command(command).await;
         }
 
-        Ok(None)
+        Ok(IOOutput::NoOutput)
     }
 
     /// Run a command and handle the response from it
-    pub async fn handle_command(
-        &mut self,
-        command: Commands,
-    ) -> Result<Option<IOOutput>, rcon::Error> {
+    pub async fn handle_command(&mut self, command: Commands) -> Result<IOOutput> {
         let resp: String = self
             .command_manager
             .run_command(&format!("{}", command))
-            .await?;
+            .await
+            .context("Failed to run command")?;
         Ok(match command {
             Commands::G15 => {
                 let players = self.parser.parse_g15(&resp);
-                Some(IOOutput::G15(players))
+                IOOutput::G15(players)
             }
-            Commands::Kick(_, _) => {
-                None // No return from a kick invocation.
-            }
-            Commands::Status => {
-                None // No return via RCON for status.
-            }
-            Commands::Say(_) => {
-                None // No return from a say invocation.
+            Commands::Kick(_, _) | Commands::Status | Commands::Say(_) => {
+                IOOutput::NoOutput // No return from a kick invocation.
             }
         })
     }
 
     /// Parse all of the new log entries that have been written
-    pub fn handle_log(&mut self) -> std::io::Result<Option<IOOutput>> {
+    pub fn handle_log(&mut self) -> Result<IOOutput> {
         if self.log_watcher.as_ref().is_none() {
-            self.reopen_log()?;
+            self.reopen_log().context("Failed to reopen log file.")?;
         }
 
-        while let Some(line) = self.log_watcher.as_mut().unwrap().get_line() {
-            // Match status
-            if let Some(caps) = self.regex_status.captures(&line) {
-                match StatusLine::parse(caps) {
-                    Ok(status) => return Ok(Some(IOOutput::Status(status))),
-                    Err(e) => log::error!("Malformed steamid: {}", e),
+        loop {
+            match self
+                .log_watcher
+                .as_mut()
+                .ok_or(anyhow!("Failed to read lines from log file."))?
+                .get_line()
+            {
+                Ok(None) => break,
+                Ok(Some(line)) => {
+                    // Match status
+                    if let Some(caps) = self.regex_status.captures(&line) {
+                        match StatusLine::parse(caps) {
+                            Ok(status) => return Ok(IOOutput::Status(status)),
+                            Err(e) => tracing::error!("Error parsing status line: {:?}", e),
+                        }
+                        continue;
+                    }
+                    // Match chat message
+                    if let Some(caps) = self.regex_chat.captures(&line) {
+                        let chat = ChatMessage::parse(caps);
+                        return Ok(IOOutput::Chat(chat));
+                    }
+                    // Match player kills
+                    if let Some(caps) = self.regex_kill.captures(&line) {
+                        let kill = PlayerKill::parse(caps);
+                        return Ok(IOOutput::Kill(kill));
+                    }
+                    // Match server hostname
+                    if let Some(caps) = self.regex_hostname.captures(&line) {
+                        let hostname = Hostname::parse(caps);
+                        return Ok(IOOutput::Hostname(hostname));
+                    }
+                    // Match server IP
+                    if let Some(caps) = self.regex_ip.captures(&line) {
+                        let ip = ServerIP::parse(caps);
+                        return Ok(IOOutput::ServerIP(ip));
+                    }
+                    // Match server map
+                    if let Some(caps) = self.regex_map.captures(&line) {
+                        let map = Map::parse(caps);
+                        return Ok(IOOutput::Map(map));
+                    }
+                    // Match server player count
+                    if let Some(caps) = self.regex_playercount.captures(&line) {
+                        let playercount = PlayerCount::parse(caps);
+                        return Ok(IOOutput::PlayerCount(playercount));
+                    }
                 }
-                continue;
-            }
-            // Match chat message
-            if let Some(caps) = self.regex_chat.captures(&line) {
-                let chat = ChatMessage::parse(caps);
-                return Ok(Some(IOOutput::Chat(chat)));
-            }
-            // Match player kills
-            if let Some(caps) = self.regex_kill.captures(&line) {
-                let kill = PlayerKill::parse(caps);
-                return Ok(Some(IOOutput::Kill(kill)));
-            }
-            // Match server hostname
-            if let Some(caps) = self.regex_hostname.captures(&line) {
-                let hostname = Hostname::parse(caps);
-                return Ok(Some(IOOutput::Hostname(hostname)));
-            }
-            // Match server IP
-            if let Some(caps) = self.regex_ip.captures(&line) {
-                let ip = ServerIP::parse(caps);
-                return Ok(Some(IOOutput::ServerIP(ip)));
-            }
-            // Match server map
-            if let Some(caps) = self.regex_map.captures(&line) {
-                let map = Map::parse(caps);
-                return Ok(Some(IOOutput::Map(map)));
-            }
-            // Match server player count
-            if let Some(caps) = self.regex_playercount.captures(&line) {
-                let playercount = PlayerCount::parse(caps);
-                return Ok(Some(IOOutput::PlayerCount(playercount)));
+                Err(e) => {
+                    self.log_watcher = None;
+                    tracing::error!("Failed to read log line: {:?}", e);
+                }
             }
         }
 
-        Ok(None)
+        Ok(IOOutput::NoOutput)
     }
 
     /// Attempt to reopen the log file with the currently set directory.
-    /// If the log file fails to be opened, an [LogOutput::NoLogFile] is sent back to the main thread and [Self::log_watcher] is set to [None]
-    fn reopen_log(&mut self) -> std::io::Result<()> {
+    fn reopen_log(&mut self) -> Result<()> {
         let state = State::read_state();
-        let dir = state.settings.get_tf2_directory();
+        let mut dir: PathBuf = state.settings.get_tf2_directory().into();
+        dir.push("tf/console.log");
 
-        match FileWatcher::use_directory(dir.into()) {
+        match FileWatcher::new(dir) {
             Ok(lw) => {
-                log::debug!("Successfully opened log file");
                 self.log_watcher = Some(lw);
+                tracing::info!("Successfully opened log file.");
                 Ok(())
             }
             Err(e) => {
                 self.log_watcher = None;
-                log::error!("Failed to open log file: {:?}", e);
                 Err(e)
             }
         }
