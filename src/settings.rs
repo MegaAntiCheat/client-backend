@@ -40,7 +40,7 @@ impl Settings {
             serde_yaml::from_str::<Settings>(&contents).context("Failed to parse settings.")?;
         settings.config_path = Some(path);
 
-        log::debug!("Successfully loaded settings.");
+        tracing::debug!("Successfully loaded settings.");
         Ok(settings)
     }
 
@@ -67,10 +67,10 @@ impl Settings {
     /// Attempt to save the settings, log errors and ignore result
     pub fn save_ok(&self) {
         if let Err(e) = self.save() {
-            log::error!("Failed to save settings: {:?}", e);
+            tracing::error!("Failed to save settings: {:?}", e);
             return;
         }
-        log::debug!("Settings saved to {:?}", self.config_path);
+        tracing::debug!("Settings saved to {:?}", self.config_path);
     }
 
     // Setters & Getters

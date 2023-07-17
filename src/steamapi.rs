@@ -18,7 +18,7 @@ use crate::{
 /// Enter a loop to wait for steam lookup requests, make those requests from the Steam web API,
 /// and update the state to include that data. Intended to be run inside a new tokio::task
 pub async fn steam_api_loop(mut requests: Receiver<SteamID>, api_key: Arc<str>) {
-    log::debug!("Entering steam api request loop");
+    tracing::debug!("Entering steam api request loop");
 
     let mut client = SteamAPI::new(api_key);
     loop {
@@ -28,7 +28,7 @@ pub async fn steam_api_loop(mut requests: Receiver<SteamID>, api_key: Arc<str>) 
                     .server
                     .insert_steam_info(request, steam_info),
                 Err(e) => {
-                    log::error!("Failed to get player info from SteamAPI: {:?}", e);
+                    tracing::error!("Failed to get player info from SteamAPI: {:?}", e);
                 }
             }
         }
@@ -37,7 +37,7 @@ pub async fn steam_api_loop(mut requests: Receiver<SteamID>, api_key: Arc<str>) 
 
 /// Make a request to the Steam web API for the chosen player and return the important steam info.
 async fn request_steam_info(client: &mut SteamAPI, player: SteamID) -> Result<SteamInfo> {
-    log::debug!("Requesting steam account: {}", u64::from(player));
+    tracing::debug!("Requesting steam account: {}", u64::from(player));
 
     let summary = client
         .get()

@@ -187,12 +187,12 @@ impl Server {
 
     fn handle_chat(&mut self, chat: ChatMessage) {
         // TODO
-        log::info!("Chat: {:?}", chat);
+        tracing::info!("Chat: {:?}", chat);
     }
 
     fn handle_kill(&mut self, kill: PlayerKill) {
         // TODO
-        log::info!("Kill: {:?}", kill);
+        tracing::info!("Kill: {:?}", kill);
     }
 }
 

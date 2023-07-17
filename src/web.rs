@@ -20,7 +20,7 @@ pub async fn web_main(port: u16) {
         .route("/mac/history/v1", get(get_history));
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    log::info!("Starting web server at {addr}");
+    tracing::info!("Starting web server at {addr}");
     axum::Server::bind(&addr)
         .serve(api.into_make_service())
         .await
@@ -35,7 +35,7 @@ async fn root() -> &'static str {
 
 /// API endpoint to retrieve the current server state
 async fn game() -> impl IntoResponse {
-    log::debug!("State requested");
+    tracing::debug!("State requested");
     (
         StatusCode::OK,
         [
@@ -62,7 +62,7 @@ impl Default for Pagination {
 }
 
 async fn get_history(page: Query<Pagination>) -> impl IntoResponse {
-    log::debug!("History requested");
+    tracing::debug!("History requested");
     (
         StatusCode::OK,
         [
@@ -82,5 +82,5 @@ async fn get_history(page: Query<Pagination>) -> impl IntoResponse {
 
 /// API endpoint to mark a player
 async fn mark(Json(_mark): Json<()>) {
-    log::debug!("Mark player requested");
+    tracing::debug!("Mark player requested");
 }

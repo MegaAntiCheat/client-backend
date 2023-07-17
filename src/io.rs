@@ -1,7 +1,7 @@
 use anyhow::Context;
 use regex::Regex;
 
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use regexes::StatusLine;
 use regexes::REGEX_STATUS;
 use std::fmt::Display;
@@ -149,7 +149,7 @@ impl IOManager {
             match self
                 .log_watcher
                 .as_mut()
-                .expect("Just reopened log file but it was None")
+                .ok_or(anyhow!("Failed to read lines from log file."))?
                 .get_line()
             {
                 Ok(None) => break,
@@ -158,7 +158,7 @@ impl IOManager {
                     if let Some(caps) = self.regex_status.captures(&line) {
                         match StatusLine::parse(caps) {
                             Ok(status) => return Ok(IOOutput::Status(status)),
-                            Err(e) => log::error!("Error parsing status line: {:?}", e),
+                            Err(e) => tracing::error!("Error parsing status line: {:?}", e),
                         }
                         continue;
                     }
@@ -195,7 +195,7 @@ impl IOManager {
                 }
                 Err(e) => {
                     self.log_watcher = None;
-                    log::error!("Failed to read log line: {:?}", e);
+                    tracing::error!("Failed to read log line: {:?}", e);
                 }
             }
         }
@@ -212,7 +212,7 @@ impl IOManager {
         match FileWatcher::new(dir) {
             Ok(lw) => {
                 self.log_watcher = Some(lw);
-                log::info!("Successfully opened log file.");
+                tracing::info!("Successfully opened log file.");
                 Ok(())
             }
             Err(e) => {

@@ -49,23 +49,29 @@ impl CommandManager {
                 .context("Failed to reconnect to RCon.")?
         };
 
-        log::debug!("Running command \"{}\"", command);
-        rcon.cmd(command).await.context("Failed to run command")
+        tracing::debug!("Running command \"{}\"", command);
+        match rcon.cmd(command).await.context("Failed to run command") {
+            Ok(out) => Ok(out),
+            Err(e) => {
+                self.rcon = None;
+                Err(e)
+            }
+        }
     }
 
     async fn try_connect(&mut self) -> Result<&mut Connection<TcpStream>> {
         let password = State::read_state().settings.get_rcon_password();
 
-        log::debug!("Attempting to reconnect to RCon");
+        tracing::debug!("Attempting to reconnect to RCon");
         match Connection::connect("127.0.0.1:27015", &password).await {
             Ok(con) => {
                 self.rcon = Some(con);
-                log::debug!("RCon reconnected.");
+                tracing::info!("RCon reconnected.");
                 Ok(self.rcon.as_mut().expect(""))
             }
             Err(e) => {
                 self.rcon = None;
-                Err(e.into())
+                Err(e).context("Failed to establish connection")
             }
         }
     }
