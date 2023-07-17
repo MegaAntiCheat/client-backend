@@ -21,16 +21,27 @@ mod state;
 mod steamapi;
 mod web;
 
+
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-struct Args {
+pub struct Args {
     /// Override the port to host the web-ui and API on
     #[arg(short, long)]
     pub port: Option<u16>,
     /// Override the config file to use
     #[arg(short, long)]
     pub config: Option<String>,
+    /// Override the default tf2 directory
+    #[arg(short, long)]
+    pub tf2_dir: Option<String>,
+    /// Override the configured/default rcon password
+    #[arg(short, long)]
+    pub rcon_pword: Option<String>,
+    /// Override the configured Steam API key,
+    #[arg(short, long)]
+    pub api_key: Option<String>,
 }
+
 
 #[tokio::main]
 async fn main() {
@@ -41,22 +52,19 @@ async fn main() {
 
     // Load settings
     let settings = if let Some(config_path) = &args.config {
-        Settings::load_from(config_path.into())
+        tracing::info!("Overrode default config path with provided '{}'", config_path);
+        Settings::load_from(config_path.into(), &args)
     } else {
-        Settings::load()
+        Settings::load(&args)
     };
 
-    let mut settings = match settings {
+    let settings = match settings {
         Ok(settings) => settings,
         Err(e) => {
             tracing::warn!("Failed to load settings, continuing with defaults: {:?}", e);
             Settings::default()
         }
     };
-
-    if let Some(port) = args.port {
-        settings.set_port(port);
-    }
 
     // Just some settings we'll need later
     let port = settings.get_port();
