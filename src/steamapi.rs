@@ -6,7 +6,7 @@ use tappet::{
     response_types::{
         GetFriendListResponseBase, GetPlayerBansResponseBase, GetPlayerSummariesResponseBase,
     },
-    Executor, ExecutorResponse, SteamAPI,
+    Executor, SteamAPI,
 };
 use tokio::sync::mpsc::Receiver;
 

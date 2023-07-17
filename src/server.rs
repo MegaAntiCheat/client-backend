@@ -179,7 +179,6 @@ impl Server {
             player.game_info.accounted = true;
             None
         } else {
-            // Since we have already gotten a valid steamid from this status line it is safe to unwrap
             let player = Player::new_from_status(&status, user);
             self.players.insert(status.steamid, player);
             Some(status.steamid)

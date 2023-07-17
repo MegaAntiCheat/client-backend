@@ -50,7 +50,7 @@ impl CommandManager {
         };
 
         log::debug!("Running command \"{}\"", command);
-        Ok(rcon.cmd(command).await.context("Failed to run command")?)
+        rcon.cmd(command).await.context("Failed to run command")
     }
 
     async fn try_connect(&mut self) -> Result<&mut Connection<TcpStream>> {
