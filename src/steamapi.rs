@@ -5,6 +5,7 @@ use steamid_ng::SteamID;
 use tappet::{
     response_types::{
         GetFriendListResponseBase, GetPlayerBansResponseBase, GetPlayerSummariesResponseBase,
+        PlayerBans, PlayerSummary,
     },
     Executor, SteamAPI,
 };
@@ -39,64 +40,21 @@ pub async fn steam_api_loop(mut requests: Receiver<SteamID>, api_key: Arc<str>) 
 async fn request_steam_info(client: &mut SteamAPI, player: SteamID) -> Result<SteamInfo> {
     tracing::debug!("Requesting steam account: {}", u64::from(player));
 
-    let summary = client
-        .get()
-        .ISteamUser()
-        .GetPlayerSummaries(vec![format!("{}", u64::from(player))])
-        .execute()
-        .await
-        .context("Failed to get player summary from SteamAPI.")?;
-    let summary = serde_json::from_str::<GetPlayerSummariesResponseBase>(&summary)
-        .with_context(|| format!("Failed to parse player summary from SteamAPI: {}", &summary))?;
-    let summary = summary
-        .response
-        .players
-        .get(0)
-        .ok_or(anyhow!("Invalid number of responses from SteamAPI."))
-        .context("Failed to get player sumarry from SteamAPI.")?;
-
-    let friends = client
-        .get()
-        .ISteamUser()
-        .GetFriendList(player.into(), "all".to_string())
-        .execute()
-        .await
-        .context("Failed to get account friends from SteamAPI.")?;
-    let friends =
-        serde_json::from_str::<GetFriendListResponseBase>(&friends).with_context(|| {
-            format!(
-                "Failed to parse account friends from SteamAPI: {}",
-                &friends
-            )
-        })?;
-    let friends = friends
-        .friendslist
-        .map(|fl| fl.friends)
-        .unwrap_or(Vec::new())
-        .iter()
-        .filter_map(|f| match f.steamid.parse::<u64>() {
-            Err(_) => None,
-            Ok(id) => Some(Friend {
-                steamid: SteamID::from(id),
-                friend_since: f.friend_since,
-            }),
-        })
-        .collect();
-
-    let bans = client
-        .get()
-        .ISteamUser()
-        .GetPlayerBans(vec![format!("{}", u64::from(player))])
-        .execute()
-        .await
-        .context("Failed to get player bans from SteamAPI")?;
-    let bans = serde_json::from_str::<GetPlayerBansResponseBase>(&bans)
-        .with_context(|| format!("Failed to parse player bans from SteamAPI: {}", &bans))?;
-    let bans = bans
-        .players
-        .get(0)
-        .ok_or(anyhow!("Invalid number of responses from SteamAPI"))
-        .context("Failed to get player bans from SteamAPI.")?;
+    let summary = request_player_summary(client, player).await?;
+    let friends = match request_account_friends(client, player).await {
+        Ok(friends) => friends,
+        Err(e) => {
+            if summary.communityvisibilitystate == 3 {
+                tracing::warn!(
+                    "Friends could not be retrieved from public profile {}: {:?}",
+                    u64::from(player),
+                    e
+                );
+            }
+            Vec::new()
+        }
+    };
+    let bans = request_account_bans(client, player).await?;
 
     Ok(SteamInfo {
         account_name: summary.personaname.clone().into(),
@@ -117,4 +75,70 @@ async fn request_steam_info(client: &mut SteamAPI, player: SteamID) -> Result<St
 
         friends,
     })
+}
+
+async fn request_player_summary(client: &mut SteamAPI, player: SteamID) -> Result<PlayerSummary> {
+    let summary = client
+        .get()
+        .ISteamUser()
+        .GetPlayerSummaries(vec![format!("{}", u64::from(player))])
+        .execute()
+        .await
+        .context("Failed to get player summary from SteamAPI.")?;
+    let mut summary = serde_json::from_str::<GetPlayerSummariesResponseBase>(&summary)
+        .with_context(|| format!("Failed to parse player summary from SteamAPI: {}", &summary))?;
+    if summary.response.players.is_empty() {
+        return Err(anyhow!(
+            "Invalid number of responses from player summary request"
+        ));
+    }
+    Ok(summary.response.players.remove(0))
+}
+
+async fn request_account_friends(client: &mut SteamAPI, player: SteamID) -> Result<Vec<Friend>> {
+    let friends = client
+        .get()
+        .ISteamUser()
+        .GetFriendList(player.into(), "all".to_string())
+        .execute()
+        .await
+        .context("Failed to get account friends from SteamAPI.")?;
+    let friends =
+        serde_json::from_str::<GetFriendListResponseBase>(&friends).with_context(|| {
+            format!(
+                "Failed to parse account friends from SteamAPI: {}",
+                &friends
+            )
+        })?;
+    Ok(friends
+        .friendslist
+        .map(|fl| fl.friends)
+        .unwrap_or(Vec::new())
+        .iter()
+        .filter_map(|f| match f.steamid.parse::<u64>() {
+            Err(_) => None,
+            Ok(id) => Some(Friend {
+                steamid: SteamID::from(id),
+                friend_since: f.friend_since,
+            }),
+        })
+        .collect())
+}
+
+async fn request_account_bans(client: &mut SteamAPI, player: SteamID) -> Result<PlayerBans> {
+    let bans = client
+        .get()
+        .ISteamUser()
+        .GetPlayerBans(vec![format!("{}", u64::from(player))])
+        .execute()
+        .await
+        .context("Failed to get player bans from SteamAPI")?;
+    let mut bans = serde_json::from_str::<GetPlayerBansResponseBase>(&bans)
+        .with_context(|| format!("Failed to parse player bans from SteamAPI: {}", &bans))?;
+    if bans.players.is_empty() {
+        return Err(anyhow!(
+            "Invalid number of responses from account bans request"
+        ));
+    }
+    Ok(bans.players.remove(0))
 }
