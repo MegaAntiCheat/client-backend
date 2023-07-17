@@ -2,7 +2,12 @@ use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use steamid_ng::SteamID;
-use tappet::{ExecutorResponse, SteamAPI};
+use tappet::{
+    response_types::{
+        GetFriendListResponseBase, GetPlayerBansResponseBase, GetPlayerSummariesResponseBase,
+    },
+    Executor, ExecutorResponse, SteamAPI,
+};
 use tokio::sync::mpsc::Receiver;
 
 use crate::{
@@ -38,9 +43,11 @@ async fn request_steam_info(client: &mut SteamAPI, player: SteamID) -> Result<St
         .get()
         .ISteamUser()
         .GetPlayerSummaries(vec![format!("{}", u64::from(player))])
-        .execute_with_response()
+        .execute()
         .await
         .context("Failed to get player summary from SteamAPI.")?;
+    let summary = serde_json::from_str::<GetPlayerSummariesResponseBase>(&summary)
+        .with_context(|| format!("Failed to parse player summary from SteamAPI: {}", &summary))?;
     let summary = summary
         .response
         .players
@@ -52,9 +59,16 @@ async fn request_steam_info(client: &mut SteamAPI, player: SteamID) -> Result<St
         .get()
         .ISteamUser()
         .GetFriendList(player.into(), "all".to_string())
-        .execute_with_response()
+        .execute()
         .await
         .context("Failed to get account friends from SteamAPI.")?;
+    let friends =
+        serde_json::from_str::<GetFriendListResponseBase>(&friends).with_context(|| {
+            format!(
+                "Failed to parse account friends from SteamAPI: {}",
+                &friends
+            )
+        })?;
     let friends = friends
         .friendslist
         .map(|fl| fl.friends)
@@ -73,9 +87,11 @@ async fn request_steam_info(client: &mut SteamAPI, player: SteamID) -> Result<St
         .get()
         .ISteamUser()
         .GetPlayerBans(vec![format!("{}", u64::from(player))])
-        .execute_with_response()
+        .execute()
         .await
         .context("Failed to get player bans from SteamAPI")?;
+    let bans = serde_json::from_str::<GetPlayerBansResponseBase>(&bans)
+        .with_context(|| format!("Failed to parse player bans from SteamAPI: {}", &bans))?;
     let bans = bans
         .players
         .get(0)
