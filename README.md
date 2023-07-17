@@ -34,7 +34,7 @@ net_start
 You will also need to provide a SteamAPI key to the client. The client looks for configs in a config folder specified by OS.
 - Windows: `C:\Users\<Your Name>\AppData\Roaming\Mega Anti Cheat\config`
 - Mac OS: TODO - work out what this is 
-- Linux: `~/.config/megaanticheatclient/config`
+- Linux: `~/.config/megaanticheatclient/`
 
 If you have not run the `client-backend` before, this config folder will not exist. You can either run the `client-backend` first or manually create the folder, then inside create a `config.yaml` file. Copy paste the following into the `config.yaml` file:
 ```yml
