@@ -21,7 +21,6 @@ mod state;
 mod steamapi;
 mod web;
 
-
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
@@ -42,7 +41,6 @@ pub struct Args {
     pub api_key: Option<String>,
 }
 
-
 #[tokio::main]
 async fn main() {
     let _guard = init_tracing();
@@ -52,7 +50,10 @@ async fn main() {
 
     // Load settings
     let settings = if let Some(config_path) = &args.config {
-        tracing::info!("Overrode default config path with provided '{}'", config_path);
+        tracing::info!(
+            "Overrode default config path with provided '{}'",
+            config_path
+        );
         Settings::load_from(config_path.into(), &args)
     } else {
         Settings::load(&args)
