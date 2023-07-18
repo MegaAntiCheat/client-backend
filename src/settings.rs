@@ -1,13 +1,15 @@
 use std::{
-    fs::OpenOptions,
-    io::{ErrorKind, Write},
+    fs::{File, OpenOptions},
+    io::{ErrorKind, Read, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use anyhow::{anyhow, Context, Result};
 use directories_next::ProjectDirs;
+use keyvalues_parser::Vdf;
 use serde::{Deserialize, Serialize};
+use steamid_ng::SteamID;
 
 use crate::gamefinder;
 use crate::Args;
@@ -17,6 +19,8 @@ use crate::Args;
 pub struct Settings {
     #[serde(skip)]
     config_path: Option<PathBuf>,
+    #[serde(skip)]
+    steam_user: Option<SteamID>,
     tf2_directory: PathBuf,
     rcon_password: Arc<str>,
     steam_api_key: Arc<str>,
@@ -29,6 +33,8 @@ pub struct Settings {
     override_steam_api_key: Option<Arc<str>>,
     #[serde(skip)]
     override_port: Option<u16>,
+    #[serde(skip)]
+    override_steam_user: Option<SteamID>,
 }
 
 #[allow(dead_code)]
@@ -64,9 +70,48 @@ impl Settings {
             serde_yaml::from_str::<Settings>(&contents).context("Failed to parse settings.")?;
         settings.config_path = Some(path);
 
+        settings.steam_user = Settings::load_current_steam_user();
+
         tracing::debug!("Successfully loaded settings.");
         settings.set_overrides(args);
         Ok(settings)
+    }
+
+    fn load_current_steam_user() -> Option<SteamID> {
+        tracing::debug!("Loading steam user login data from Steam directory");
+        let steam_user_conf = gamefinder::locate_steam_logged_in_users().unwrap_or(PathBuf::new());
+        let mut steam_use_conf_str: Vec<u8> = Vec::new();
+        if let Ok(mut file) = File::open(steam_user_conf.as_path()) {
+            let _ = file
+                .read_to_end(&mut steam_use_conf_str)
+                .context("Failed reading loginusers.vdf.");
+            tracing::info!("Loaded steam user login data.");
+        }
+        {
+            tracing::error!("Could not open loginusers.vdf from Steam dir.");
+        }
+
+        match Vdf::parse(&String::from_utf8_lossy(&steam_use_conf_str)) {
+            Ok(login_vdf) => {
+                let user_obj = login_vdf.value.unwrap_obj();
+                let user_sid64 = user_obj.keys().next().unwrap();
+                let user_sid = match user_sid64.parse::<u64>() {
+                    Ok(user_int64) => {
+                        tracing::info!("Parsed current logged in steam user.");
+                        Some(SteamID::from(user_int64))
+                    }
+                    Err(why) => {
+                        tracing::error!("Invalid SID64 found in user data: {}.", why);
+                        None
+                    }
+                };
+                user_sid
+            }
+            Err(parse_err) => {
+                tracing::error!("Failed to parse loginusers VDF data: {}.", parse_err);
+                None
+            }
+        }
     }
 
     /// Pull all values from the args struct and set to our override values,
@@ -191,6 +236,7 @@ impl Default for Settings {
         let tf2_directory = gamefinder::locate_tf2_folder().unwrap_or(PathBuf::new());
 
         Settings {
+            steam_user: Self::load_current_steam_user(),
             config_path: Self::locate_config_file_path(),
             tf2_directory,
             rcon_password: "mac_rcon".into(),
@@ -200,6 +246,7 @@ impl Default for Settings {
             override_rcon_password: None,
             override_steam_api_key: None,
             override_port: None,
+            override_steam_user: None,
         }
     }
 }
