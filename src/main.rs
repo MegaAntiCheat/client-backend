@@ -1,3 +1,4 @@
+use anyhow::Context;
 use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
@@ -66,6 +67,12 @@ async fn main() {
             Settings::default()
         }
     };
+
+    let _ = gamefinder::read_steam_launch_configs(
+        settings.get_steam_user().unwrap(),
+        gamefinder::TF2_GAME_ID,
+    )
+    .context("Failed to get current steam user.");
 
     // Just some settings we'll need later
     let port = settings.get_port();

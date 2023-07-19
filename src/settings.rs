@@ -70,7 +70,7 @@ impl Settings {
             serde_yaml::from_str::<Settings>(&contents).context("Failed to parse settings.")?;
         settings.config_path = Some(path);
 
-        settings.steam_user = Settings::load_current_steam_user();
+        // settings.steam_user = Settings::load_current_steam_user();
 
         tracing::debug!("Successfully loaded settings.");
         settings.set_overrides(args);
@@ -86,8 +86,7 @@ impl Settings {
                 .read_to_end(&mut steam_use_conf_str)
                 .context("Failed reading loginusers.vdf.");
             tracing::info!("Loaded steam user login data.");
-        }
-        {
+        } else {
             tracing::error!("Could not open loginusers.vdf from Steam dir.");
         }
 
@@ -95,17 +94,16 @@ impl Settings {
             Ok(login_vdf) => {
                 let user_obj = login_vdf.value.unwrap_obj();
                 let user_sid64 = user_obj.keys().next().unwrap();
-                let user_sid = match user_sid64.parse::<u64>() {
+                match user_sid64.parse::<u64>() {
                     Ok(user_int64) => {
-                        tracing::info!("Parsed current logged in steam user.");
+                        tracing::info!("Parsed current logged in steam user <{}>", user_int64);
                         Some(SteamID::from(user_int64))
                     }
                     Err(why) => {
                         tracing::error!("Invalid SID64 found in user data: {}.", why);
                         None
                     }
-                };
-                user_sid
+                }
             }
             Err(parse_err) => {
                 tracing::error!("Failed to parse loginusers VDF data: {}.", parse_err);
@@ -182,6 +180,9 @@ impl Settings {
     }
 
     // Setters & Getters
+    pub fn get_steam_user(&self) -> Option<SteamID> {
+        self.steam_user
+    }
 
     pub fn get_config_path(&self) -> Option<&PathBuf> {
         self.config_path.as_ref()
