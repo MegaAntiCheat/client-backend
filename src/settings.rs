@@ -86,8 +86,7 @@ impl Settings {
                 .read_to_end(&mut steam_use_conf_str)
                 .context("Failed reading loginusers.vdf.");
             tracing::info!("Loaded steam user login data.");
-        }
-        {
+        } else {
             tracing::error!("Could not open loginusers.vdf from Steam dir.");
         }
 
