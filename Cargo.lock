@@ -282,12 +282,14 @@ dependencies = [
  "clap_lex",
  "directories-next",
  "keyvalues-parser",
+ "keyvalues-serde",
  "rcon",
  "regex",
  "serde",
  "serde_json",
  "serde_yaml",
  "steamid-ng",
+ "substring",
  "tappet",
  "thiserror",
  "tokio",
@@ -881,6 +883,20 @@ checksum = "7d990301996c856ea07a84bc291e76f1273db52683663efc05c8d355976897e5"
 dependencies = [
  "pest",
  "pest_derive",
+ "thiserror",
+]
+
+[[package]]
+name = "keyvalues-serde"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "da419ac133bb3ddf0dbf9c12fcc0ce01d994fcb65f6f1713faf15cc689320b5f"
+dependencies = [
+ "keyvalues-parser",
+ "once_cell",
+ "paste",
+ "regex",
+ "serde",
  "thiserror",
 ]
 
@@ -1796,6 +1812,15 @@ name = "strsim"
 version = "0.10.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
+
+[[package]]
+name = "substring"
+version = "1.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "42ee6433ecef213b2e72f587ef64a2f5943e7cd16fbd82dbe8bc07486c534c86"
+dependencies = [
+ "autocfg",
+]
 
 [[package]]
 name = "syn"

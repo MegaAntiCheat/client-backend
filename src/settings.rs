@@ -77,6 +77,8 @@ impl Settings {
         Ok(settings)
     }
 
+    /// Reads the Steam/config/loginusers.vdf file to find the currently logged in
+    /// steam ID.
     fn load_current_steam_user() -> Option<SteamID> {
         tracing::debug!("Loading steam user login data from Steam directory");
         let steam_user_conf = gamefinder::locate_steam_logged_in_users().unwrap_or(PathBuf::new());

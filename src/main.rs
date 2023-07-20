@@ -6,6 +6,7 @@ use tokio::sync::mpsc::Sender;
 
 use clap::Parser;
 use io::{Commands, IOManager};
+use launchoptions::LaunchOptionsV2;
 use settings::Settings;
 use state::State;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -15,6 +16,7 @@ use tracing_subscriber::{
 
 mod gamefinder;
 mod io;
+mod launchoptions;
 mod player;
 mod server;
 mod settings;
@@ -68,11 +70,14 @@ async fn main() {
         }
     };
 
-    let _ = gamefinder::read_steam_launch_configs(
+    let mut launch_opts = LaunchOptionsV2::new(
         settings.get_steam_user().unwrap(),
-        gamefinder::TF2_GAME_ID,
+        gamefinder::TF2_GAME_ID.to_string(),
     )
-    .context("Failed to get current steam user.");
+    .context("Failed to extract launch options for main.")
+    .unwrap();
+    // Currently just warn about missing args until further TODOs are done in launchoptions.rs
+    let _ = launch_opts.check_missing_args();
 
     // Just some settings we'll need later
     let port = settings.get_port();
