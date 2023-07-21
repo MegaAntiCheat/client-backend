@@ -1,4 +1,9 @@
-use std::{fs::File, io::Read, path::PathBuf};
+use std::{
+    fs,
+    fs::{File, OpenOptions},
+    io::{Read, Write},
+    path::PathBuf,
+};
 
 use anyhow::{Context, Result};
 use regex::{Match, Regex};
@@ -127,6 +132,43 @@ impl LaunchOptionsV2 {
         println!("New: {:#?}", self.new_app_data);
     }
 
+    pub fn write_changes_to_file(&self) -> Result<(), anyhow::Error> {
+        let old_app = self.app_data.clone().context("No data is loaded.")?;
+        let new_app = self
+            .new_app_data
+            .clone()
+            .context("(LaunchOptions) No updated app data, assuming configuration correct.")?;
+
+        if old_app == new_app {
+            tracing::info!("(LaunchOptions) Launch configuration correct, no changes required.");
+            return Ok(());
+        }
+
+        tracing::info!("(Re-writing LaunchOptions) Reading all data from disk...");
+        let file_contents: Vec<u8> =
+            fs::read(self.local_config.as_path()).context("Failed to read localconfig.vdf.")?;
+
+        // Unsafe because we don't want to break non-utf8 byte sequences that may be contained in the "friends" object.
+        unsafe {
+            let mut f_str = String::from_utf8_unchecked(file_contents);
+            f_str = f_str.replace(&old_app, &new_app);
+            tracing::info!("(Re-writing LaunchOptions) Replaced old app data with new app data");
+
+            let mut f = OpenOptions::new()
+                .write(true)
+                .open(self.local_config.as_path())
+                .context(
+                    "(Re-writing LaunchOptions) Failed to open localconfig.vdf in write mode.",
+                )?;
+
+            f.write_all(f_str.as_bytes())
+                .context("Failed to write in localconfig.vdf.")?;
+            tracing::info!("(Re-writing LaunchOptions) Wrote new app data to disk...");
+        }
+
+        Ok(())
+    }
+
     pub fn add_opts_if_missing(&mut self) {
         let copied_app_data = self.app_data.clone();
         if let Some(mut prior) = copied_app_data {
@@ -148,7 +190,14 @@ impl LaunchOptionsV2 {
                 }
             });
 
-            self.new_app_data = Some(prior);
+            if let Some(old_app) = self.app_data.clone() {
+                if prior == old_app {
+                    tracing::debug!("No changes detected to launch options.");
+                } else {
+                    tracing::debug!("Tracking config to correct missing launch options... call `write_changes_to_file` now...");
+                    self.new_app_data = Some(prior);
+                }
+            }
         }
     }
 }

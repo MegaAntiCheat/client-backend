@@ -76,8 +76,13 @@ async fn main() {
     )
     .context("Failed to extract launch options for main.")
     .unwrap();
-    // Currently just warn about missing args until further TODOs are done in launchoptions.rs
+    // Warn about missing launch options for TF2
     let _ = launch_opts.check_missing_args();
+    // Add missing launch options to the localconfig.vdf for the current user.
+    // This only sticks if steam is closed when the write occurs.
+    // TODO: Make this work always (i dont think this is possible but oh well)
+    launch_opts.add_opts_if_missing();
+    let _ = launch_opts.write_changes_to_file();
 
     // Just some settings we'll need later
     let port = settings.get_port();
