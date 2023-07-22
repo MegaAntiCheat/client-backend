@@ -3,7 +3,7 @@ use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
 use tokio::sync::mpsc::Sender;
 
-use clap::Parser;
+use clap::{Parser, ArgAction};
 use io::{Commands, IOManager};
 use launchoptions::LaunchOptionsV2;
 use settings::Settings;
@@ -42,11 +42,11 @@ pub struct Args {
     #[arg(short, long)]
     pub api_key: Option<String>,
     /// Whether to rewrite the user localconfig.vdf to append the new launch options,
-    #[arg(short = 'l')]
+    #[arg(short = 'l', long = "rewrite_lo", action=ArgAction::SetTrue)]
     pub rewrite_launch_options: Option<bool>,
     /// Whether to panic on detecting missing launch options
-    #[arg(short)]
-    pub no_panic_on_missing_launch_options: Option<bool>,
+    #[arg(short = 'i', long = "ignore_missing_lo", action=ArgAction::SetTrue)]
+    pub ignore_missing_launch_options: Option<bool>,
 }
 
 #[tokio::main]
@@ -82,7 +82,7 @@ async fn main() {
         Ok(val) => Some(val),
         Err(why) => {
             // Error only if "no_panic_on_missing_launch_options" is not true.
-            if !(args.no_panic_on_missing_launch_options.unwrap_or(false)) {
+            if !(args.ignore_missing_launch_options.unwrap_or(false)) {
                 panic!("Failed to get information on the current TF2 launch options from the local steam library: {}", why);
             } else {
                 tracing::warn!("Couldn't verify app launch options, ignoring...");
@@ -104,7 +104,7 @@ async fn main() {
                     "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
                 );
                 tracing::error!("Missing launch options: {:?}", missing_opts);
-                if !(args.no_panic_on_missing_launch_options.unwrap_or(false)) {
+                if !(args.ignore_missing_launch_options.unwrap_or(false)) {
                     panic!(
                         "Missing required launch options in TF2 for MAC to function. Aborting..."
                     );
