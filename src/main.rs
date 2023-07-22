@@ -42,6 +42,12 @@ pub struct Args {
     /// Override the configured Steam API key,
     #[arg(short, long)]
     pub api_key: Option<String>,
+    /// Whether to rewrite the user localconfig.vdf to append the new launch options,
+    #[arg(short='l')]
+    pub rewrite_launch_options: Option<bool>,
+    /// Whether to panic on detecting missing launch options
+    #[arg(short)]
+    pub no_panic_on_missing_launch_options: Option<bool>,
 }
 
 #[tokio::main]
@@ -77,12 +83,25 @@ async fn main() {
     .context("Failed to extract launch options for main.")
     .unwrap();
     // Warn about missing launch options for TF2
-    let _ = launch_opts.check_missing_args();
-    // Add missing launch options to the localconfig.vdf for the current user.
-    // This only sticks if steam is closed when the write occurs.
-    // TODO: Make this work always (i dont think this is possible but oh well)
-    launch_opts.add_opts_if_missing();
-    let _ = launch_opts.write_changes_to_file();
+    let missing = launch_opts.check_missing_args();
+    if args.rewrite_launch_options.unwrap_or(false) {
+        // Add missing launch options to the localconfig.vdf for the current user.
+        // This only sticks if steam is closed when the write occurs.
+        // TODO: Make this work always (i dont think this is possible but oh well)
+        launch_opts.add_opts_if_missing();
+        let _ = launch_opts.write_changes_to_file();
+    } else if let Ok(missing_opts) = missing {
+        if !missing_opts.is_empty() {
+            tracing::error!(
+                "Please add the following launch options to your 
+            TF2 to allow the MAC client to interface correctly with TF2."
+            );
+            tracing::error!("Missing launch options: {:?}", missing_opts);
+            if !(args.no_panic_on_missing_launch_options.unwrap_or(false)) {
+                panic!("Missing required launch options in TF2 for MAC to function. Aborting...");
+            }
+        }
+    }
 
     // Just some settings we'll need later
     let port = settings.get_port();

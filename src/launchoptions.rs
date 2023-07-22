@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use regex::{Match, Regex};
 use steamid_ng::SteamID;
 use substring::Substring;
+use tracing::Level;
 
 use crate::gamefinder::locate_steam_launch_configs;
 
@@ -38,6 +39,9 @@ pub struct LaunchOptionsV2 {
 /// TODO: Add more tracing to this to be nicer to the user.
 impl LaunchOptionsV2 {
     pub fn new(user: SteamID, target_app: String) -> Result<LaunchOptionsV2, anyhow::Error> {
+        let span = tracing::span!(Level::INFO, "LaunchOptions");
+        let _enter = span.enter();
+
         let required_opts = get_required_args_vec();
         let config_path: PathBuf = locate_steam_launch_configs(user)
             .context("Failed to find localconfig.vdf in Steam dir.")?;
@@ -98,6 +102,8 @@ impl LaunchOptionsV2 {
     }
 
     pub fn check_missing_args(&self) -> Result<Vec<&str>, anyhow::Error> {
+        let span = tracing::span!(Level::INFO, "MissingLaunchOptions");
+        let _enter = span.enter();
         tracing::info!("Checking for missing launch arguments in specified app...");
         let mut missing_args: Vec<&str> = Vec::new();
         let data_ref = match self.new_app_data {
@@ -133,18 +139,22 @@ impl LaunchOptionsV2 {
     }
 
     pub fn write_changes_to_file(&self) -> Result<(), anyhow::Error> {
+        let span = tracing::span!(Level::INFO, "WriteLaunchOptions");
+        let _enter = span.enter();
         let old_app = self.app_data.clone().context("No data is loaded.")?;
         let new_app = self
             .new_app_data
             .clone()
-            .context("(LaunchOptions) No updated app data, assuming configuration correct.")?;
+            .context("No updated app data, assuming configuration correct.")?;
 
         if old_app == new_app {
-            tracing::info!("(LaunchOptions) Launch configuration correct, no changes required.");
+            tracing::info!("Launch configuration correct, no changes required.");
             return Ok(());
         }
+        let span2 = tracing::span!(Level::INFO, "RewriteMissingLaunchOptions");
+        let _enter2 = span2.enter();
 
-        tracing::info!("(Re-writing LaunchOptions) Reading all data from disk...");
+        tracing::info!("Reading all data from disk...");
         let file_contents: Vec<u8> =
             fs::read(self.local_config.as_path()).context("Failed to read localconfig.vdf.")?;
 
@@ -152,18 +162,16 @@ impl LaunchOptionsV2 {
         unsafe {
             let mut f_str = String::from_utf8_unchecked(file_contents);
             f_str = f_str.replace(&old_app, &new_app);
-            tracing::info!("(Re-writing LaunchOptions) Replaced old app data with new app data");
+            tracing::info!("Replaced old app data with new app data");
 
             let mut f = OpenOptions::new()
                 .write(true)
                 .open(self.local_config.as_path())
-                .context(
-                    "(Re-writing LaunchOptions) Failed to open localconfig.vdf in write mode.",
-                )?;
+                .context("Failed to open localconfig.vdf in write mode.")?;
 
             f.write_all(f_str.as_bytes())
                 .context("Failed to write in localconfig.vdf.")?;
-            tracing::info!("(Re-writing LaunchOptions) Wrote new app data to disk...");
+            tracing::info!("Wrote new app data to disk...");
         }
 
         Ok(())
