@@ -1,4 +1,3 @@
-use anyhow::Context;
 use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
@@ -43,7 +42,7 @@ pub struct Args {
     #[arg(short, long)]
     pub api_key: Option<String>,
     /// Whether to rewrite the user localconfig.vdf to append the new launch options,
-    #[arg(short='l')]
+    #[arg(short = 'l')]
     pub rewrite_launch_options: Option<bool>,
     /// Whether to panic on detecting missing launch options
     #[arg(short)]
@@ -76,29 +75,44 @@ async fn main() {
         }
     };
 
-    let mut launch_opts = LaunchOptionsV2::new(
+    let launch_opts = match LaunchOptionsV2::new(
         settings.get_steam_user().unwrap(),
         gamefinder::TF2_GAME_ID.to_string(),
-    )
-    .context("Failed to extract launch options for main.")
-    .unwrap();
-    // Warn about missing launch options for TF2
-    let missing = launch_opts.check_missing_args();
-    if args.rewrite_launch_options.unwrap_or(false) {
-        // Add missing launch options to the localconfig.vdf for the current user.
-        // This only sticks if steam is closed when the write occurs.
-        // TODO: Make this work always (i dont think this is possible but oh well)
-        launch_opts.add_opts_if_missing();
-        let _ = launch_opts.write_changes_to_file();
-    } else if let Ok(missing_opts) = missing {
-        if !missing_opts.is_empty() {
-            tracing::error!(
-                "Please add the following launch options to your 
-            TF2 to allow the MAC client to interface correctly with TF2."
-            );
-            tracing::error!("Missing launch options: {:?}", missing_opts);
+    ) {
+        Ok(val) => Some(val),
+        Err(why) => {
+            // Error only if "no_panic_on_missing_launch_options" is not true.
             if !(args.no_panic_on_missing_launch_options.unwrap_or(false)) {
-                panic!("Missing required launch options in TF2 for MAC to function. Aborting...");
+                panic!("Failed to get information on the current TF2 launch options from the local steam library: {}", why);
+            } else {
+                tracing::warn!("Couldn't verify app launch options, ignoring...");
+                None
+            }
+        }
+    };
+
+    if let Some(mut opts) = launch_opts {
+        // Warn about missing launch options for TF2
+        let missing = opts.check_missing_args();
+        if args.rewrite_launch_options.unwrap_or(false) {
+            // Add missing launch options to the localconfig.vdf for the current user.
+            // This only sticks if steam is closed when the write occurs.
+            // TODO: Make this work always (i dont think this is possible but oh well)
+            opts.add_opts_if_missing();
+            let _ = opts.write_changes_to_file();
+        } else if let Ok(missing_opts) = missing {
+            if !missing_opts.is_empty() {
+                tracing::error!(
+                    "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
+                );
+                tracing::error!("Missing launch options: {:?}", missing_opts);
+                if !(args.no_panic_on_missing_launch_options.unwrap_or(false)) {
+                    panic!(
+                        "Missing required launch options in TF2 for MAC to function. Aborting..."
+                    );
+                }
+            } else {
+                tracing::info!("All required launch arguments are present!");
             }
         }
     }
