@@ -56,7 +56,7 @@ impl LaunchOptionsV2 {
         let binding = &String::from_utf8_lossy(&data);
 
         let apps_regex =
-            Regex::new(r#"\t{4}"apps"([\s\S]+)\t{5}}"#).expect("Apps regex construction");
+            Regex::new(r#"\t{4}"[aA]pps"([\s\S]+)\t{5}}"#).expect("Apps regex construction");
 
         let caps = apps_regex
             .captures(binding)
