@@ -97,9 +97,7 @@ async fn main() {
         if args.rewrite_launch_options.unwrap_or(false) {
             // Add missing launch options to the localconfig.vdf for the current user.
             // This only sticks if steam is closed when the write occurs.
-            // TODO: Make this work always (i dont think this is possible but oh well)
-            opts.add_opts_if_missing();
-            let _ = opts.write_changes_to_file();
+            let _ = opts.write_corrected_args_to_file();
         } else if let Ok(missing_opts) = missing {
             if !missing_opts.is_empty() {
                 tracing::error!(

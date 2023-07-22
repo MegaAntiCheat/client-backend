@@ -65,18 +65,16 @@ impl LaunchOptionsV2 {
         let mut matched_app_block: Option<String> = None;
         let open_match = format!("\t\t\t\t\t\"{}\"", target_app);
 
-        let mat_opt = caps.get(0);
+        let mat_opt = caps.get(1);
         if let Some(mat) = mat_opt {
             let latter_portion = mat
                 .as_str()
                 .find(&open_match)
-                .context("Could not find specified app in localconfig.vdf for the current user.")
-                .unwrap();
+                .context("Could not find specified app in localconfig.vdf for the current user.")?;
             let latter = mat.as_str().substring(latter_portion, mat.end());
             let first_app_close = latter
                 .find("\n\t\t\t\t\t}")
-                .context("Failed to find object closing statement for the matched app block.")
-                .unwrap();
+                .context("Failed to find object closing statement for the matched app block.")?;
             let app_match = latter.substring(0, first_app_close);
 
             if matched_app_block.is_none() {
@@ -125,6 +123,18 @@ impl LaunchOptionsV2 {
         Ok(missing_args)
     }
 
+    /// Checks for any missing launch options, referring to the const list of required launch options,
+    /// and creates `self.new_app_data` to contain the newly rewritten `LaunchOptions` key. Then opens
+    /// the `localconfig.vdf` file and string replaces the old app data with the modified app data.
+    ///
+    /// This just calls private funcs `self.add_opts_if_missing()`, and `self.write_changes_to_file()`.
+    ///
+    /// Return value is the return value of `self.write_changes_to_file()`.
+    pub fn write_corrected_args_to_file(&mut self) -> Result<(), anyhow::Error> {
+        self.add_opts_if_missing();
+        self.write_changes_to_file()
+    }
+
     /// Writes the changes made by `Self::add_opts_if_missing()` into the `localconfig.vdf` file via String
     /// search and replace, as its cheaper than VDF parsing the whole file, serialising and deserialising the
     /// updated objects back into the file. This can fail if `Self::add_opts_if_missing()` has not been called
@@ -135,7 +145,7 @@ impl LaunchOptionsV2 {
     /// as Steam keeps a copy of this data cached in memory, and intermitantly writes it out to this file,
     /// overwriting these changes. It also writes out when Steam is closed. But if you write to this file when
     /// Steam is closed, it will load the changes upon launch.
-    pub fn write_changes_to_file(&self) -> Result<(), anyhow::Error> {
+    fn write_changes_to_file(&self) -> Result<(), anyhow::Error> {
         let span = tracing::span!(Level::INFO, "WriteLaunchOptions");
         let _enter = span.enter();
         let old_app = self.app_data.clone().context("No data is loaded.")?;
@@ -177,7 +187,7 @@ impl LaunchOptionsV2 {
     /// Similar to `self.check_missing_args` except will clone the current app data into `self.new_app_data` and
     /// modify the LaunchOptions key (creating one if necessary) to add the required launch options if not present.
     /// If `self.app_data` is None, this is a no-op.
-    pub fn add_opts_if_missing(&mut self) {
+    fn add_opts_if_missing(&mut self) {
         let copied_app_data = self.app_data.clone();
         if let Some(mut prior) = copied_app_data {
             if !prior.contains("\"LaunchOptions\"") {
