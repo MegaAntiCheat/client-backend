@@ -3,7 +3,10 @@ use serde_json::Map;
 use std::sync::Arc;
 use steamid_ng::SteamID;
 
-use crate::io::regexes::StatusLine;
+use crate::{
+    io::regexes::StatusLine,
+    playerlist::{PlayerRecord, Verdict},
+};
 
 // Player
 
@@ -21,6 +24,7 @@ pub struct Player {
     #[serde(rename = "customData")]
     pub custom_data: serde_json::Value,
     pub tags: Vec<Arc<str>>,
+    pub mark: Verdict,
 }
 
 impl Player {
@@ -34,6 +38,27 @@ impl Player {
             steam_info: None,
             custom_data: serde_json::Value::Object(Map::new()),
             tags: Vec::new(),
+            mark: Verdict::Player,
+        }
+    }
+
+    /// Given a record, update this player with the included data.
+    pub fn update_from_record(&mut self, record: PlayerRecord) {
+        if record.steamid != self.steamid {
+            tracing::error!("Updating player with wrong record.");
+            return;
+        }
+
+        self.custom_data = record.custom_data;
+        self.mark = record.verdict;
+    }
+
+    /// Create a record from the current player
+    pub fn get_record(&self) -> PlayerRecord {
+        PlayerRecord {
+            steamid: self.steamid,
+            custom_data: self.custom_data.clone(),
+            verdict: self.mark,
         }
     }
 }

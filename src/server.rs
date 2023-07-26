@@ -1,7 +1,7 @@
 use serde::{Serialize, Serializer};
 use std::{
     collections::{HashMap, VecDeque},
-    ops::Range,
+    ops::{Deref, DerefMut, Range},
     sync::Arc,
 };
 use steamid_ng::SteamID;
@@ -13,13 +13,14 @@ use crate::{
         IOOutput,
     },
     player::{Player, SteamInfo},
+    playerlist::{PlayerRecord, Playerlist},
 };
 
 const MAX_HISTORY_LEN: usize = 100;
 
 // Server
 
-#[derive(Debug, Serialize)]
+#[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Server {
     map: Option<Arc<str>>,
@@ -32,6 +33,9 @@ pub struct Server {
     #[serde(skip)]
     player_history: VecDeque<Player>,
     gamemode: Option<Gamemode>,
+
+    #[serde(skip)]
+    playerlist: Playerlist,
 }
 
 #[derive(Debug, Serialize)]
@@ -43,7 +47,7 @@ pub struct Gamemode {
 }
 
 impl Server {
-    pub fn new() -> Server {
+    pub fn new(playerlist: Playerlist) -> Server {
         Server {
             map: None,
             ip: None,
@@ -53,10 +57,15 @@ impl Server {
             players: HashMap::new(),
             player_history: VecDeque::with_capacity(MAX_HISTORY_LEN),
             gamemode: None,
+
+            playerlist,
         }
     }
 
-    pub fn handle_io_response(&mut self, response: IOOutput) -> Option<SteamID> {
+    /// Handles any io output from running commands / reading the console log file.
+    /// Returns:
+    /// * Some<[SteamID]> of a player if they have been newly added to the server.
+    pub fn handle_io_output(&mut self, response: IOOutput) -> Option<SteamID> {
         // TODO - Maybe move this back into state instead of inside server?
         use IOOutput::*;
         match response {
@@ -149,6 +158,35 @@ impl Server {
             .collect()
     }
 
+    // Player records
+
+    pub fn has_player_record(&self, steamid: &SteamID) -> bool {
+        self.playerlist.records.contains_key(steamid)
+    }
+
+    pub fn insert_player_record(&mut self, record: PlayerRecord) {
+        self.playerlist.records.insert(record.steamid, record);
+    }
+
+    pub fn get_player_record(&self, steamid: &SteamID) -> Option<&PlayerRecord> {
+        self.playerlist.records.get(steamid)
+    }
+
+    pub fn get_player_record_mut(&mut self, steamid: &SteamID) -> Option<PlayerRecordLock> {
+        if self.playerlist.records.contains_key(steamid) {
+            Some(PlayerRecordLock {
+                steamid: *steamid,
+                players: &mut self.players,
+                history: &mut self.player_history,
+                playerlist: &mut self.playerlist,
+            })
+        } else {
+            None
+        }
+    }
+
+    // Other
+
     fn handle_g15_parse(&mut self, players: Vec<g15::G15Player>) {
         for pl in players {
             if let Some(sid3) = &pl.sid3 {
@@ -182,6 +220,7 @@ impl Server {
     ) -> Option<SteamID> {
         // Update existing player or insert new player
         if let Some(player) = self.players.get_mut(&status.steamid) {
+            // Update existing player
             player.name = status.name;
             player.game_info.userid = status.userid;
             player.game_info.ping = status.ping;
@@ -191,7 +230,13 @@ impl Server {
             player.game_info.accounted = true;
             None
         } else {
-            let player = Player::new_from_status(&status, user);
+            // Create and insert new player
+            let mut player = Player::new_from_status(&status, user);
+
+            if let Some(record) = self.playerlist.records.get(&status.steamid) {
+                player.update_from_record(record.clone());
+            }
+
             self.players.insert(status.steamid, player);
             Some(status.steamid)
         }
@@ -205,6 +250,62 @@ impl Server {
     fn handle_kill(&mut self, kill: PlayerKill) {
         // TODO
         tracing::info!("Kill: {:?}", kill);
+    }
+}
+
+pub struct PlayerRecordLock<'a> {
+    playerlist: &'a mut Playerlist,
+    players: &'a mut HashMap<SteamID, Player>,
+    history: &'a mut VecDeque<Player>,
+    steamid: SteamID,
+}
+
+impl Deref for PlayerRecordLock<'_> {
+    type Target = PlayerRecord;
+
+    fn deref(&self) -> &Self::Target {
+        self.playerlist
+            .records
+            .get(&self.steamid)
+            .expect("Mutating player record.")
+    }
+}
+
+impl DerefMut for PlayerRecordLock<'_> {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.playerlist
+            .records
+            .get_mut(&self.steamid)
+            .expect("Reading player record.")
+    }
+}
+
+// Update all players the server has with the updated record
+impl Drop for PlayerRecordLock<'_> {
+    fn drop(&mut self) {
+        let record = self
+            .playerlist
+            .records
+            .get(&self.steamid)
+            .expect("Reading player record");
+
+        // Update server players and history
+        if let Some(p) = self.players.get_mut(&self.steamid) {
+            p.update_from_record(record.clone());
+        }
+
+        if let Some(p) = self.history.iter_mut().find(|p| p.steamid == self.steamid) {
+            p.update_from_record(record.clone());
+        }
+
+        // Update playerlist
+        if record.is_empty() {
+            self.playerlist.records.remove(&self.steamid);
+        }
+
+        if let Err(e) = self.playerlist.save() {
+            tracing::error!("Failed to save playerlist: {:?}", e);
+        }
     }
 }
 

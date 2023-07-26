@@ -1,4 +1,4 @@
-use std::{convert::Infallible, net::SocketAddr, sync::Mutex};
+use std::{collections::HashMap, convert::Infallible, net::SocketAddr, sync::Mutex};
 
 use axum::{
     extract::Query,
@@ -8,10 +8,14 @@ use axum::{
     Json, Router,
 };
 use serde::Deserialize;
+use steamid_ng::SteamID;
 use tokio::sync::mpsc::Sender;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
-use crate::state::State;
+use crate::{
+    playerlist::{PlayerRecord, Verdict},
+    state::State,
+};
 
 const HEADERS: [(header::HeaderName, &str); 2] = [
     (header::CONTENT_TYPE, "application/json"),
@@ -63,11 +67,41 @@ async fn post_user(users: Json<UserRequest>) -> impl IntoResponse {
     (StatusCode::OK, HEADERS, "Not implemented".to_string())
 }
 
+#[derive(Debug, Deserialize)]
+struct UserUpdate {
+    #[serde(rename = "localVerdict")]
+    local_verdict: Option<Verdict>,
+    #[serde(rename = "customData")]
+    custom_data: Option<serde_json::Value>,
+}
+
 /// Puts a user's details to insert them into the persistent storage for that user.
-async fn put_user() -> impl IntoResponse {
-    tracing::debug!("Player updates sent.");
-    // TODO
-    (StatusCode::OK, HEADERS, "Not implemented".to_string())
+async fn put_user(users: Json<HashMap<SteamID, UserUpdate>>) -> impl IntoResponse {
+    tracing::debug!("Player updates sent: {:?}", &users);
+
+    let mut state = State::write_state();
+    for (k, v) in users.0 {
+        // Insert record if it didn't exist
+        if !state.server.has_player_record(&k) {
+            state.server.insert_player_record(PlayerRecord::new(k));
+        }
+
+        // Update record
+        let mut record = state
+            .server
+            .get_player_record_mut(&k)
+            .expect("Mutating player record that was just inserted.");
+
+        if let Some(custom_data) = v.custom_data {
+            record.custom_data = custom_data;
+        }
+
+        if let Some(verdict) = v.local_verdict {
+            record.verdict = verdict;
+        }
+    }
+
+    (StatusCode::OK, HEADERS)
 }
 
 // Preferences
