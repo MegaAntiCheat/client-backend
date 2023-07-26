@@ -19,6 +19,8 @@ use crate::gamefinder::locate_steam_launch_configs;
 /// -g15 enables Logitech G15 keyboard support (used for the console command `g15_dumpplayer`)
 pub const TF2_REQUIRED_OPTS: [&str; 4] = ["-condebug", "-conclearlog", "-usercon", "-g15"];
 
+/// Read the local steam library folders for data (stored in VDF/KeyValues format) on the configured launch options for the given app
+/// ID.
 /// Handles referencing the VDF store of a Steam app's launch options and provides an interface to read
 /// and write launch options based on a set of required options.
 pub struct LaunchOptionsV2 {
@@ -28,18 +30,16 @@ pub struct LaunchOptionsV2 {
     new_app_data: Option<String>,
 }
 
-/// Read the local steam library folders for data (stored in VDF/KeyValues format) on the configured launch options for the give app
-/// ID. If necessary, warn about the missing launch options.
+
 impl LaunchOptionsV2 {
-    /// Get the Launch options of the given app for the given steam user (should be the user provided in loginusers.vdf)
-    /// This can fail if the `localconfig.vdf` file is not present in the expected path, or if the given app is not present
-    /// in the users list of launched apps (either they don't own it or have never played it).
-    ///
-    /// The Source VDF file format is just a wrapped 'KeyValues' format, which is essentially the cursed brother of JSON.
-    /// This format separates keys and values via '\t\t' rather than ':', and is (obviously) white space sensitive. This
-    /// allows us to make the guarenteed assumption that for as long as the specification of `localconfig.vdf` does not change,
-    /// the app block we are looking for will start with `\t\t\t\t\t"<app id>"`, and as such all of the required app data is at
-    /// least 6 tabs deep, and the closing '}' character is the very next '}' found only 5 tabs deep.
+    /// Get the current configured launch options for the target app under the current logged in steam user.
+    /// 
+    /// # Errors
+    /// Will raise `anyhow::Error` under the following conditions:
+    /// - No `localconfig.vdf` file found for the given user in the expected Steam library
+    /// - Could not read the `localconfig.vdf` file. (because of any non-`ErrorKind::Interrupted` during read)
+    /// - Failed to parse the `localconfig.vdf` file. (File is corrupted/broken/incomplete)
+    /// - Target app ID does not exist in `localconfig.vdf` file or the object is corrupted.
     pub fn new(user: SteamID, target_app: String) -> Result<LaunchOptionsV2, anyhow::Error> {
         let span = tracing::span!(Level::INFO, "LaunchOptions");
         let _enter = span.enter();
@@ -93,10 +93,13 @@ impl LaunchOptionsV2 {
         })
     }
 
-    /// Regex searches the acquired app data for the launch options Key-Value pair, and cross references
-    /// the present launch options against the const list of required options. Can fail if there is no
-    /// 'LaunchOptions' key present in that app object. This is usually because the user has never configured any
-    /// launch options, and so this is highly likely. Error should be handled gracefully.
+    /// Returns a vector of the launch options NOT found in the target apps launch options,
+    /// but are defined as required according to [`TF2_REQUIRED_OPTS`].
+    /// 
+    /// # Errors
+    /// Will raise anyhow::Error under the following conditions:
+    /// - Target app exists but has no 'LaunchOptions' key (no user configured launch options).
+    /// - No app data is stored in this object (`self.app_data` is None).
     pub fn check_missing_args(&self) -> Result<Vec<&str>, anyhow::Error> {
         let span = tracing::span!(Level::TRACE, "MissingLaunchOptions");
         let _enter = span.enter();
@@ -123,28 +126,22 @@ impl LaunchOptionsV2 {
         Ok(missing_args)
     }
 
-    /// Checks for any missing launch options, referring to the const list of required launch options,
-    /// and creates `self.new_app_data` to contain the newly rewritten `LaunchOptions` key. Then opens
-    /// the `localconfig.vdf` file and string replaces the old app data with the modified app data.
+    /// Identifies any missing required launch options, and writes them into the
+    /// `localconfig.vdf` file as well as the [`new_app_data`](Self::new_app_data) var.
     ///
-    /// This just calls private funcs `self.add_opts_if_missing()`, and `self.write_changes_to_file()`.
-    ///
-    /// Return value is the return value of `self.write_changes_to_file()`.
+    /// Return value is the return value of [`write_changes_to_file`](Self::write_changes_to_file)
     pub fn write_corrected_args_to_file(&mut self) -> Result<(), anyhow::Error> {
         self.add_opts_if_missing();
         self.write_changes_to_file()
     }
 
-    /// Writes the changes made by `Self::add_opts_if_missing()` into the `localconfig.vdf` file via String
-    /// search and replace, as its cheaper than VDF parsing the whole file, serialising and deserialising the
-    /// updated objects back into the file. This can fail if `Self::add_opts_if_missing()` has not been called
-    /// prior to this function, or `self.new_app_data` is None. IO failures (such as OS write locks encountered
-    /// when steam is updating the file itself) can also occur and should be handled gracefully.
-    ///
-    /// In its present state, this functionality is only guarenteed to work if Steam is CLOSED when this runs,
-    /// as Steam keeps a copy of this data cached in memory, and intermitantly writes it out to this file,
-    /// overwriting these changes. It also writes out when Steam is closed. But if you write to this file when
-    /// Steam is closed, it will load the changes upon launch.
+    /// Writes any changes to the launch options present in [`new_app_data`](Self::new_app_data)
+    /// into the `localconfig.vdf` file.
+    /// 
+    /// # Errors
+    /// Will raise anyhow::Error if:
+    /// - The `localconfig.vdf` file could not be opened to write into (potentially if Steam happens to also be writing the file simultanesouly).
+    /// - An error was encountered during writing to the file.
     fn write_changes_to_file(&self) -> Result<(), anyhow::Error> {
         let span = tracing::span!(Level::INFO, "WriteLaunchOptions");
         let _enter = span.enter();
@@ -184,9 +181,10 @@ impl LaunchOptionsV2 {
         Ok(())
     }
 
-    /// Similar to `self.check_missing_args` except will clone the current app data into `self.new_app_data` and
-    /// modify the LaunchOptions key (creating one if necessary) to add the required launch options if not present.
-    /// If `self.app_data` is None, this is a no-op.
+    /// Clones [`app_data`](Self::app_data) into [`new_app_data`](Self::new_app_data) and modifies the 
+    /// LaunchOptions key to contain the updated list of launch opts.
+    /// 
+    /// If there are no missing required launch options, this is a no-op.
     fn add_opts_if_missing(&mut self) {
         let copied_app_data = self.app_data.clone();
         if let Some(mut prior) = copied_app_data {
