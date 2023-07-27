@@ -3,15 +3,45 @@ use std::{
     path::{Path, PathBuf},
 };
 
+use steamid_ng::SteamID;
+
+pub const TF2_GAME_ID: &str = "440";
+
+pub fn locate_steam_logged_in_users() -> Option<PathBuf> {
+    tracing::debug!("Fetching Steam loginusers.vdf");
+    let mut base_folder: PathBuf = find_base_lib();
+    base_folder.push::<PathBuf>("config/loginusers.vdf".into());
+    if base_folder.as_path().exists() {
+        tracing::info!("Located current Steam user data.");
+        Some(base_folder)
+    } else {
+        tracing::error!("Could not locate loginusers.vdf in the Steam dir");
+        None
+    }
+}
+
+pub fn locate_steam_launch_configs(steam_user: SteamID) -> Option<PathBuf> {
+    tracing::debug!("Fetching Steam userdata/<player>/config/localconfig.vdf");
+    let a_id = steam_user.account_id();
+    let mut base_folder: PathBuf = find_base_lib();
+    base_folder.push::<PathBuf>(format!("userdata/{}/config/localconfig.vdf", a_id,).into());
+    if base_folder.as_path().exists() {
+        tracing::info!("Located local launch configs.");
+        Some(base_folder)
+    } else {
+        tracing::error!("Could not find local configs (player not found).");
+        None
+    }
+}
+
 /// Attempts to open the TF2 directory or locate it if it's not in the expected place
 pub fn locate_tf2_folder() -> Option<PathBuf> {
     tracing::debug!("Fetching TF2 Folder");
-    let tf2_folder: &str = "steamapps/common/Team Fortress 2";
     let libs: Vec<PathBuf> = fetch_libraryfolders();
 
     for lib in libs {
         let mut path = lib.to_path_buf();
-        path.push(tf2_folder);
+        path.push::<PathBuf>(get_rel_tf2_path().into());
         tracing::debug!("Found TF2 Folder: {:?}", path);
 
         if path.exists() && verify_tf_location(&path) {
@@ -51,8 +81,15 @@ fn fetch_libraryfolders() -> Vec<PathBuf> {
 }
 
 fn find_default_lib() -> PathBuf {
+    let mut path: PathBuf = find_base_lib();
+    path.push::<PathBuf>("steamapps/".into());
+
+    path
+}
+
+fn find_base_lib() -> PathBuf {
     #[cfg(target_os = "windows")]
-    let default_dir = "C:/Program Files (x86)/Steam/steamapps/".into();
+    let default_dir = r"C:\Program Files (x86)\Steam\".into();
 
     #[cfg(not(target_os = "windows"))]
     let default_dir = {
@@ -60,7 +97,7 @@ fn find_default_lib() -> PathBuf {
         var_os("HOME")
             .map(PathBuf::from)
             .unwrap_or("~".into())
-            .join(".steam/steam/steamapps/")
+            .join(".steam/steam/")
     };
 
     default_dir
@@ -78,4 +115,14 @@ fn verify_tf_location(lib: &Path) -> bool {
     }
     tracing::debug!("Failed Verification Check");
     false
+}
+
+#[cfg(target_os = "windows")]
+fn get_rel_tf2_path() -> String {
+    r"steamapps\common\Team Fortress 2".to_string()
+}
+
+#[cfg(not(target_os = "windows"))]
+fn get_rel_tf2_path() -> String {
+    r"steamapps/common/Team Fortress 2".to_string()
 }

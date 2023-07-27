@@ -3,8 +3,9 @@ use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
 use tokio::sync::mpsc::Sender;
 
-use clap::Parser;
+use clap::{ArgAction, Parser};
 use io::{Commands, IOManager};
+use launchoptions::LaunchOptionsV2;
 use settings::Settings;
 use state::State;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -14,6 +15,7 @@ use tracing_subscriber::{
 
 mod gamefinder;
 mod io;
+mod launchoptions;
 mod player;
 mod server;
 mod settings;
@@ -23,13 +25,28 @@ mod web;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
-struct Args {
+pub struct Args {
     /// Override the port to host the web-ui and API on
     #[arg(short, long)]
     pub port: Option<u16>,
     /// Override the config file to use
     #[arg(short, long)]
     pub config: Option<String>,
+    /// Override the default tf2 directory
+    #[arg(short, long)]
+    pub tf2_dir: Option<String>,
+    /// Override the configured/default rcon password
+    #[arg(short, long)]
+    pub rcon_pword: Option<String>,
+    /// Override the configured Steam API key,
+    #[arg(short, long)]
+    pub api_key: Option<String>,
+    /// Rewrite the user localconfig.vdf to append the corrected set of launch options if necessary.
+    #[arg(long = "rewrite_launch_opts", action=ArgAction::SetTrue, default_value_t=false)]
+    pub rewrite_launch_options: bool,
+    /// Do not panic on detecting missing launch options or failure to read/parse the localconfig.vdf file.
+    #[arg(long = "ignore_launch_opts", action=ArgAction::SetTrue, default_value_t=false)]
+    pub ignore_launch_options: bool,
 }
 
 #[tokio::main]
@@ -41,12 +58,16 @@ async fn main() {
 
     // Load settings
     let settings = if let Some(config_path) = &args.config {
-        Settings::load_from(config_path.into())
+        tracing::info!(
+            "Overrode default config path with provided '{}'",
+            config_path
+        );
+        Settings::load_from(config_path.into(), &args)
     } else {
-        Settings::load()
+        Settings::load(&args)
     };
 
-    let mut settings = match settings {
+    let settings = match settings {
         Ok(settings) => settings,
         Err(e) => {
             tracing::warn!("Failed to load settings, continuing with defaults: {:?}", e);
@@ -54,8 +75,46 @@ async fn main() {
         }
     };
 
-    if let Some(port) = args.port {
-        settings.set_port(port);
+    let launch_opts = match LaunchOptionsV2::new(
+        settings.get_steam_user().expect(
+            "Failed to identify the local steam user (failed to find `loginusers.vdf`)"
+        ),
+        gamefinder::TF2_GAME_ID.to_string(),
+    ) {
+        Ok(val) => Some(val),
+        Err(why) => {
+            // Error only if "no_panic_on_missing_launch_options" is not true.
+            if !(args.ignore_launch_options) {
+                panic!("Failed to get information on the current TF2 launch options from the local steam library: {}", why);
+            } else {
+                tracing::warn!("Couldn't verify app launch options, ignoring...");
+                None
+            }
+        }
+    };
+
+    if let Some(mut opts) = launch_opts {
+        // Warn about missing launch options for TF2
+        let missing = opts.check_missing_args();
+        if args.rewrite_launch_options {
+            // Add missing launch options to the localconfig.vdf for the current user.
+            // This only sticks if steam is closed when the write occurs.
+            let _ = opts.write_corrected_args_to_file();
+        } else if let Ok(missing_opts) = missing {
+            if !missing_opts.is_empty() {
+                tracing::error!(
+                    "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
+                );
+                tracing::error!("Missing launch options: {:?}", missing_opts);
+                if !(args.ignore_launch_options) {
+                    panic!(
+                        "Missing required launch options in TF2 for MAC to function. Aborting..."
+                    );
+                }
+            } else {
+                tracing::info!("All required launch arguments are present!");
+            }
+        }
     }
 
     // Just some settings we'll need later

@@ -14,6 +14,12 @@ pub enum G15Error {
     IndexOutOfBounds,
 }
 
+/// July 25, 2023 TF2 update updated the maximum supported number of players in a single server instance to 100,
+/// from 32. This is unlikely to ever change again, so rather than dynamically handling g15_dumpplayer logs that
+/// can contain any number of array entries, we simply hard-code the current maximum amount of players you will
+/// EVER find in a game.
+const MAX_POSSIBLE_PLAYERS: u8 = 100;
+
 /// A RegMatch struct contains a Regex and the corresponding function to add the result to the G15Player vec
 /// if the regex results in a match.
 pub struct RegMatch(
@@ -227,7 +233,8 @@ impl G15Parser {
     /// Parse a g15_dumpplayer string via Regex search.
     /// We only extract useful data here, so drop most data.
     pub fn parse_g15(&self, g15_log: &str) -> Vec<G15Player> {
-        let mut players: Vec<G15Player> = vec![G15Player::new(); 34];
+        let mut players: Vec<G15Player> =
+            vec![G15Player::new(); (MAX_POSSIBLE_PLAYERS + 2) as usize];
         let lines = g15_log.split('\n');
 
         for line in lines {
