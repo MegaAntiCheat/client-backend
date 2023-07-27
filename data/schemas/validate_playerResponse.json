@@ -11,6 +11,8 @@
 		"steamInfo",
 		"gameInfo",
 		"customData",
+		"convicted",
+		"localVerdict",
 		"tags"
 	],
 	"properties": {
@@ -307,6 +309,16 @@
 			"$id": "#root/customData",
 			"title": "Customdata",
 			"type": "object"
+		},
+		"localVerdict": {
+			"$id": "#root/localVerdict",
+			"title": "Localverdict",
+			"type": "string"
+		},
+		"convicted": {
+			"$id": "#root/convicted",
+			"title": "convicted",
+			"type": "boolean"
 		},
 		"tags": {
 			"$id": "#root/tags",
