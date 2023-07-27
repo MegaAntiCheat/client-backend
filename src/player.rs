@@ -28,8 +28,8 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new_from_status(status: &StatusLine, user: Option<&SteamID>) -> Player {
-        let is_self = user.map(|user| user == &status.steamid).unwrap_or(false);
+    pub fn new_from_status(status: &StatusLine, user: Option<SteamID>) -> Player {
+        let is_self = user.map(|user| user == status.steamid).unwrap_or(false);
         Player {
             name: status.name.clone(),
             steamid: status.steamid,

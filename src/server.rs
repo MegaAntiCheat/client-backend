@@ -65,14 +65,17 @@ impl Server {
     /// Handles any io output from running commands / reading the console log file.
     /// Returns:
     /// * Some<[SteamID]> of a player if they have been newly added to the server.
-    pub fn handle_io_output(&mut self, response: IOOutput) -> Option<SteamID> {
-        // TODO - Maybe move this back into state instead of inside server?
+    pub fn handle_io_output(
+        &mut self,
+        response: IOOutput,
+        user: Option<SteamID>,
+    ) -> Option<SteamID> {
         use IOOutput::*;
         match response {
             NoOutput => {}
             G15(players) => self.handle_g15_parse(players),
             Status(status) => {
-                return self.add_or_update_player(status, None);
+                return self.add_or_update_player(status, user);
             }
             Chat(chat) => self.handle_chat(chat),
             Kill(kill) => self.handle_kill(kill),
@@ -216,7 +219,7 @@ impl Server {
     fn add_or_update_player(
         &mut self,
         status: StatusLine,
-        user: Option<&SteamID>,
+        user: Option<SteamID>,
     ) -> Option<SteamID> {
         // Update existing player or insert new player
         if let Some(player) = self.players.get_mut(&status.steamid) {

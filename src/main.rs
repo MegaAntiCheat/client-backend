@@ -189,8 +189,9 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
         match io.handle_log() {
             Ok(output) => {
                 let mut state = State::write_state();
+                let user = state.settings.get_steam_user();
                 state.log_file_state = Ok(());
-                if let Some(new_player) = state.server.handle_io_output(output) {
+                if let Some(new_player) = state.server.handle_io_output(output, user) {
                     new_players.push(new_player);
                 }
             }
@@ -209,8 +210,9 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
         match io.handle_waiting_command().await {
             Ok(output) => {
                 let mut state = State::write_state();
+                let user = state.settings.get_steam_user();
                 state.rcon_state = Ok(());
-                if let Some(new_player) = state.server.handle_io_output(output) {
+                if let Some(new_player) = state.server.handle_io_output(output, user) {
                     new_players.push(new_player);
                 }
             }
