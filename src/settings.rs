@@ -244,7 +244,7 @@ impl Settings {
 
     /// Attempts to find (and create) a directory to be used for configuration files
     pub fn locate_config_directory() -> Result<PathBuf, ConfigFilesError> {
-        let dirs = ProjectDirs::from("com.megascatterbomb", "MAC", "Client")
+        let dirs = ProjectDirs::from("com.megascatterbomb", "MAC", "MACClient")
             .ok_or(ConfigFilesError::NoValidHome)?;
         let dir = dirs.config_dir();
         std::fs::create_dir_all(dir)
