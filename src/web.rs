@@ -56,6 +56,7 @@ async fn get_game() -> impl IntoResponse {
 // User
 
 #[derive(Debug, Clone, Deserialize)]
+#[allow(dead_code)]
 struct UserRequest {
     users: Vec<u64>,
 }

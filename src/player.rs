@@ -24,7 +24,9 @@ pub struct Player {
     #[serde(rename = "customData")]
     pub custom_data: serde_json::Value,
     pub tags: Vec<Arc<str>>,
-    pub mark: Verdict,
+    #[serde(rename = "localVerdict")]
+    pub local_verdict: Verdict,
+    pub convicted: bool,
 }
 
 impl Player {
@@ -38,7 +40,8 @@ impl Player {
             steam_info: None,
             custom_data: serde_json::Value::Object(Map::new()),
             tags: Vec::new(),
-            mark: Verdict::Player,
+            local_verdict: Verdict::Player,
+            convicted: false,
         }
     }
 
@@ -50,15 +53,16 @@ impl Player {
         }
 
         self.custom_data = record.custom_data;
-        self.mark = record.verdict;
+        self.local_verdict = record.verdict;
     }
 
     /// Create a record from the current player
+    #[allow(dead_code)]
     pub fn get_record(&self) -> PlayerRecord {
         PlayerRecord {
             steamid: self.steamid,
             custom_data: self.custom_data.clone(),
-            verdict: self.mark,
+            verdict: self.local_verdict,
         }
     }
 }

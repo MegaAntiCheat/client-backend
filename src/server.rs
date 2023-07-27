@@ -171,6 +171,7 @@ impl Server {
         self.playerlist.records.insert(record.steamid, record);
     }
 
+    #[allow(dead_code)]
     pub fn get_player_record(&self, steamid: &SteamID) -> Option<&PlayerRecord> {
         self.playerlist.records.get(steamid)
     }
