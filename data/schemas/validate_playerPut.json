@@ -8,23 +8,18 @@
 		"^[0-9]{17}$": {
 			"type": "object",
 			"required": [
-				"tags",
+				"localVerdict",
 				"customData"
 			],
 			"properties": {
-				"tags": {
-					"title": "Tags",
-					"type": "array",
-					"default": [],
-					"items":{
-						"title": "Items",
-						"type": "string",
-						"default": "",
-						"examples": [
-							"Suspicious"
-						],
-						"pattern": "^.*$"
-					}
+				"localVerdict": {
+					"title": "Localverdict",
+					"type": "string",
+					"default": "None",
+					"examples": [
+						"Cheater"
+					],
+					"pattern": "^.+$"
 				},
 				"customData": {
 					"title": "Customdata",
