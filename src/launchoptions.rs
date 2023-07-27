@@ -30,10 +30,9 @@ pub struct LaunchOptionsV2 {
     new_app_data: Option<String>,
 }
 
-
 impl LaunchOptionsV2 {
     /// Get the current configured launch options for the target app under the current logged in steam user.
-    /// 
+    ///
     /// # Errors
     /// Will raise `anyhow::Error` under the following conditions:
     /// - No `localconfig.vdf` file found for the given user in the expected Steam library
@@ -95,7 +94,7 @@ impl LaunchOptionsV2 {
 
     /// Returns a vector of the launch options NOT found in the target apps launch options,
     /// but are defined as required according to [`TF2_REQUIRED_OPTS`].
-    /// 
+    ///
     /// # Errors
     /// Will raise anyhow::Error under the following conditions:
     /// - Target app exists but has no 'LaunchOptions' key (no user configured launch options).
@@ -137,7 +136,7 @@ impl LaunchOptionsV2 {
 
     /// Writes any changes to the launch options present in [`new_app_data`](Self::new_app_data)
     /// into the `localconfig.vdf` file.
-    /// 
+    ///
     /// # Errors
     /// Will raise anyhow::Error if:
     /// - The `localconfig.vdf` file could not be opened to write into (potentially if Steam happens to also be writing the file simultanesouly).
@@ -181,9 +180,9 @@ impl LaunchOptionsV2 {
         Ok(())
     }
 
-    /// Clones [`app_data`](Self::app_data) into [`new_app_data`](Self::new_app_data) and modifies the 
+    /// Clones [`app_data`](Self::app_data) into [`new_app_data`](Self::new_app_data) and modifies the
     /// LaunchOptions key to contain the updated list of launch opts.
-    /// 
+    ///
     /// If there are no missing required launch options, this is a no-op.
     fn add_opts_if_missing(&mut self) {
         let copied_app_data = self.app_data.clone();
