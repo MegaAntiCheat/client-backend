@@ -5,7 +5,7 @@ use steamid_ng::SteamID;
 
 use crate::{
     io::regexes::StatusLine,
-    playerlist::{PlayerRecord, Verdict},
+    player_records::{PlayerRecord, Verdict},
 };
 
 // Player

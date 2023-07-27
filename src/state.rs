@@ -4,7 +4,7 @@ use std::{
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
-use crate::{playerlist::Playerlist, server::Server, settings::Settings};
+use crate::{player_records::PlayerRecords, server::Server, settings::Settings};
 
 // State singleton and lock helpers
 
@@ -65,7 +65,7 @@ impl State {
         }
     }
 
-    pub fn new(settings: Settings, playerlist: Playerlist) -> State {
+    pub fn new(settings: Settings, playerlist: PlayerRecords) -> State {
         State {
             log_file_state: Ok(()),
             rcon_state: Ok(()),

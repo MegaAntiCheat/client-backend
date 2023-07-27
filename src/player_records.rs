@@ -9,23 +9,23 @@ use crate::settings::{ConfigFilesError, Settings};
 // PlayerList
 
 #[derive(Serialize, Deserialize)]
-pub struct Playerlist {
+pub struct PlayerRecords {
     #[serde(skip)]
     path: PathBuf,
     pub records: HashMap<SteamID, PlayerRecord>,
 }
 
-impl Playerlist {
+impl PlayerRecords {
     /// Attempt to load the [Playerlist] from the default file
-    pub fn load() -> Result<Playerlist, ConfigFilesError> {
+    pub fn load() -> Result<PlayerRecords, ConfigFilesError> {
         Self::load_from(Self::locate_playerlist_file()?)
     }
 
     /// Attempt to load the [Playerlist] from the provided file
-    pub fn load_from(path: PathBuf) -> Result<Playerlist, ConfigFilesError> {
+    pub fn load_from(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
         let contents = std::fs::read_to_string(&path)
             .map_err(|e| ConfigFilesError::IO(path.to_string_lossy().into(), e))?;
-        let mut playerlist: Playerlist = serde_json::from_str(&contents)
+        let mut playerlist: PlayerRecords = serde_json::from_str(&contents)
             .map_err(|e| ConfigFilesError::Json(path.to_string_lossy().into(), e))?;
         playerlist.path = path;
         Ok(playerlist)
@@ -44,13 +44,13 @@ impl Playerlist {
     }
 }
 
-impl Default for Playerlist {
+impl Default for PlayerRecords {
     fn default() -> Self {
         let path = Self::locate_playerlist_file()
             .map_err(|e| tracing::warn!("Failed to create config directory: {:?}", e))
             .unwrap_or("playerlist.json".into());
 
-        Playerlist {
+        PlayerRecords {
             path,
             records: HashMap::new(),
         }

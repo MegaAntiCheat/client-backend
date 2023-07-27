@@ -13,7 +13,7 @@ use tokio::sync::mpsc::Sender;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 use crate::{
-    playerlist::{PlayerRecord, Verdict},
+    player_records::{PlayerRecord, Verdict},
     state::State,
 };
 

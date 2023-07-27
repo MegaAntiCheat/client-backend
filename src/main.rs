@@ -1,4 +1,4 @@
-use playerlist::Playerlist;
+use player_records::PlayerRecords;
 use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
@@ -18,7 +18,7 @@ mod gamefinder;
 mod io;
 mod launchoptions;
 mod player;
-mod playerlist;
+mod player_records;
 mod server;
 mod settings;
 mod state;
@@ -82,9 +82,9 @@ async fn main() {
 
     // Launch options and overrides
     let launch_opts = match LaunchOptionsV2::new(
-        settings.get_steam_user().expect(
-            "Failed to identify the local steam user (failed to find `loginusers.vdf`)"
-        ),
+        settings
+            .get_steam_user()
+            .expect("Failed to identify the local steam user (failed to find `loginusers.vdf`)"),
         gamefinder::TF2_GAME_ID.to_string(),
     ) {
         Ok(val) => Some(val),
@@ -133,9 +133,9 @@ async fn main() {
             "Overrode default playerlist path with provided '{}'",
             playerlist_path
         );
-        Playerlist::load_from(playerlist_path.into())
+        PlayerRecords::load_from(playerlist_path.into())
     } else {
-        Playerlist::load()
+        PlayerRecords::load()
     };
 
     let playerlist = match playerlist {
@@ -148,7 +148,7 @@ async fn main() {
                 "Failed to load playerlist, creating new playerlist: {:?}",
                 e
             );
-            Playerlist::default()
+            PlayerRecords::default()
         }
     };
 

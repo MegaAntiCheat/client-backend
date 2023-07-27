@@ -13,7 +13,7 @@ use crate::{
         IOOutput,
     },
     player::{Player, SteamInfo},
-    playerlist::{PlayerRecord, Playerlist},
+    player_records::{PlayerRecord, PlayerRecords},
 };
 
 const MAX_HISTORY_LEN: usize = 100;
@@ -35,7 +35,7 @@ pub struct Server {
     gamemode: Option<Gamemode>,
 
     #[serde(skip)]
-    playerlist: Playerlist,
+    player_records: PlayerRecords,
 }
 
 #[derive(Debug, Serialize)]
@@ -47,7 +47,7 @@ pub struct Gamemode {
 }
 
 impl Server {
-    pub fn new(playerlist: Playerlist) -> Server {
+    pub fn new(playerlist: PlayerRecords) -> Server {
         Server {
             map: None,
             ip: None,
@@ -58,7 +58,7 @@ impl Server {
             player_history: VecDeque::with_capacity(MAX_HISTORY_LEN),
             gamemode: None,
 
-            playerlist,
+            player_records: playerlist,
         }
     }
 
@@ -164,25 +164,25 @@ impl Server {
     // Player records
 
     pub fn has_player_record(&self, steamid: &SteamID) -> bool {
-        self.playerlist.records.contains_key(steamid)
+        self.player_records.records.contains_key(steamid)
     }
 
     pub fn insert_player_record(&mut self, record: PlayerRecord) {
-        self.playerlist.records.insert(record.steamid, record);
+        self.player_records.records.insert(record.steamid, record);
     }
 
     #[allow(dead_code)]
     pub fn get_player_record(&self, steamid: &SteamID) -> Option<&PlayerRecord> {
-        self.playerlist.records.get(steamid)
+        self.player_records.records.get(steamid)
     }
 
     pub fn get_player_record_mut(&mut self, steamid: &SteamID) -> Option<PlayerRecordLock> {
-        if self.playerlist.records.contains_key(steamid) {
+        if self.player_records.records.contains_key(steamid) {
             Some(PlayerRecordLock {
                 steamid: *steamid,
                 players: &mut self.players,
                 history: &mut self.player_history,
-                playerlist: &mut self.playerlist,
+                playerlist: &mut self.player_records,
             })
         } else {
             None
@@ -237,7 +237,7 @@ impl Server {
             // Create and insert new player
             let mut player = Player::new_from_status(&status, user);
 
-            if let Some(record) = self.playerlist.records.get(&status.steamid) {
+            if let Some(record) = self.player_records.records.get(&status.steamid) {
                 player.update_from_record(record.clone());
             }
 
@@ -258,7 +258,7 @@ impl Server {
 }
 
 pub struct PlayerRecordLock<'a> {
-    playerlist: &'a mut Playerlist,
+    playerlist: &'a mut PlayerRecords,
     players: &'a mut HashMap<SteamID, Player>,
     history: &'a mut VecDeque<Player>,
     steamid: SteamID,
