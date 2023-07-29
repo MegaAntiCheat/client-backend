@@ -65,17 +65,22 @@ impl Server {
     /// Handles any io output from running commands / reading the console log file.
     /// Returns:
     /// * Some<[SteamID]> of a player if they have been newly added to the server.
-    pub fn handle_io_output(
-        &mut self,
-        response: IOOutput,
-        user: Option<SteamID>,
-    ) -> Option<SteamID> {
+    pub fn handle_io_output(&mut self, response: IOOutput, user: Option<SteamID>) -> NewPlayers {
         use IOOutput::*;
         match response {
             NoOutput => {}
-            G15(players) => self.handle_g15_parse(players),
+            G15(players) => return self.handle_g15_parse(players, user).into(),
             Status(status) => {
-                return self.add_or_update_player(status, user);
+                return self.handle_status_line(status, user).into();
+            }
+            MultiStatus(status_lines) => {
+                let mut new_players = Vec::new();
+                for status in status_lines {
+                    if let Some(new_player) = self.handle_status_line(status, user) {
+                        new_players.push(new_player);
+                    }
+                }
+                return new_players.into();
             }
             Chat(chat) => self.handle_chat(chat),
             Kill(kill) => self.handle_kill(kill),
@@ -94,7 +99,7 @@ impl Server {
             }
         }
 
-        None
+        NewPlayers::None
     }
 
     /// Moves any old players from the server into history. Any console commands (status, g15_dumpplayer, etc)
@@ -191,13 +196,16 @@ impl Server {
 
     // Other
 
-    fn handle_g15_parse(&mut self, players: Vec<g15::G15Player>) {
+    fn handle_g15_parse(
+        &mut self,
+        players: Vec<g15::G15Player>,
+        user: Option<SteamID>,
+    ) -> Vec<SteamID> {
+        let mut new_players = Vec::new();
         for pl in players {
-            if let Some(sid3) = &pl.sid3 {
-                let Ok(sid64) = SteamID::from_steam3(sid3) else {
-                    continue;
-                };
-                if let Some(player) = self.players.get_mut(&sid64) {
+            if let Some(steamid) = &pl.steamid {
+                // Update existing player
+                if let Some(player) = self.players.get_mut(steamid) {
                     if let Some(scr) = pl.score {
                         player.game_info.kills = scr;
                     }
@@ -210,18 +218,27 @@ impl Server {
                     if let Some(tm) = pl.team {
                         player.game_info.team = tm;
                     }
+                    if let Some(uid) = pl.userid {
+                        player.game_info.userid = uid;
+                    }
+                    player.game_info.accounted = true;
+                } else if let Some(mut player) = Player::new_from_g15(&pl, user) {
+                    if let Some(record) = self.player_records.records.get(steamid) {
+                        player.update_from_record(record.clone());
+                    }
+
+                    self.players.insert(*steamid, player);
+                    new_players.push(*steamid);
                 }
             }
         }
+
+        new_players
     }
 
     /// Given a status line, update an existing or add a new one to the server.
     /// Returns the SteamID if a new player was created.
-    fn add_or_update_player(
-        &mut self,
-        status: StatusLine,
-        user: Option<SteamID>,
-    ) -> Option<SteamID> {
+    fn handle_status_line(&mut self, status: StatusLine, user: Option<SteamID>) -> Option<SteamID> {
         // Update existing player or insert new player
         if let Some(player) = self.players.get_mut(&status.steamid) {
             // Update existing player
@@ -309,6 +326,72 @@ impl Drop for PlayerRecordLock<'_> {
 
         if let Err(e) = self.playerlist.save() {
             tracing::error!("Failed to save playerlist: {:?}", e);
+        }
+    }
+}
+
+pub enum NewPlayers {
+    Single(SteamID),
+    Multiple(Vec<SteamID>),
+    None,
+}
+
+impl From<Option<SteamID>> for NewPlayers {
+    fn from(value: Option<SteamID>) -> Self {
+        if let Some(steamid) = value {
+            NewPlayers::Single(steamid)
+        } else {
+            NewPlayers::None
+        }
+    }
+}
+
+impl From<Vec<SteamID>> for NewPlayers {
+    fn from(value: Vec<SteamID>) -> Self {
+        NewPlayers::Multiple(value)
+    }
+}
+
+pub struct NewPlayersIterator<'a> {
+    players: &'a NewPlayers,
+    index: usize,
+}
+
+impl Iterator for NewPlayersIterator<'_> {
+    type Item = SteamID;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match &self.players {
+            NewPlayers::Single(s) => {
+                if self.index == 0 {
+                    self.index += 1;
+                    Some(*s)
+                } else {
+                    None
+                }
+            }
+            NewPlayers::Multiple(s) => {
+                self.index += 1;
+                if self.index <= s.len() {
+                    Some(s[self.index - 1])
+                } else {
+                    None
+                }
+            }
+            NewPlayers::None => None,
+        }
+    }
+}
+
+impl<'a> IntoIterator for &'a NewPlayers {
+    type Item = SteamID;
+
+    type IntoIter = NewPlayersIterator<'a>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        NewPlayersIterator {
+            players: self,
+            index: 0,
         }
     }
 }

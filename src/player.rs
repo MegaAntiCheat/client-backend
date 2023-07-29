@@ -4,7 +4,7 @@ use std::sync::Arc;
 use steamid_ng::SteamID;
 
 use crate::{
-    io::regexes::StatusLine,
+    io::{g15::G15Player, regexes::StatusLine},
     player_records::{PlayerRecord, Verdict},
 };
 
@@ -12,7 +12,7 @@ use crate::{
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Player {
-    pub name: Arc<str>,
+    pub name: String,
     #[serde(rename = "steamID64")]
     pub steamid: SteamID,
     #[serde(rename = "isSelf")]
@@ -36,13 +36,31 @@ impl Player {
             name: status.name.clone(),
             steamid: status.steamid,
             is_self,
-            game_info: GameInfo::new(status),
+            game_info: GameInfo::new_from_status(status),
             steam_info: None,
             custom_data: serde_json::Value::Object(Map::new()),
             tags: Vec::new(),
             local_verdict: Verdict::Player,
             convicted: false,
         }
+    }
+
+    pub fn new_from_g15(g15: &G15Player, user: Option<SteamID>) -> Option<Player> {
+        let steamid = g15.steamid?;
+        let game_info = GameInfo::new_from_g15(g15)?;
+        let is_self = user.map(|user| user == steamid).unwrap_or(false);
+
+        Some(Player {
+            name: g15.name.clone()?,
+            steamid,
+            is_self,
+            game_info,
+            steam_info: None,
+            custom_data: serde_json::Value::default(),
+            tags: Vec::new(),
+            local_verdict: Verdict::Player,
+            convicted: false,
+        })
     }
 
     /// Given a record, update this player with the included data.
@@ -125,8 +143,7 @@ pub struct SteamInfo {
     pub vac_bans: i64,
     pub game_bans: i64,
     pub days_since_last_ban: Option<i64>,
-
-    pub friends: Vec<Friend>,
+    // pub friends: Vec<Friend>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -159,7 +176,7 @@ impl From<i32> for ProfileVisibility {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GameInfo {
-    pub userid: Arc<str>,
+    pub userid: String,
     pub team: Team,
     pub time: u32,
     pub ping: u32,
@@ -173,7 +190,21 @@ pub struct GameInfo {
 }
 
 impl GameInfo {
-    pub fn new(status: &StatusLine) -> GameInfo {
+    pub fn new_from_g15(g15: &G15Player) -> Option<GameInfo> {
+        Some(GameInfo {
+            userid: g15.userid.clone()?,
+            team: g15.team.unwrap_or(Team::Unassigned),
+            time: 0,
+            ping: g15.ping.unwrap_or(0),
+            loss: 0,
+            state: PlayerState::Spawning,
+            kills: g15.score.unwrap_or(0),
+            deaths: g15.deaths.unwrap_or(0),
+            accounted: true,
+        })
+    }
+
+    pub fn new_from_status(status: &StatusLine) -> GameInfo {
         GameInfo {
             userid: status.userid.clone(),
             team: Team::Unassigned,

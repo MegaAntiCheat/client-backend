@@ -9,7 +9,7 @@ use tappet::{
     },
     Executor, SteamAPI,
 };
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::{
     player::{Friend, SteamInfo},
@@ -18,7 +18,7 @@ use crate::{
 
 /// Enter a loop to wait for steam lookup requests, make those requests from the Steam web API,
 /// and update the state to include that data. Intended to be run inside a new tokio::task
-pub async fn steam_api_loop(mut requests: Receiver<SteamID>, api_key: Arc<str>) {
+pub async fn steam_api_loop(mut requests: UnboundedReceiver<SteamID>, api_key: Arc<str>) {
     tracing::debug!("Entering steam api request loop");
 
     let mut client = SteamAPI::new(api_key);
@@ -43,19 +43,19 @@ async fn request_steam_info(client: &mut SteamAPI, player: SteamID) -> Result<St
     tracing::debug!("Requesting steam account: {}", u64::from(player));
 
     let summary = request_player_summary(client, player).await?;
-    let friends = match request_account_friends(client, player).await {
-        Ok(friends) => friends,
-        Err(e) => {
-            if summary.communityvisibilitystate == 3 {
-                tracing::warn!(
-                    "Friends could not be retrieved from public profile {}: {:?}",
-                    u64::from(player),
-                    e
-                );
-            }
-            Vec::new()
-        }
-    };
+    // let friends = match request_account_friends(client, player).await {
+    //     Ok(friends) => friends,
+    //     Err(e) => {
+    //         if summary.communityvisibilitystate == 3 {
+    //             tracing::warn!(
+    //                 "Friends could not be retrieved from public profile {}: {:?}",
+    //                 u64::from(player),
+    //                 e
+    //             );
+    //         }
+    //         Vec::new()
+    //     }
+    // };
     let bans = request_account_bans(client, player).await?;
 
     Ok(SteamInfo {
@@ -74,8 +74,7 @@ async fn request_steam_info(client: &mut SteamAPI, player: SteamID) -> Result<St
         } else {
             None
         },
-
-        friends,
+        // friends,
     })
 }
 
@@ -97,6 +96,7 @@ async fn request_player_summary(client: &mut SteamAPI, player: SteamID) -> Resul
     Ok(summary.response.players.remove(0))
 }
 
+#[allow(dead_code)]
 async fn request_account_friends(client: &mut SteamAPI, player: SteamID) -> Result<Vec<Friend>> {
     let friends = client
         .get()

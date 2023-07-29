@@ -128,8 +128,8 @@ pub const REGEX_STATUS: &str =
 
 #[derive(Debug)]
 pub struct StatusLine {
-    pub userid: Arc<str>,
-    pub name: Arc<str>,
+    pub userid: String,
+    pub name: String,
     pub steamid: SteamID,
     pub time: u32,
     pub ping: u32,

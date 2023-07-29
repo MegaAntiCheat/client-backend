@@ -2,7 +2,7 @@ use player_records::PlayerRecords;
 use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::UnboundedSender;
 
 use clap::{ArgAction, Parser};
 use io::{Commands, IOManager};
@@ -165,7 +165,7 @@ async fn main() {
     });
 
     // Steam API loop
-    let (steam_api_requester, steam_api_receiver) = tokio::sync::mpsc::channel(32);
+    let (steam_api_requester, steam_api_receiver) = tokio::sync::mpsc::unbounded_channel();
     tokio::task::spawn(async move {
         steam_api_loop(steam_api_receiver, steam_api_key).await;
     });
@@ -181,7 +181,7 @@ async fn main() {
     main_loop(io, steam_api_requester).await;
 }
 
-async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
+async fn main_loop(mut io: IOManager, steam_api_requester: UnboundedSender<SteamID>) {
     let mut new_players = Vec::new();
 
     loop {
@@ -191,7 +191,7 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
                 let mut state = State::write_state();
                 let user = state.settings.get_steam_user();
                 state.log_file_state = Ok(());
-                if let Some(new_player) = state.server.handle_io_output(output, user) {
+                for new_player in state.server.handle_io_output(output, user).into_iter() {
                     new_players.push(new_player);
                 }
             }
@@ -212,7 +212,7 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
                 let mut state = State::write_state();
                 let user = state.settings.get_steam_user();
                 state.rcon_state = Ok(());
-                if let Some(new_player) = state.server.handle_io_output(output, user) {
+                for new_player in state.server.handle_io_output(output, user).into_iter() {
                     new_players.push(new_player);
                 }
             }
@@ -226,7 +226,6 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
         for player in &new_players {
             steam_api_requester
                 .send(*player)
-                .await
                 .expect("Steam API task ded");
         }
 
@@ -234,17 +233,15 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
     }
 }
 
-async fn refresh_loop(cmd: Sender<Commands>) {
+async fn refresh_loop(cmd: UnboundedSender<Commands>) {
     tracing::debug!("Entering refresh loop");
     loop {
         State::write_state().server.refresh();
 
         cmd.send(Commands::Status)
-            .await
             .expect("communication with main loop from refresh loop");
         tokio::time::sleep(Duration::from_secs(3)).await;
         cmd.send(Commands::G15)
-            .await
             .expect("communication with main loop from refresh loop");
         tokio::time::sleep(Duration::from_secs(3)).await;
         std::thread::sleep(Duration::from_secs(3));
