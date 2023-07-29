@@ -3,6 +3,7 @@
 
 use anyhow::Result;
 use regex::{Captures, Regex};
+use steamid_ng::SteamID;
 use thiserror::Error;
 
 use crate::player::Team;
@@ -134,8 +135,9 @@ pub const REGEX_I_SID3: &str = r#"^m_iAccountID\[(\d+)\]\s+integer\s+\((\d+)\)$"
 pub fn parse_sid3(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
     let sid3: u64 = caps[2].parse()?;
+    let steamid = SteamID::from_steam3(&format!("[U:1:{}]", sid3))?;
     let player_ref = players.get_mut(idx).ok_or(G15Error::IndexOutOfBounds)?;
-    player_ref.sid3 = Some(format!("[U:1:{}]", sid3));
+    player_ref.steamid = Some(steamid);
     Ok(())
 }
 
@@ -167,18 +169,18 @@ pub fn parse_userid(caps: Captures, players: &mut [G15Player]) -> Result<()> {
 /// We still want the rest of the useful data though
 #[derive(Debug, Clone)]
 pub struct G15Player {
-    pub name: Option<String>,    // eg "Lilith"
-    pub ping: Option<u32>,       // eg 21
-    pub score: Option<u32>,      // eg 16
-    pub deaths: Option<u32>,     // eg 5
-    pub sid3: Option<String>,    // eg [U:1:111216987]
-    pub team: Option<Team>,      // eg 3
-    pub health: Option<u32>,     // eg 125
-    pub ammo: Option<u32>,       // eg 6
-    pub connected: Option<bool>, // eg true
-    pub valid: Option<bool>,     // eg true
-    pub alive: Option<bool>,     // eg true
-    pub userid: Option<String>,  // eg "301"
+    pub name: Option<String>,     // eg "Lilith"
+    pub ping: Option<u32>,        // eg 21
+    pub score: Option<u32>,       // eg 16
+    pub deaths: Option<u32>,      // eg 5
+    pub steamid: Option<SteamID>, // eg [U:1:111216987]
+    pub team: Option<Team>,       // eg 3
+    pub health: Option<u32>,      // eg 125
+    pub ammo: Option<u32>,        // eg 6
+    pub connected: Option<bool>,  // eg true
+    pub valid: Option<bool>,      // eg true
+    pub alive: Option<bool>,      // eg true
+    pub userid: Option<String>,   // eg "301"
 }
 impl G15Player {
     pub fn new() -> G15Player {
@@ -187,7 +189,7 @@ impl G15Player {
             ping: None,
             score: None,
             deaths: None,
-            sid3: None,
+            steamid: None,
             team: None,
             health: None,
             ammo: None,
