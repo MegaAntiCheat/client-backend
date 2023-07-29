@@ -6,7 +6,7 @@ use std::fmt::Display;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::mpsc::{Receiver, Sender};
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
 use crate::state::State;
 
@@ -60,8 +60,8 @@ impl Display for Commands {
 // IOThread
 
 pub struct IOManager {
-    command_recv: Receiver<Commands>,
-    command_send: Sender<Commands>,
+    command_recv: UnboundedReceiver<Commands>,
+    command_send: UnboundedSender<Commands>,
     command_manager: CommandManager,
     log_watcher: Option<FileWatcher>,
     parser: G15Parser,
@@ -77,7 +77,7 @@ pub struct IOManager {
 impl IOManager {
     pub fn new() -> IOManager {
         let command_manager = CommandManager::new();
-        let (tx, rx) = tokio::sync::mpsc::channel(16);
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
         IOManager {
             command_recv: rx,
@@ -95,7 +95,7 @@ impl IOManager {
         }
     }
 
-    pub fn get_command_requester(&self) -> Sender<Commands> {
+    pub fn get_command_requester(&self) -> UnboundedSender<Commands> {
         self.command_send.clone()
     }
 

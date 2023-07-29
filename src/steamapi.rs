@@ -9,7 +9,7 @@ use tappet::{
     },
     Executor, SteamAPI,
 };
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::mpsc::UnboundedReceiver;
 
 use crate::{
     player::{Friend, SteamInfo},
@@ -18,7 +18,7 @@ use crate::{
 
 /// Enter a loop to wait for steam lookup requests, make those requests from the Steam web API,
 /// and update the state to include that data. Intended to be run inside a new tokio::task
-pub async fn steam_api_loop(mut requests: Receiver<SteamID>, api_key: Arc<str>) {
+pub async fn steam_api_loop(mut requests: UnboundedReceiver<SteamID>, api_key: Arc<str>) {
     tracing::debug!("Entering steam api request loop");
 
     let mut client = SteamAPI::new(api_key);
