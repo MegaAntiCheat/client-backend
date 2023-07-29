@@ -106,4 +106,5 @@ pub enum Verdict {
     Bot,
     Suspicious,
     Cheater,
+    Trusted,
 }

@@ -197,7 +197,7 @@ impl GameInfo {
             time: 0,
             ping: g15.ping.unwrap_or(0),
             loss: 0,
-            state: PlayerState::Spawning,
+            state: PlayerState::Active,
             kills: g15.score.unwrap_or(0),
             deaths: g15.deaths.unwrap_or(0),
             accounted: true,
