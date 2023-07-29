@@ -29,6 +29,7 @@ pub mod regexes;
 pub enum IOOutput {
     NoOutput,
     Status(StatusLine),
+    MultiStatus(Vec<StatusLine>),
     Chat(ChatMessage),
     Kill(PlayerKill),
     Hostname(Hostname),
@@ -120,8 +121,23 @@ impl IOManager {
                 let players = self.parser.parse_g15(&resp);
                 IOOutput::G15(players)
             }
-            Commands::Kick(_, _) | Commands::Status | Commands::Say(_) => {
-                IOOutput::NoOutput // No return from a kick invocation.
+            Commands::Status => {
+                let mut status_lines = Vec::new();
+                for l in resp.lines() {
+                    if let Some(status_resp) = self.regex_status.captures(l).map(StatusLine::parse)
+                    {
+                        match status_resp {
+                            Ok(status) => status_lines.push(status),
+                            Err(e) => {
+                                tracing::error!("Error parsing status line: {:?}", e);
+                            }
+                        }
+                    }
+                }
+                IOOutput::MultiStatus(status_lines)
+            }
+            Commands::Kick(_, _) | Commands::Say(_) => {
+                IOOutput::NoOutput // No return from these other commands.
             }
         })
     }
