@@ -20,6 +20,7 @@ steamid-ng = "1.0.0"
 tappet = { git = "https://github.com/Bash-09/SteamHelper-rs" }
 thiserror = "1.0.43"
 tokio = { version = "1.29.1", features = ["full"] }
+tokio-stream = "0.1.14"
 tracing = "0.1.37"
 tracing-appender = "0.2.2"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }

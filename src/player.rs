@@ -3,7 +3,10 @@ use serde_json::Map;
 use std::sync::Arc;
 use steamid_ng::SteamID;
 
-use crate::io::regexes::StatusLine;
+use crate::{
+    io::regexes::StatusLine,
+    player_records::{PlayerRecord, Verdict},
+};
 
 // Player
 
@@ -21,11 +24,14 @@ pub struct Player {
     #[serde(rename = "customData")]
     pub custom_data: serde_json::Value,
     pub tags: Vec<Arc<str>>,
+    #[serde(rename = "localVerdict")]
+    pub local_verdict: Verdict,
+    pub convicted: bool,
 }
 
 impl Player {
-    pub fn new_from_status(status: &StatusLine, user: Option<&SteamID>) -> Player {
-        let is_self = user.map(|user| user == &status.steamid).unwrap_or(false);
+    pub fn new_from_status(status: &StatusLine, user: Option<SteamID>) -> Player {
+        let is_self = user.map(|user| user == status.steamid).unwrap_or(false);
         Player {
             name: status.name.clone(),
             steamid: status.steamid,
@@ -34,6 +40,29 @@ impl Player {
             steam_info: None,
             custom_data: serde_json::Value::Object(Map::new()),
             tags: Vec::new(),
+            local_verdict: Verdict::Player,
+            convicted: false,
+        }
+    }
+
+    /// Given a record, update this player with the included data.
+    pub fn update_from_record(&mut self, record: PlayerRecord) {
+        if record.steamid != self.steamid {
+            tracing::error!("Updating player with wrong record.");
+            return;
+        }
+
+        self.custom_data = record.custom_data;
+        self.local_verdict = record.verdict;
+    }
+
+    /// Create a record from the current player
+    #[allow(dead_code)]
+    pub fn get_record(&self) -> PlayerRecord {
+        PlayerRecord {
+            steamid: self.steamid,
+            custom_data: self.custom_data.clone(),
+            verdict: self.local_verdict,
         }
     }
 }

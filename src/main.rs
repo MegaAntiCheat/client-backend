@@ -1,3 +1,4 @@
+use player_records::PlayerRecords;
 use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
@@ -17,6 +18,7 @@ mod gamefinder;
 mod io;
 mod launchoptions;
 mod player;
+mod player_records;
 mod server;
 mod settings;
 mod state;
@@ -32,8 +34,11 @@ pub struct Args {
     /// Override the config file to use
     #[arg(short, long)]
     pub config: Option<String>,
+    /// Override the playerlist to use
+    #[arg(long)]
+    pub playerlist: Option<String>,
     /// Override the default tf2 directory
-    #[arg(short, long)]
+    #[arg(short = 'd', long)]
     pub tf2_dir: Option<String>,
     /// Override the configured/default rcon password
     #[arg(short, long)]
@@ -45,7 +50,7 @@ pub struct Args {
     #[arg(long = "rewrite_launch_opts", action=ArgAction::SetTrue, default_value_t=false)]
     pub rewrite_launch_options: bool,
     /// Do not panic on detecting missing launch options or failure to read/parse the localconfig.vdf file.
-    #[arg(long = "ignore_launch_opts", action=ArgAction::SetTrue, default_value_t=false)]
+    #[arg(short, long = "ignore_launch_opts", action=ArgAction::SetTrue, default_value_t=false)]
     pub ignore_launch_options: bool,
 }
 
@@ -75,10 +80,11 @@ async fn main() {
         }
     };
 
+    // Launch options and overrides
     let launch_opts = match LaunchOptionsV2::new(
-        settings.get_steam_user().expect(
-            "Failed to identify the local steam user (failed to find `loginusers.vdf`)"
-        ),
+        settings
+            .get_steam_user()
+            .expect("Failed to identify the local steam user (failed to find `loginusers.vdf`)"),
         gamefinder::TF2_GAME_ID.to_string(),
     ) {
         Ok(val) => Some(val),
@@ -121,8 +127,37 @@ async fn main() {
     let port = settings.get_port();
     let steam_api_key = settings.get_steam_api_key();
 
+    // Playerlist
+    let playerlist = if let Some(playerlist_path) = &args.playerlist {
+        tracing::info!(
+            "Overrode default playerlist path with provided '{}'",
+            playerlist_path
+        );
+        PlayerRecords::load_from(playerlist_path.into())
+    } else {
+        PlayerRecords::load()
+    };
+
+    let playerlist = match playerlist {
+        Ok(playerlist) => {
+            tracing::info!("Successfully loaded playerlist.");
+            playerlist
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to load playerlist, creating new playerlist: {:?}",
+                e
+            );
+            PlayerRecords::default()
+        }
+    };
+
+    if let Err(e) = playerlist.save() {
+        tracing::error!("Failed to save playerlist: {:?}", e);
+    }
+
     // Initialize State
-    State::initialize_state(State::new(settings));
+    State::initialize_state(State::new(settings, playerlist));
 
     // Spawn web server
     tokio::spawn(async move {
@@ -154,8 +189,9 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
         match io.handle_log() {
             Ok(output) => {
                 let mut state = State::write_state();
+                let user = state.settings.get_steam_user();
                 state.log_file_state = Ok(());
-                if let Some(new_player) = state.server.handle_io_response(output) {
+                if let Some(new_player) = state.server.handle_io_output(output, user) {
                     new_players.push(new_player);
                 }
             }
@@ -174,8 +210,9 @@ async fn main_loop(mut io: IOManager, steam_api_requester: Sender<SteamID>) {
         match io.handle_waiting_command().await {
             Ok(output) => {
                 let mut state = State::write_state();
+                let user = state.settings.get_steam_user();
                 state.rcon_state = Ok(());
-                if let Some(new_player) = state.server.handle_io_response(output) {
+                if let Some(new_player) = state.server.handle_io_output(output, user) {
                     new_players.push(new_player);
                 }
             }

@@ -4,7 +4,7 @@ use std::{
     sync::{RwLock, RwLockReadGuard, RwLockWriteGuard},
 };
 
-use crate::{server::Server, settings::Settings};
+use crate::{player_records::PlayerRecords, server::Server, settings::Settings};
 
 // State singleton and lock helpers
 
@@ -41,7 +41,6 @@ impl DerefMut for StateWriteLock<'_> {
 
 // State
 
-#[derive(Debug)]
 pub struct State {
     pub log_file_state: Result<()>,
     pub rcon_state: Result<()>,
@@ -66,11 +65,11 @@ impl State {
         }
     }
 
-    pub fn new(settings: Settings) -> State {
+    pub fn new(settings: Settings, playerlist: PlayerRecords) -> State {
         State {
             log_file_state: Ok(()),
             rcon_state: Ok(()),
-            server: Server::new(),
+            server: Server::new(playerlist),
             settings,
         }
     }

@@ -1,18 +1,35 @@
 use std::{
-    fs::{File, OpenOptions},
-    io::{ErrorKind, Read, Write},
+    fs::File,
+    fs::OpenOptions,
+    io::{self, Write},
+    io::{ErrorKind, Read},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result};
 use directories_next::ProjectDirs;
 use keyvalues_parser::Vdf;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
+use thiserror::Error;
 
 use crate::gamefinder;
 use crate::Args;
+
+#[derive(Debug, Error)]
+pub enum ConfigFilesError {
+    #[error("No valid home directory found")]
+    NoValidHome,
+    #[error("IO error on {0}, {1:?}")]
+    IO(String, io::Error),
+    #[error("Failed to parse yaml file {0}, {1:?}")]
+    Yaml(String, serde_yaml::Error),
+    #[error("Failed to parse json file {0}, {1:?}")]
+    Json(String, serde_json::Error),
+    #[error("{0:?}")]
+    Other(#[from] anyhow::Error),
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
@@ -40,15 +57,12 @@ pub struct Settings {
 #[allow(dead_code)]
 impl Settings {
     /// Attempt to load settings from the user's saved configuration file
-    pub fn load(args: &Args) -> Result<Settings> {
-        match Self::locate_config_file_path() {
-            Some(path) => Self::load_from(path, args),
-            None => Err(anyhow!("No valid home directory could be found.")),
-        }
+    pub fn load(args: &Args) -> Result<Settings, ConfigFilesError> {
+        Self::load_from(Self::locate_config_file_path()?, args)
     }
 
     /// Attempt to load settings from a provided configuration file, or just use default config
-    pub fn load_from(path: PathBuf, args: &Args) -> Result<Settings> {
+    pub fn load_from(path: PathBuf, args: &Args) -> Result<Settings, ConfigFilesError> {
         // Read config.yaml file if it exists, otherwise try to create a default file.
         let contents = match std::fs::read_to_string(&path) {
             Ok(content) => Ok(content),
@@ -58,16 +72,18 @@ impl Settings {
                         "No config file found in config directory. Creating default file..."
                     );
                     let def_settings = Settings::default();
-                    def_settings.save_ok();
+                    def_settings.save()?;
                     tracing::info!("Saved default config file to {:?}...", path);
                     return Ok(def_settings); // Short circuit due to fresh default settings
                 }
-                _ => Err(why).context("Encountered unexpected error when reading config file"),
+                _ => Err(why),
             },
-        }?;
+        }
+        .map_err(|e| ConfigFilesError::IO(path.to_string_lossy().into(), e))?;
 
-        let mut settings =
-            serde_yaml::from_str::<Settings>(&contents).context("Failed to parse settings.")?;
+        let mut settings = serde_yaml::from_str::<Settings>(&contents)
+            .map_err(|e| ConfigFilesError::Yaml(path.to_string_lossy().into(), e))?;
+
         settings.config_path = Some(path);
 
         // settings.steam_user = Settings::load_current_steam_user();
@@ -226,21 +242,31 @@ impl Settings {
         self.save_ok();
     }
 
-    fn locate_config_file_path() -> Option<PathBuf> {
-        let dirs = ProjectDirs::from("com.megascatterbomb", "MAC", "Client")?;
+    /// Attempts to find (and create) a directory to be used for configuration files
+    pub fn locate_config_directory() -> Result<PathBuf, ConfigFilesError> {
+        let dirs = ProjectDirs::from("com.megascatterbomb", "MAC", "MACClient")
+            .ok_or(ConfigFilesError::NoValidHome)?;
         let dir = dirs.config_dir();
-        std::fs::create_dir_all(dir).ok();
-        Some(PathBuf::from(dir).join("config.yaml"))
+        std::fs::create_dir_all(dir)
+            .map_err(|e| ConfigFilesError::IO(dir.to_string_lossy().into(), e))?;
+        Ok(PathBuf::from(dir))
+    }
+
+    fn locate_config_file_path() -> Result<PathBuf, ConfigFilesError> {
+        Self::locate_config_directory().map(|dir| dir.join("config.yaml"))
     }
 }
 
 impl Default for Settings {
     fn default() -> Self {
         let tf2_directory = gamefinder::locate_tf2_folder().unwrap_or(PathBuf::new());
+        let config_path = Self::locate_config_file_path()
+            .map_err(|e| tracing::error!("Failed to create config directory: {:?}", e))
+            .ok();
 
         Settings {
             steam_user: Self::load_current_steam_user(),
-            config_path: Self::locate_config_file_path(),
+            config_path,
             tf2_directory,
             rcon_password: "mac_rcon".into(),
             steam_api_key: "YOUR_API_KEY_HERE".into(),
