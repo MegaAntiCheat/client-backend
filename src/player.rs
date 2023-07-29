@@ -143,8 +143,7 @@ pub struct SteamInfo {
     pub vac_bans: i64,
     pub game_bans: i64,
     pub days_since_last_ban: Option<i64>,
-
-    pub friends: Vec<Friend>,
+    // pub friends: Vec<Friend>,
 }
 
 #[derive(Debug, Clone, Serialize)]
