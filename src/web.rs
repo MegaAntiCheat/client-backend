@@ -36,7 +36,8 @@ pub async fn web_main(port: u16) {
         .route("/mac/pref/v1", get(get_prefs))
         .route("/mac/pref/v1", put(put_prefs))
         .route("/mac/game/events/v1", get(get_events))
-        .route("/mac/history/v1", get(get_history));
+        .route("/mac/history/v1", get(get_history))
+        .layer(tower_http::cors::CorsLayer::permissive());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     tracing::info!("Starting web server at {addr}");
