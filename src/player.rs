@@ -1,4 +1,4 @@
-use serde::Serialize;
+use serde::{Serialize, Serializer};
 use serde_json::Map;
 use std::sync::Arc;
 use steamid_ng::SteamID;
@@ -13,7 +13,7 @@ use crate::{
 #[derive(Debug, Clone, Serialize)]
 pub struct Player {
     pub name: String,
-    #[serde(rename = "steamID64")]
+    #[serde(rename = "steamID64", serialize_with = "serialize_steamid_as_string")]
     pub steamid: SteamID,
     #[serde(rename = "isSelf")]
     pub is_self: bool,
@@ -218,4 +218,10 @@ impl GameInfo {
             accounted: true,
         }
     }
+}
+
+// Useful
+
+fn serialize_steamid_as_string<S: Serializer>(steamid: &SteamID, s: S) -> Result<S::Ok, S::Error> {
+    format!("{}", u64::from(*steamid)).serialize(s)
 }
