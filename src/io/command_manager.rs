@@ -1,8 +1,8 @@
-use std::fmt::Display;
+use std::{fmt::Display, time::Duration};
 
 use anyhow::{Context, Result};
 use rcon::Connection;
-use tokio::net::TcpStream;
+use tokio::{net::TcpStream, time::timeout};
 
 use crate::state::State;
 
@@ -63,15 +63,24 @@ impl CommandManager {
         let password = State::read_state().settings.get_rcon_password();
 
         tracing::debug!("Attempting to reconnect to RCon");
-        match Connection::connect("127.0.0.1:27015", &password).await {
-            Ok(con) => {
+        match timeout(
+            Duration::from_secs(2),
+            Connection::connect("127.0.0.1:27015", &password),
+        )
+        .await
+        {
+            Ok(Ok(con)) => {
                 self.rcon = Some(con);
                 tracing::info!("RCon reconnected.");
                 Ok(self.rcon.as_mut().expect(""))
             }
-            Err(e) => {
+            Ok(Err(e)) => {
                 self.rcon = None;
                 Err(e).context("Failed to establish connection")
+            }
+            Err(e) => {
+                self.rcon = None;
+                Err(e).context("RCon connection timed out")
             }
         }
     }
