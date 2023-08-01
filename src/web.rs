@@ -1,4 +1,9 @@
-use std::{collections::HashMap, convert::Infallible, net::SocketAddr, sync::Mutex};
+use std::{
+    collections::HashMap,
+    convert::Infallible,
+    net::SocketAddr,
+    sync::{Arc, Mutex},
+};
 
 use axum::{
     extract::Query,
@@ -7,7 +12,7 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
 use tokio::sync::mpsc::Sender;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
@@ -31,7 +36,8 @@ pub async fn web_main(port: u16) {
         .route("/mac/pref/v1", get(get_prefs))
         .route("/mac/pref/v1", put(put_prefs))
         .route("/mac/game/events/v1", get(get_events))
-        .route("/mac/history/v1", get(get_history));
+        .route("/mac/history/v1", get(get_history))
+        .layer(tower_http::cors::CorsLayer::permissive());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     tracing::info!("Starting web server at {addr}");
@@ -107,18 +113,65 @@ async fn put_user(users: Json<HashMap<SteamID, UserUpdate>>) -> impl IntoRespons
 
 // Preferences
 
+#[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InternalPreferences {
+    pub tf2_directory: Option<Arc<str>>,
+    pub rcon_password: Option<Arc<str>>,
+    pub steam_api_key: Option<Arc<str>>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct Preferences {
+    pub internal: Option<InternalPreferences>,
+    pub external: Option<serde_json::Value>,
+}
+
 /// Get the current preferences
 async fn get_prefs() -> impl IntoResponse {
     tracing::debug!("Preferences requested.");
-    // TODO
-    (StatusCode::OK, HEADERS, "Not implemented".to_string())
+
+    let state = State::read_state();
+    let prefs = Preferences {
+        internal: Some(InternalPreferences {
+            tf2_directory: Some(state.settings.get_tf2_directory().to_string_lossy().into()),
+            rcon_password: Some(state.settings.get_rcon_password()),
+            steam_api_key: Some(state.settings.get_steam_api_key()),
+        }),
+        external: Some(state.settings.get_external_preferences().clone()),
+    };
+
+    (
+        StatusCode::OK,
+        HEADERS,
+        serde_json::to_string(&prefs).expect("Serialize preferences"),
+    )
 }
 
 /// Puts any preferences to be updated
-async fn put_prefs() -> impl IntoResponse {
+async fn put_prefs(prefs: Json<Preferences>) -> impl IntoResponse {
     tracing::debug!("Preferences updates sent.");
-    // TODO
-    (StatusCode::OK, HEADERS, "Not implemented".to_string())
+
+    let mut state = State::write_state();
+    let settings = &mut state.settings;
+
+    if let Some(internal) = prefs.0.internal {
+        if let Some(tf2_dir) = internal.tf2_directory {
+            settings.set_tf2_directory(tf2_dir.to_string().into());
+        }
+        if let Some(rcon_pwd) = internal.rcon_password {
+            settings.set_rcon_password(rcon_pwd);
+        }
+        if let Some(steam_api_key) = internal.steam_api_key {
+            settings.set_steam_api_key(steam_api_key);
+        }
+    }
+
+    if let Some(external) = prefs.0.external {
+        settings.update_external_preferences(external);
+    }
+
+    (StatusCode::OK, HEADERS)
 }
 
 // Events

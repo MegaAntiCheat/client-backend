@@ -11,6 +11,7 @@ use anyhow::{Context, Result};
 use directories_next::ProjectDirs;
 use keyvalues_parser::Vdf;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use steamid_ng::SteamID;
 use thiserror::Error;
 
@@ -42,6 +43,7 @@ pub struct Settings {
     rcon_password: Arc<str>,
     steam_api_key: Arc<str>,
     port: u16,
+    external: serde_json::Value,
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
     #[serde(skip)]
@@ -225,6 +227,9 @@ impl Settings {
             .unwrap_or(&self.steam_api_key)
             .clone()
     }
+    pub fn get_external_preferences(&self) -> &serde_json::Value {
+        &self.external
+    }
     pub fn set_tf2_directory(&mut self, dir: PathBuf) {
         self.tf2_directory = dir;
         self.save_ok();
@@ -239,6 +244,10 @@ impl Settings {
     }
     pub fn set_steam_api_key(&mut self, key: Arc<str>) {
         self.steam_api_key = key;
+        self.save_ok();
+    }
+    pub fn update_external_preferences(&mut self, prefs: serde_json::Value) {
+        merge_json_objects(&mut self.external, prefs);
         self.save_ok();
     }
 
@@ -276,6 +285,28 @@ impl Default for Settings {
             override_steam_api_key: None,
             override_port: None,
             override_steam_user: None,
+            external: serde_json::Value::Object(Map::new()),
         }
     }
+}
+
+// Useful
+
+/// Combines the second provided Json Object into the first. If the given [Value]s are not [Value::Object]s, this will do nothing.
+fn merge_json_objects(a: &mut Value, b: Value) {
+    if let Value::Object(a) = a {
+        if let Value::Object(b) = b {
+            for (k, v) in b {
+                if v.is_null() {
+                    a.remove(&k);
+                } else {
+                    merge_json_objects(a.entry(k).or_insert(Value::Null), v);
+                }
+            }
+
+            return;
+        }
+    }
+
+    *a = b;
 }
