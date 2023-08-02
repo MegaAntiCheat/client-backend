@@ -118,7 +118,6 @@ async fn request_steam_info(client: &mut SteamAPI, players: Vec<SteamID>) -> Res
 }
 
 async fn request_player_summary(client: &mut SteamAPI, players: &Vec<SteamID>) -> Result<Vec<PlayerSummary>> {
-    println!("players: {:?}", players);
     let summaries = client
         .get()
         .ISteamUser()
@@ -128,7 +127,6 @@ async fn request_player_summary(client: &mut SteamAPI, players: &Vec<SteamID>) -
         .context("Failed to get player summary from SteamAPI.")?;
     let summaries = serde_json::from_str::<GetPlayerSummariesResponseBase>(&summaries)
         .with_context(|| format!("Failed to parse player summary from SteamAPI: {}", &summaries))?;
-    println!("summaries: {:?}", summaries);
     Ok(summaries.response.players)
 }
 
