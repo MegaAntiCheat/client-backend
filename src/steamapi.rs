@@ -1,5 +1,4 @@
 use std::sync::Arc;
-use std::time::Duration;
 use std::collections::VecDeque;
 use std::collections::HashMap;
 
@@ -13,6 +12,7 @@ use tappet::{
     Executor, SteamAPI,
 };
 use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::time::{interval, Duration, MissedTickBehavior};
 
 use crate::{
     player::{Friend, SteamInfo},
@@ -30,6 +30,7 @@ pub async fn steam_api_loop(mut requests: UnboundedReceiver<SteamID>, api_key: A
     let mut client = SteamAPI::new(api_key);
     let mut buffer: VecDeque<SteamID> = VecDeque::new();
     let mut batch_timer = tokio::time::interval(BATCH_INTERVAL);
+    batch_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
 
     loop {
         tokio::select! {
@@ -37,7 +38,7 @@ pub async fn steam_api_loop(mut requests: UnboundedReceiver<SteamID>, api_key: A
                 buffer.push_back(request);
                 if buffer.len() >= BATCH_SIZE {
                     send_batch(&mut client, &mut buffer).await;
-                    batch_timer.tick().await;  // Reset the timer
+                    batch_timer.reset();  // Reset the timer
                 }
             },
             _ = batch_timer.tick() => {
