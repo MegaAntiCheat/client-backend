@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 use std::collections::VecDeque;
 use std::collections::HashMap;
 
@@ -20,7 +20,7 @@ use crate::{
 };
 
 const BATCH_INTERVAL: Duration = Duration::from_millis(500);
-const BATCH_SIZE: usize = 10;  // adjust as needed
+const BATCH_SIZE: usize = 20;  // adjust as needed
 
 /// Enter a loop to wait for steam lookup requests, make those requests from the Steam web API,
 /// and update the state to include that data. Intended to be run inside a new tokio::task
@@ -29,29 +29,37 @@ pub async fn steam_api_loop(mut requests: UnboundedReceiver<SteamID>, api_key: A
 
     let mut client = SteamAPI::new(api_key);
     let mut buffer: VecDeque<SteamID> = VecDeque::new();
-    let mut last_batch_time = Instant::now();
+    let mut batch_timer = tokio::time::interval(BATCH_INTERVAL);
 
     loop {
-        if let Some(request) = requests.recv().await {
-            buffer.push_back(request);
-
-            if last_batch_time.elapsed() > BATCH_INTERVAL || buffer.len() >= BATCH_SIZE {
-                match request_steam_info(&mut client, buffer.drain(..).collect()).await {
-                    Ok(steam_info_map) => {
-                        for (id, steam_info) in steam_info_map {
-                            // println!("id: {:?}", id);
-                            // println!("steam_info: {:?}", steam_info);
-                            State::write_state()
-                                .server
-                                .insert_steam_info(id, steam_info);
-                        }
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to get player info from SteamAPI: {:?}", e);
-                    }
+        tokio::select! {
+            Some(request) = requests.recv() => {
+                buffer.push_back(request);
+                if buffer.len() >= BATCH_SIZE {
+                    send_batch(&mut client, &mut buffer).await;
+                    batch_timer.tick().await;  // Reset the timer
                 }
-                last_batch_time = Instant::now();
+            },
+            _ = batch_timer.tick() => {
+                if !buffer.is_empty() {
+                    send_batch(&mut client, &mut buffer).await;
+                }
             }
+        }
+    }
+}
+
+async fn send_batch(client: &mut SteamAPI, buffer: &mut VecDeque<SteamID>) {
+    match request_steam_info(client, buffer.drain(..).collect()).await {
+        Ok(steam_info_map) => {
+            for (id, steam_info) in steam_info_map {
+                State::write_state()
+                    .server
+                    .insert_steam_info(id, steam_info);
+            }
+        }
+        Err(e) => {
+            tracing::error!("Failed to get player info from SteamAPI: {:?}", e);
         }
     }
 }
