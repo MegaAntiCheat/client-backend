@@ -1,6 +1,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use std::collections::VecDeque;
+use std::collections::HashMap;
 
 use anyhow::{anyhow, Context, Result};
 use steamid_ng::SteamID;
@@ -18,8 +19,8 @@ use crate::{
     state::State,
 };
 
-const BATCH_INTERVAL: Duration = Duration::from_secs(1);
-const BATCH_SIZE: usize = 100;  // adjust as needed
+const BATCH_INTERVAL: Duration = Duration::from_millis(500);
+const BATCH_SIZE: usize = 10;  // adjust as needed
 
 /// Enter a loop to wait for steam lookup requests, make those requests from the Steam web API,
 /// and update the state to include that data. Intended to be run inside a new tokio::task
@@ -38,6 +39,8 @@ pub async fn steam_api_loop(mut requests: UnboundedReceiver<SteamID>, api_key: A
                 match request_steam_info(&mut client, buffer.drain(..).collect()).await {
                     Ok(steam_info_map) => {
                         for (id, steam_info) in steam_info_map {
+                            // println!("id: {:?}", id);
+                            // println!("steam_info: {:?}", steam_info);
                             State::write_state()
                                 .server
                                 .insert_steam_info(id, steam_info);
@@ -58,6 +61,8 @@ async fn request_steam_info(client: &mut SteamAPI, players: Vec<SteamID>) -> Res
     tracing::debug!("Requesting steam accounts: {:?}", players);
 
     let summaries = request_player_summary(client, &players).await?;
+    let bans = request_account_bans(client, &players).await?;
+
     // let friends = match request_account_friends(client, player).await {
     //     Ok(friends) => friends,
     //     Err(e) => {
@@ -71,10 +76,16 @@ async fn request_steam_info(client: &mut SteamAPI, players: Vec<SteamID>) -> Res
     //         Vec::new()
     //     }
     // };
-    let bans = request_account_bans(client, &players).await?;
+    let id_to_summary: HashMap<_, _> = summaries.into_iter().map(|summary| (summary.steamid.clone(), summary)).collect();
+    let id_to_ban: HashMap<_, _> = bans.into_iter().map(|ban| (ban.steam_id.clone(), ban)).collect();
 
-    let steam_infos = players.into_iter().zip(summaries.into_iter().zip(bans.into_iter()))
-        .map(|(player, (summary, ban))| {
+
+    let steam_infos = players.into_iter()
+        .map(|player| {
+            let id = format!("{}", u64::from(player));
+            let summary = id_to_summary.get(&id).ok_or(anyhow!("Missing summary for player {}", id))?;
+            let ban = id_to_ban.get(&id).ok_or(anyhow!("Missing ban info for player {}", id))?;
+            
             let steam_info = SteamInfo {
                 account_name: summary.personaname.clone().into(),
                 pfp_url: summary.avatarfull.clone().into(),
@@ -91,14 +102,15 @@ async fn request_steam_info(client: &mut SteamAPI, players: Vec<SteamID>) -> Res
                     None
                 },
             };
-            (player, steam_info)
+            Ok((player, steam_info))
         })
-        .collect();
+        .collect::<Result<_>>()?;
 
     Ok(steam_infos)
 }
 
 async fn request_player_summary(client: &mut SteamAPI, players: &Vec<SteamID>) -> Result<Vec<PlayerSummary>> {
+    println!("players: {:?}", players);
     let summaries = client
         .get()
         .ISteamUser()
@@ -108,6 +120,7 @@ async fn request_player_summary(client: &mut SteamAPI, players: &Vec<SteamID>) -
         .context("Failed to get player summary from SteamAPI.")?;
     let summaries = serde_json::from_str::<GetPlayerSummariesResponseBase>(&summaries)
         .with_context(|| format!("Failed to parse player summary from SteamAPI: {}", &summaries))?;
+    println!("summaries: {:?}", summaries);
     Ok(summaries.response.players)
 }
 
