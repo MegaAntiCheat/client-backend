@@ -12,7 +12,7 @@ use tappet::{
     Executor, SteamAPI,
 };
 use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::time::{interval, Duration, MissedTickBehavior};
+use tokio::time::{Duration, MissedTickBehavior};
 
 use crate::{
     player::{Friend, SteamInfo},
@@ -118,7 +118,7 @@ async fn request_steam_info(client: &mut SteamAPI, players: Vec<SteamID>) -> Res
     Ok(steam_infos)
 }
 
-async fn request_player_summary(client: &mut SteamAPI, players: &Vec<SteamID>) -> Result<Vec<PlayerSummary>> {
+async fn request_player_summary(client: &mut SteamAPI, players: &[SteamID]) -> Result<Vec<PlayerSummary>> {
     let summaries = client
         .get()
         .ISteamUser()
@@ -163,7 +163,7 @@ async fn request_account_friends(client: &mut SteamAPI, player: SteamID) -> Resu
         .collect())
 }
 
-async fn request_account_bans(client: &mut SteamAPI, players: &Vec<SteamID>) -> Result<Vec<PlayerBans>> {
+async fn request_account_bans(client: &mut SteamAPI, players: &[SteamID]) -> Result<Vec<PlayerBans>> {
     let bans = client
         .get()
         .ISteamUser()
