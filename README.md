@@ -29,9 +29,14 @@ ip 0.0.0.0
 rcon_password mac_rcon
 net_start 
 ```
-> Note: the rcon_password is subject to change. If you use loopback (127.0.0.1) for the rcon IP, you are prevented from joining community servers.
 
-> Note: be aware that if either the 'net_start' command or your 'autoexec' config with 'net_start' are executed multiple times during a single game, this can result in the game's networking being reset.
+### Notes:
+
+> The rcon_password is subject to change. If you use loopback (127.0.0.1) for the rcon IP, you are prevented from joining community servers.
+
+> Be aware that if either the 'net_start' command or your 'autoexec' config with 'net_start' are executed multiple times during a single game, this can result in the game's networking being reset.
+
+> The rcon command manager relies on accessing the port 27015, which causes issues if another application is using it. iTunes (AppleDeviceServices) is a notable application that binds to this port. 
 
 
 You will also need to provide a SteamAPI key to the client. The client looks for configs in a config folder specified by OS.
