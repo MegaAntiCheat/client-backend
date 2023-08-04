@@ -3,9 +3,9 @@
 
 use std::{
     collections::VecDeque,
-    fs::File,
-    io::Read,
-    path::{Path, PathBuf},
+    fs::{File, OpenOptions},
+    io::{Read, Seek, SeekFrom},
+    path::PathBuf,
 };
 
 use anyhow::{Context, Result};
@@ -17,11 +17,17 @@ pub struct FileWatcher {
     lines_buf: VecDeque<String>,
     /// Size of the file (in bytes) when it was last read
     last_size: usize,
+    /// The file being watched
+    file: File,
 }
 
 impl FileWatcher {
     pub fn new(path: PathBuf) -> Result<FileWatcher> {
-        let file = FileWatcher::open_file(&path).context("Failed to open file to watch.")?;
+        let file = OpenOptions::new()
+            .read(true)
+            .write(false)
+            .open(&path)
+            .context("Failed to open file to watch.")?;
         let meta = file
             .metadata()
             .context("File didn't have metadata associated")?;
@@ -30,11 +36,8 @@ impl FileWatcher {
             file_path: path,
             lines_buf: VecDeque::new(),
             last_size: last as usize,
+            file,
         })
-    }
-
-    fn open_file<P: AsRef<Path>>(filepath: P) -> Result<File> {
-        File::open(filepath).context("Failed to open log file")
     }
 
     /// Attempts to read the new contents of the observed file and updates the internal state
@@ -58,12 +61,11 @@ impl FileWatcher {
         self.last_size = meta.len() as usize;
 
         // Get new file contents
-        let mut file =
-            FileWatcher::open_file(&self.file_path).context("Failed to reopen log file")?;
+        self.file.seek(SeekFrom::Start(start_idx as u64))?;
         let mut buff: Vec<u8> = Vec::new();
-        let _ = file.read_to_end(&mut buff);
+        let _ = self.file.read_to_end(&mut buff);
 
-        let data_str = String::from_utf8_lossy(&buff[start_idx..]);
+        let data_str = String::from_utf8_lossy(&buff);
         self.lines_buf.extend(
             data_str
                 .lines()
