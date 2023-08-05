@@ -66,7 +66,7 @@ impl FileWatcher {
         self.last_size = meta.len() as usize;
         
         // Get new file contents
-        self.file.seek(SeekFrom::Start(start_idx as u64))?;
+        // self.file.seek(SeekFrom::Start(start_idx as u64))?;
         let mut buff: Vec<u8> = Vec::new();
         let read_size = self.file.read_to_end(&mut buff)?;
 
@@ -77,9 +77,9 @@ impl FileWatcher {
                 .write(false)
                 .open(&self.file_path)
                 .context("Failed to reopen file.")?;
-            self.file.seek(SeekFrom::Start(start_idx as u64))?;
+            // self.file.seek(SeekFrom::Start(start_idx as u64))?;
             buff.clear();
-            let _ = self.file.read_to_end(&mut buff);
+            let _ = self.file.read_to_end(&mut buff).context("Failed to reopen file.")?;
         }
 
         let data_str = String::from_utf8_lossy(&buff);
