@@ -28,6 +28,14 @@ impl PlayerRecords {
         let mut playerlist: PlayerRecords = serde_json::from_str(&contents)
             .map_err(|e| ConfigFilesError::Json(path.to_string_lossy().into(), e))?;
         playerlist.path = path;
+
+        // Map all of the steamids to the records. They were not included when
+        // serializing/deserializing the records to prevent duplication in the
+        // resulting file.
+        for (steamid, record) in &mut playerlist.records {
+            record.steamid = *steamid;
+        }
+
         Ok(playerlist)
     }
 
@@ -62,6 +70,7 @@ impl Default for PlayerRecords {
 /// A Record of a player stored in the persistent personal playerlist
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PlayerRecord {
+    #[serde(skip)]
     pub steamid: SteamID,
     pub custom_data: serde_json::Value,
     pub verdict: Verdict,
