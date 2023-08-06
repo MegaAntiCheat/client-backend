@@ -60,6 +60,7 @@ impl FileWatcher {
                 .write(false)
                 .open(&self.file_path)
                 .context("Failed to reopen file after it was shortened.")?;
+            self.last_size = 0;
         }
 
         // Get new file contents
