@@ -14,6 +14,11 @@ Documentation for the API can be found at https://github.com/MegaAntiCheat/clien
 Troubleshooting:
 * Update rust with `rustup update`
 
+### UI
+A custom web UI can be built into the project by placing any files in the `ui` folder at compile time, and they will be served from the web interface. The web UI should include an `index.html` file as this is where the root URL will redirect to.
+
+File are served starting from `http://127.0.0.1:3621/ui/`.
+
 ## Testing
 1. Run all tests in `./tests/` with `cargo test`
 
