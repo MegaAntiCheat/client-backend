@@ -52,12 +52,9 @@ impl FileWatcher {
             return Ok(());
         }
 
-        let mut start_idx = self.last_size;
-
         // Reset if file has been remade (i.e. is shorter) and update state
         if (meta.len() as usize) < self.last_size {
-            tracing::warn!("File has shortened, the file may have been replaced. Reopening."); 
-            start_idx = 0;
+            tracing::warn!("File has shortened, the file may have been replaced. Reopening.");
             self.file = OpenOptions::new()
                 .read(true)
                 .write(false)
@@ -65,23 +62,28 @@ impl FileWatcher {
                 .context("Failed to reopen file after it was shortened.")?;
         }
 
-        self.last_size = meta.len() as usize;
-        
         // Get new file contents
         let mut buff: Vec<u8> = Vec::new();
-        let read_size = self.file.read_to_end(&mut buff).context("Failed to read file.")?;
-        let expected_size = self.last_size - start_idx;
+        let read_size = self
+            .file
+            .read_to_end(&mut buff)
+            .context("Failed to read file.")?;
 
-        // If the length of the data we received is less than we expected, reopen the file and try again
-        if read_size < expected_size {
-            tracing::warn!("Expected to read {expected_size} bytes but only read {read_size}, the file may have been replaced. Reopening.");
+        self.last_size += read_size;
+
+        // If we expected there to be new data but we didn't read anything, reopen the file and try again.
+        if read_size == 0 {
+            tracing::warn!("Expected to read bytes but didn't get any, the file may have been replaced. Reopening.");
             self.file = OpenOptions::new()
                 .read(true)
                 .write(false)
                 .open(&self.file_path)
-                .context("Failed to reopen file after receiving less data than expected.")?;
+                .context("Failed to reopen file after not receiving any data.")?;
             buff.clear();
-            let _ = self.file.read_to_end(&mut buff).context("Failed to read file.")?;
+            self.last_size = self
+                .file
+                .read_to_end(&mut buff)
+                .context("Failed to read file.")?;
         }
 
         let data_str = String::from_utf8_lossy(&buff);
