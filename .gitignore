@@ -4,3 +4,6 @@
 .vscode/
 .env
 *.log
+
+# bundle/build/staging dirs
+/bundle

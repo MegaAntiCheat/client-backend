@@ -5,6 +5,10 @@ edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
+[build-dependencies]
+git2 = "0.17.2"
+execute = "0.2.12"
+
 [dependencies]
 anyhow = { version = "1.0.72", features = ["backtrace"] }
 axum = "0.6.18"
@@ -29,3 +33,5 @@ keyvalues-serde = "0.1.0"
 substring = "1.4.5"
 tower-http = { version = "0.4.3", features = ["cors"] }
 include_dir = "0.7.3"
+git2 = "0.17.2"
+
