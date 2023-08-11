@@ -265,12 +265,12 @@ impl Server {
 
     fn handle_chat(&mut self, chat: ChatMessage) {
         // TODO
-        tracing::info!("Chat: {:?}", chat);
+        tracing::debug!("Chat: {:?}", chat);
     }
 
     fn handle_kill(&mut self, kill: PlayerKill) {
         // TODO
-        tracing::info!("Kill: {:?}", kill);
+        tracing::debug!("Kill: {:?}", kill);
     }
 }
 
