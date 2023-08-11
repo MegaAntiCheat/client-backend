@@ -209,6 +209,9 @@ impl Server {
                     if let Some(scr) = pl.score {
                         player.game_info.kills = scr;
                     }
+                    if let Some(nam) = pl.name {
+                        player.name = nam;
+                    }
                     if let Some(dth) = pl.deaths {
                         player.game_info.deaths = dth;
                     }
