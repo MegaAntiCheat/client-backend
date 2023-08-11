@@ -119,22 +119,22 @@ impl Settings {
                     return None;
                 };
                 let mut latest_timestamp = 0;
-                let mut latest_user_sid64: Option<String> = None;
+                let mut latest_user_sid64: Option<&str> = None;
         
                 for (user_sid64, user_data_values) in users_obj.iter() {
                     user_data_values.iter()
                         .filter_map(|value| value.get_obj())
                         .for_each(|user_data_obj| {
-                            user_data_obj.get("Timestamp")
+                            if let Some(timestamp) = user_data_obj.get("Timestamp")
                                 .and_then(|timestamp_values| timestamp_values.get(0))
                                 .and_then(|timestamp_vdf| timestamp_vdf.get_str())
                                 .and_then(|timestamp_str| timestamp_str.parse::<i64>().ok())
-                                .map(|timestamp| {
-                                    if timestamp > latest_timestamp {
-                                        latest_timestamp = timestamp;
-                                        latest_user_sid64 = Some(user_sid64.to_string());
-                                    }
-                                });
+                            {
+                                if timestamp > latest_timestamp {
+                                    latest_timestamp = timestamp;
+                                    latest_user_sid64 = Some(user_sid64);
+                                }
+                            }
                         });
                 }
         
