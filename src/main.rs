@@ -102,7 +102,10 @@ async fn main() {
     if let Some(mut opts) = launch_opts {
         // Warn about missing launch options for TF2
         let missing = opts.check_missing_args();
-        if args.rewrite_launch_options {
+        if let Err(err) = missing {
+            tracing::error!("Failed to check for missing launch arguments: {}", err);
+            panic!("Missing required launch options in TF2 for MAC to function. Aborting...");
+        } else if args.rewrite_launch_options {
             // Add missing launch options to the localconfig.vdf for the current user.
             // This only sticks if steam is closed when the write occurs.
             let _ = opts.write_corrected_args_to_file();
