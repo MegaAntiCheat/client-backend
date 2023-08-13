@@ -108,22 +108,23 @@ async fn main() {
             let _ = opts.write_corrected_args_to_file();
         } else {
             match missing{
-                Ok(missing_opts) => {
-                    if !missing_opts.is_empty() {
-                        tracing::warn!(
-                            "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
+                Ok(missing_opts) if !missing_opts.is_empty() => {
+                    tracing::warn!(
+                        "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
+                    );
+                    tracing::warn!("Missing launch options: {:?}", missing_opts);
+                    if !(args.ignore_launch_options) {
+                        panic!(
+                            "Missing required launch options in TF2 for MAC to function. Aborting..."
                         );
-                        tracing::warn!("Missing launch options: {:?}", missing_opts);
-                        if !(args.ignore_launch_options) {
-                            panic!(
-                                "Missing required launch options in TF2 for MAC to function. Aborting..."
-                            );
-                        }
-                    } else {
-                        tracing::info!("All required launch arguments are present!");
                     }
 
                 }
+
+                Ok(_) => {
+                    tracing::info!("All required launch arguments are present!");
+                }
+
                 Err(missing_opts_err) => {
                     tracing::warn!("Failed to verify app launch options: {}", missing_opts_err);
                     if !(args.ignore_launch_options) {
