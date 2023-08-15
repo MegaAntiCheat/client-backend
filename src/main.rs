@@ -47,7 +47,7 @@ pub struct Args {
     /// Override the configured Steam API key,
     #[arg(short, long)]
     pub api_key: Option<String>,
-    /// Rewrite the user localconfig.vdf to append the corrected set of launch options if necessary.
+    /// Rewrite the user localconfig.vdf to append the corrected set of launch options if necessary (only works when steam is not running).
     #[arg(long = "rewrite_launch_opts", action=ArgAction::SetTrue, default_value_t=false)]
     pub rewrite_launch_options: bool,
     /// Do not panic on detecting missing launch options or failure to read/parse the localconfig.vdf file.
@@ -76,13 +76,26 @@ async fn main() {
         Settings::load(&args)
     };
 
-    let settings = match settings {
+    let mut settings = match settings {
         Ok(settings) => settings,
         Err(e) => {
             tracing::warn!("Failed to load settings, continuing with defaults: {:?}", e);
             Settings::default()
         }
     };
+
+    // Locate TF2 directory
+    match gamefinder::locate_tf2_folder() {
+        Ok(tf2_directory) => {
+            settings.set_tf2_directory(tf2_directory);
+        }
+        Err(e) => {
+            if args.tf2_dir.is_none() {
+                tracing::error!("Could not locate TF2 directory: {:?}", e);
+                tracing::error!("If you have a valid TF2 installation you can specify it manually by appending ' --tf2_dir \"Path to Team Fortress 2 folder\"' when running the program.");
+            }
+        }
+    }
 
     // Launch options and overrides
     let launch_opts = match LaunchOptions::new(

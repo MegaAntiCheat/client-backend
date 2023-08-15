@@ -38,6 +38,7 @@ pub struct Settings {
     config_path: Option<PathBuf>,
     #[serde(skip)]
     steam_user: Option<SteamID>,
+    #[serde(skip)]
     tf2_directory: PathBuf,
     rcon_password: Arc<str>,
     steam_api_key: Arc<str>,
@@ -87,8 +88,6 @@ impl Settings {
             .map_err(|e| ConfigFilesError::Yaml(path.to_string_lossy().into(), e))?;
 
         settings.config_path = Some(path);
-
-        // settings.steam_user = Settings::load_current_steam_user();
 
         tracing::debug!("Successfully loaded settings.");
         settings.set_overrides(args);
@@ -287,7 +286,6 @@ impl Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        let tf2_directory = gamefinder::locate_tf2_folder().unwrap_or(PathBuf::new());
         let config_path = Self::locate_config_file_path()
             .map_err(|e| tracing::error!("Failed to create config directory: {:?}", e))
             .ok();
@@ -304,7 +302,7 @@ impl Default for Settings {
         Settings {
             steam_user,
             config_path,
-            tf2_directory,
+            tf2_directory: PathBuf::default(),
             rcon_password: "mac_rcon".into(),
             steam_api_key: "YOUR_API_KEY_HERE".into(),
             port: 3621,
