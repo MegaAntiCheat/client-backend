@@ -7,7 +7,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use clap::{ArgAction, Parser};
 use io::{Commands, IOManager};
-use launchoptions::LaunchOptionsV2;
+use launchoptions::LaunchOptions;
 use settings::Settings;
 use state::State;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -85,7 +85,7 @@ async fn main() {
     };
 
     // Launch options and overrides
-    let launch_opts = match LaunchOptionsV2::new(
+    let launch_opts = match LaunchOptions::new(
         settings
             .get_steam_user()
             .expect("Failed to identify the local steam user (failed to find `loginusers.vdf`)"),
@@ -129,10 +129,12 @@ async fn main() {
                 }
 
                 Err(missing_opts_err) => {
-                    tracing::warn!("Failed to verify app launch options: {}", missing_opts_err);
                     if !(args.ignore_launch_options) {
-                        panic!(
-                            "Missing required launch options in TF2 for MAC to function. Aborting..."
+                        panic!("Failed to verify app launch options: {}", missing_opts_err);
+                    } else {
+                        tracing::error!(
+                            "Failed to verify app launch options: {:?}",
+                            missing_opts_err
                         );
                     }
                 }
