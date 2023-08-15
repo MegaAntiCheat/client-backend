@@ -112,24 +112,56 @@ impl Settings {
 
         match Vdf::parse(&String::from_utf8_lossy(&steam_use_conf_str)) {
             Ok(login_vdf) => {
-                let user_obj = login_vdf.value.unwrap_obj();
-                let user_sid64 = user_obj.keys().next().unwrap();
-                match user_sid64.parse::<u64>() {
-                    Ok(user_int64) => {
-                        tracing::info!("Parsed current logged in steam user <{}>", user_int64);
-                        Some(SteamID::from(user_int64))
-                    }
-                    Err(why) => {
+                let users_obj = if let Some(obj) = login_vdf.value.get_obj() {
+                    obj
+                } else {
+                    tracing::error!("Failed to get user data from VDF.");
+                    return None;
+                };
+                let mut latest_timestamp = 0;
+                let mut latest_user_sid64: Option<&str> = None;
+        
+                for (user_sid64, user_data_values) in users_obj.iter() {
+                    user_data_values.iter()
+                        .filter_map(|value| value.get_obj())
+                        .for_each(|user_data_obj| {
+                            if let Some(timestamp) = user_data_obj.get("Timestamp")
+                                .and_then(|timestamp_values| timestamp_values.get(0))
+                                .and_then(|timestamp_vdf| timestamp_vdf.get_str())
+                                .and_then(|timestamp_str| timestamp_str.parse::<i64>().ok())
+                            {
+                                if timestamp > latest_timestamp {
+                                    latest_timestamp = timestamp;
+                                    latest_user_sid64 = Some(user_sid64);
+                                }
+                            }
+                        });
+                }
+        
+                let user_sid64 = if let Some(sid64) = latest_user_sid64 {
+                    sid64
+                } else {
+                    tracing::error!("No user with a valid timestamp found.");
+                    return None;
+                };
+        
+                user_sid64.parse::<u64>().map_or_else(
+                    |why| {
                         tracing::error!("Invalid SID64 found in user data: {}.", why);
                         None
-                    }
-                }
+                    },
+                    |user_int64| {
+                        tracing::info!("Parsed most recent steam user <{}>", user_int64);
+                        Some(SteamID::from(user_int64))
+                    },
+                )
             }
             Err(parse_err) => {
                 tracing::error!("Failed to parse loginusers VDF data: {}.", parse_err);
                 None
             }
         }
+        
     }
 
     /// Pull all values from the args struct and set to our override values,
