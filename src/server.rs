@@ -194,6 +194,7 @@ impl Server {
         user: Option<SteamID>,
     ) -> Vec<SteamID> {
         let mut new_players = Vec::new();
+        let mut name_updates: Vec<(SteamID, String)> = Vec::new();
         for pl in players {
             if let Some(steamid) = pl.steamid {
                 // Update existing player
@@ -203,6 +204,12 @@ impl Server {
                     }
                     if let Some(name) = pl.name {
                         player.name = name;
+
+                        if self.player_records.get_records().contains_key(&steamid)
+                            && !player.previous_names.contains(&player.name)
+                        {
+                            name_updates.push((steamid, player.name.clone()));
+                        }
                     }
                     if let Some(dth) = pl.deaths {
                         player.game_info.deaths = dth;
@@ -232,6 +239,13 @@ impl Server {
             }
         }
 
+        // Update any recorded names
+        for (steamid, name) in name_updates {
+            if let Some(mut record) = self.get_player_record_mut(steamid) {
+                record.previous_names.push(name);
+            }
+        }
+
         new_players
     }
 
@@ -248,6 +262,20 @@ impl Server {
             player.game_info.state = status.state;
             player.game_info.time = status.time;
             player.game_info.accounted = true;
+
+            // Update previous names
+            if self
+                .player_records
+                .get_records()
+                .contains_key(&status.steamid)
+                && !player.previous_names.contains(&player.name)
+            {
+                let new_name = player.name.clone();
+                if let Some(mut record) = self.get_player_record_mut(status.steamid) {
+                    record.previous_names.push(new_name);
+                }
+            }
+
             None
         } else {
             // Create and insert new player
