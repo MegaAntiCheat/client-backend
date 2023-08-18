@@ -2,16 +2,18 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     net::SocketAddr,
+    path::Path,
     sync::{Arc, Mutex},
 };
 
 use axum::{
     extract::Query,
     http::{header, StatusCode},
-    response::{sse::Event, IntoResponse, Sse},
+    response::{sse::Event, IntoResponse, Redirect, Sse},
     routing::{get, post, put},
     Json, Router,
 };
+use include_dir::{include_dir, Dir};
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
 use tokio::sync::mpsc::Sender;
@@ -27,9 +29,14 @@ const HEADERS: [(header::HeaderName, &str); 2] = [
     (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
 ];
 
+static UI_DIR: Dir = include_dir!("ui");
+
 /// Start the web API server
 pub async fn web_main(port: u16) {
     let api = Router::new()
+        .route("/", get(ui_redirect))
+        .route("/ui", get(ui_redirect))
+        .route("/ui/*ui", get(get_ui))
         .route("/mac/game/v1", get(get_game))
         .route("/mac/user/v1", post(post_user))
         .route("/mac/user/v1", put(put_user))
@@ -40,11 +47,62 @@ pub async fn web_main(port: u16) {
         .layer(tower_http::cors::CorsLayer::permissive());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    tracing::info!("Starting web server at {addr}");
+    tracing::info!("Starting web interface at http://{addr}");
     axum::Server::bind(&addr)
         .serve(api.into_make_service())
         .await
         .expect("Failed to start web service");
+}
+
+async fn ui_redirect() -> impl IntoResponse {
+    Redirect::permanent("/ui/index.html")
+}
+
+// UI
+
+async fn get_ui(axum::extract::Path(path): axum::extract::Path<String>) -> impl IntoResponse {
+    match UI_DIR.get_file(&path) {
+        Some(file) => {
+            // Serve included file
+            let content_type = guess_content_type(file.path());
+            let headers = [
+                (header::CONTENT_TYPE, content_type),
+                (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+            ];
+            (StatusCode::OK, headers, file.contents()).into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            ([(header::CONTENT_TYPE, "text/html")]),
+            "<body><h1>404 Not Found</h1></body>",
+        )
+            .into_response(),
+    }
+}
+
+/// Attempts to guess the http MIME type of a given file extension.
+/// Defaults to "application/octet-stream" if it is not recognised.
+fn guess_content_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|osstr| osstr.to_str())
+        .unwrap_or("bin")
+    {
+        "htm" | "html" => "text/html",
+        "jpg" | "jpeg" => "image/jpeg",
+        "js" => "test/javascript",
+        "json" => "application/json",
+        "png" => "image/png",
+        "weba" => "audio/weba",
+        "webm" => "video/webm",
+        "webp" => "image/webp",
+        "txt" => "text/plain",
+        "mp3" => "audio/mp3",
+        "mp4" => "video/mp4",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        _ => "application/octet-stream",
+    }
 }
 
 // Game
