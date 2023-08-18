@@ -17,5 +17,5 @@ robocopy /S dist ../ui
 
 echo "Removing temp files..."
 cd ..
-del /s /q ui_temp\*
+del /s /q ui_temp\* 1>NUL
 rmdir /s /q ui_temp
