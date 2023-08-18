@@ -120,12 +120,14 @@ impl Settings {
                 };
                 let mut latest_timestamp = 0;
                 let mut latest_user_sid64: Option<&str> = None;
-        
+
                 for (user_sid64, user_data_values) in users_obj.iter() {
-                    user_data_values.iter()
+                    user_data_values
+                        .iter()
                         .filter_map(|value| value.get_obj())
                         .for_each(|user_data_obj| {
-                            if let Some(timestamp) = user_data_obj.get("Timestamp")
+                            if let Some(timestamp) = user_data_obj
+                                .get("Timestamp")
                                 .and_then(|timestamp_values| timestamp_values.get(0))
                                 .and_then(|timestamp_vdf| timestamp_vdf.get_str())
                                 .and_then(|timestamp_str| timestamp_str.parse::<i64>().ok())
@@ -137,14 +139,14 @@ impl Settings {
                             }
                         });
                 }
-        
+
                 let user_sid64 = if let Some(sid64) = latest_user_sid64 {
                     sid64
                 } else {
                     tracing::error!("No user with a valid timestamp found.");
                     return None;
                 };
-        
+
                 user_sid64.parse::<u64>().map_or_else(
                     |why| {
                         tracing::error!("Invalid SID64 found in user data: {}.", why);
@@ -161,7 +163,6 @@ impl Settings {
                 None
             }
         }
-        
     }
 
     /// Pull all values from the args struct and set to our override values,
@@ -209,6 +210,7 @@ impl Settings {
         let mut file = open_options
             .create(true)
             .write(true)
+            .truncate(true)
             .open(config_path)
             .context("Failed to create or open config file.")?;
         write!(
