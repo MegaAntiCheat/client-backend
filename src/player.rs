@@ -27,6 +27,8 @@ pub struct Player {
     #[serde(rename = "localVerdict")]
     pub local_verdict: Verdict,
     pub convicted: bool,
+    #[serde(rename = "previousNames")]
+    pub previous_names: Vec<String>,
 }
 
 impl Player {
@@ -42,6 +44,7 @@ impl Player {
             tags: Vec::new(),
             local_verdict: Verdict::Player,
             convicted: false,
+            previous_names: Vec::new(),
         }
     }
 
@@ -60,6 +63,7 @@ impl Player {
             tags: Vec::new(),
             local_verdict: Verdict::Player,
             convicted: false,
+            previous_names: Vec::new(),
         })
     }
 
@@ -72,6 +76,7 @@ impl Player {
 
         self.custom_data = record.custom_data;
         self.local_verdict = record.verdict;
+        self.previous_names = record.previous_names;
     }
 
     /// Create a record from the current player
@@ -81,6 +86,7 @@ impl Player {
             steamid: self.steamid,
             custom_data: self.custom_data.clone(),
             verdict: self.local_verdict,
+            previous_names: self.previous_names.clone(),
         }
     }
 }

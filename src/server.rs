@@ -1,7 +1,7 @@
 use serde::{Serialize, Serializer};
 use std::{
     collections::{HashMap, VecDeque},
-    ops::{Deref, DerefMut, Range},
+    ops::Range,
     sync::Arc,
 };
 use steamid_ng::SteamID;
@@ -13,7 +13,7 @@ use crate::{
         IOOutput,
     },
     player::{Player, SteamInfo},
-    player_records::{PlayerRecord, PlayerRecords},
+    player_records::{PlayerRecord, PlayerRecordLock, PlayerRecords},
 };
 
 const MAX_HISTORY_LEN: usize = 100;
@@ -168,30 +168,22 @@ impl Server {
 
     // Player records
 
-    pub fn has_player_record(&self, steamid: &SteamID) -> bool {
-        self.player_records.records.contains_key(steamid)
+    pub fn has_player_record(&self, steamid: SteamID) -> bool {
+        self.player_records.get_records().contains_key(&steamid)
     }
 
     pub fn insert_player_record(&mut self, record: PlayerRecord) {
-        self.player_records.records.insert(record.steamid, record);
+        self.player_records.insert_record(record);
     }
 
     #[allow(dead_code)]
-    pub fn get_player_record(&self, steamid: &SteamID) -> Option<&PlayerRecord> {
-        self.player_records.records.get(steamid)
+    pub fn get_player_record(&self, steamid: SteamID) -> Option<&PlayerRecord> {
+        self.player_records.get_record(steamid)
     }
 
-    pub fn get_player_record_mut(&mut self, steamid: &SteamID) -> Option<PlayerRecordLock> {
-        if self.player_records.records.contains_key(steamid) {
-            Some(PlayerRecordLock {
-                steamid: *steamid,
-                players: &mut self.players,
-                history: &mut self.player_history,
-                playerlist: &mut self.player_records,
-            })
-        } else {
-            None
-        }
+    pub fn get_player_record_mut(&mut self, steamid: SteamID) -> Option<PlayerRecordLock> {
+        self.player_records
+            .get_record_mut(steamid, &mut self.players, &mut self.player_history)
     }
 
     // Other
@@ -202,15 +194,22 @@ impl Server {
         user: Option<SteamID>,
     ) -> Vec<SteamID> {
         let mut new_players = Vec::new();
+        let mut name_updates: Vec<(SteamID, String)> = Vec::new();
         for pl in players {
-            if let Some(steamid) = &pl.steamid {
+            if let Some(steamid) = pl.steamid {
                 // Update existing player
-                if let Some(player) = self.players.get_mut(steamid) {
+                if let Some(player) = self.players.get_mut(&steamid) {
                     if let Some(scr) = pl.score {
                         player.game_info.kills = scr;
                     }
-                    if let Some(nam) = pl.name {
-                        player.name = nam;
+                    if let Some(name) = pl.name {
+                        player.name = name;
+
+                        if self.player_records.get_records().contains_key(&steamid)
+                            && !player.previous_names.contains(&player.name)
+                        {
+                            name_updates.push((steamid, player.name.clone()));
+                        }
                     }
                     if let Some(dth) = pl.deaths {
                         player.game_info.deaths = dth;
@@ -226,13 +225,24 @@ impl Server {
                     }
                     player.game_info.accounted = true;
                 } else if let Some(mut player) = Player::new_from_g15(&pl, user) {
-                    if let Some(record) = self.player_records.records.get(steamid) {
+                    if let Some(mut record) = self.get_player_record_mut(steamid) {
+                        if !record.previous_names.contains(&player.name) {
+                            record.previous_names.push(player.name.clone());
+                        }
+
                         player.update_from_record(record.clone());
                     }
 
-                    self.players.insert(*steamid, player);
-                    new_players.push(*steamid);
+                    self.players.insert(steamid, player);
+                    new_players.push(steamid);
                 }
+            }
+        }
+
+        // Update any recorded names
+        for (steamid, name) in name_updates {
+            if let Some(mut record) = self.get_player_record_mut(steamid) {
+                record.previous_names.push(name);
             }
         }
 
@@ -252,12 +262,30 @@ impl Server {
             player.game_info.state = status.state;
             player.game_info.time = status.time;
             player.game_info.accounted = true;
+
+            // Update previous names
+            if self
+                .player_records
+                .get_records()
+                .contains_key(&status.steamid)
+                && !player.previous_names.contains(&player.name)
+            {
+                let new_name = player.name.clone();
+                if let Some(mut record) = self.get_player_record_mut(status.steamid) {
+                    record.previous_names.push(new_name);
+                }
+            }
+
             None
         } else {
             // Create and insert new player
             let mut player = Player::new_from_status(&status, user);
 
-            if let Some(record) = self.player_records.records.get(&status.steamid) {
+            if let Some(mut record) = self.get_player_record_mut(status.steamid) {
+                if !record.previous_names.contains(&player.name) {
+                    record.previous_names.push(player.name.clone());
+                }
+
                 player.update_from_record(record.clone());
             }
 
@@ -274,62 +302,6 @@ impl Server {
     fn handle_kill(&mut self, kill: PlayerKill) {
         // TODO
         tracing::debug!("Kill: {:?}", kill);
-    }
-}
-
-pub struct PlayerRecordLock<'a> {
-    playerlist: &'a mut PlayerRecords,
-    players: &'a mut HashMap<SteamID, Player>,
-    history: &'a mut VecDeque<Player>,
-    steamid: SteamID,
-}
-
-impl Deref for PlayerRecordLock<'_> {
-    type Target = PlayerRecord;
-
-    fn deref(&self) -> &Self::Target {
-        self.playerlist
-            .records
-            .get(&self.steamid)
-            .expect("Mutating player record.")
-    }
-}
-
-impl DerefMut for PlayerRecordLock<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.playerlist
-            .records
-            .get_mut(&self.steamid)
-            .expect("Reading player record.")
-    }
-}
-
-// Update all players the server has with the updated record
-impl Drop for PlayerRecordLock<'_> {
-    fn drop(&mut self) {
-        let record = self
-            .playerlist
-            .records
-            .get(&self.steamid)
-            .expect("Reading player record");
-
-        // Update server players and history
-        if let Some(p) = self.players.get_mut(&self.steamid) {
-            p.update_from_record(record.clone());
-        }
-
-        if let Some(p) = self.history.iter_mut().find(|p| p.steamid == self.steamid) {
-            p.update_from_record(record.clone());
-        }
-
-        // Update playerlist
-        if record.is_empty() {
-            self.playerlist.records.remove(&self.steamid);
-        }
-
-        if let Err(e) = self.playerlist.save() {
-            tracing::error!("Failed to save playerlist: {:?}", e);
-        }
     }
 }
 

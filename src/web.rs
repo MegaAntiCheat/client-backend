@@ -89,14 +89,14 @@ async fn put_user(users: Json<HashMap<SteamID, UserUpdate>>) -> impl IntoRespons
     let mut state = State::write_state();
     for (k, v) in users.0 {
         // Insert record if it didn't exist
-        if !state.server.has_player_record(&k) {
+        if !state.server.has_player_record(k) {
             state.server.insert_player_record(PlayerRecord::new(k));
         }
 
         // Update record
         let mut record = state
             .server
-            .get_player_record_mut(&k)
+            .get_player_record_mut(k)
             .expect("Mutating player record that was just inserted.");
 
         if let Some(custom_data) = v.custom_data {
