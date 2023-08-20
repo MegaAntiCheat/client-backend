@@ -107,7 +107,7 @@ async fn main() {
             // This only sticks if steam is closed when the write occurs.
             let _ = opts.write_corrected_args_to_file();
         } else {
-            match missing{
+            match missing {
                 Ok(missing_opts) if !missing_opts.is_empty() => {
                     tracing::warn!(
                         "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
@@ -118,7 +118,6 @@ async fn main() {
                             "Missing required launch options in TF2 for MAC to function. Aborting..."
                         );
                     }
-
                 }
 
                 Ok(_) => {
@@ -250,7 +249,9 @@ async fn main_loop(mut io: IOManager, steam_api_requester: UnboundedSender<Steam
 async fn refresh_loop(cmd: UnboundedSender<Commands>) {
     tracing::debug!("Entering refresh loop");
     loop {
-        State::write_state().server.refresh();
+        {
+            State::write_state().server.refresh();
+        }
 
         cmd.send(Commands::Status)
             .expect("communication with main loop from refresh loop");
@@ -258,7 +259,6 @@ async fn refresh_loop(cmd: UnboundedSender<Commands>) {
         cmd.send(Commands::G15)
             .expect("communication with main loop from refresh loop");
         tokio::time::sleep(Duration::from_secs(3)).await;
-        std::thread::sleep(Duration::from_secs(3));
     }
 }
 
