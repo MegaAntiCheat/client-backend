@@ -16,10 +16,11 @@ use axum::{
 use include_dir::{include_dir, Dir};
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 use crate::{
+    io::Commands,
     player_records::{PlayerRecord, Verdict},
     state::State,
 };
@@ -33,6 +34,19 @@ static UI_DIR: Dir = include_dir!("ui");
 
 /// Start the web API server
 pub async fn web_main(port: u16) {
+    // Check everything is initialized
+    if !State::is_initialized() {
+        panic!("State is not initialized.");
+    }
+
+    if COMMAND_ISSUER
+        .lock()
+        .expect("Command issuer poisoned.")
+        .is_none()
+    {
+        panic!("Command issuer channel not initialized.");
+    }
+
     let api = Router::new()
         .route("/", get(ui_redirect))
         .route("/ui", get(ui_redirect))
@@ -44,6 +58,7 @@ pub async fn web_main(port: u16) {
         .route("/mac/pref/v1", put(put_prefs))
         .route("/mac/game/events/v1", get(get_events))
         .route("/mac/history/v1", get(get_history))
+        .route("/mac/commands/v1", post(post_commands))
         .layer(tower_http::cors::CorsLayer::permissive());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -282,4 +297,32 @@ async fn get_history(page: Query<Pagination>) -> impl IntoResponse {
         )
         .expect("Serialize player history"),
     )
+}
+
+// Commands
+
+static COMMAND_ISSUER: Mutex<Option<UnboundedSender<Commands>>> = Mutex::new(None);
+
+pub async fn init_command_issuer(cmd_issuer: UnboundedSender<Commands>) {
+    *COMMAND_ISSUER.lock().expect("Command issuer mutex") = Some(cmd_issuer);
+}
+
+#[derive(Deserialize, Debug)]
+struct RequestedCommands {
+    commands: Vec<Commands>,
+}
+
+async fn post_commands(commands: Json<RequestedCommands>) -> impl IntoResponse {
+    tracing::debug!("Commands sent: {:?}", commands);
+
+    let command_issuer = COMMAND_ISSUER.lock().expect("Command issuer mutex");
+    let cmd = command_issuer
+        .as_ref()
+        .expect("Command issuer should be initialised");
+
+    for command in commands.0.commands {
+        cmd.send(command).expect("Sending command from web API.");
+    }
+
+    (StatusCode::OK, HEADERS)
 }

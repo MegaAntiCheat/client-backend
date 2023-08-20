@@ -107,7 +107,7 @@ async fn main() {
             // This only sticks if steam is closed when the write occurs.
             let _ = opts.write_corrected_args_to_file();
         } else {
-            match missing{
+            match missing {
                 Ok(missing_opts) if !missing_opts.is_empty() => {
                     tracing::warn!(
                         "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
@@ -118,7 +118,6 @@ async fn main() {
                             "Missing required launch options in TF2 for MAC to function. Aborting..."
                         );
                     }
-
                 }
 
                 Ok(_) => {
@@ -172,6 +171,9 @@ async fn main() {
 
     // Initialize State
     State::initialize_state(State::new(settings, playerlist));
+    let io = IOManager::new();
+
+    web::init_command_issuer(io.get_command_requester()).await;
 
     // Spawn web server
     tokio::spawn(async move {
@@ -185,8 +187,6 @@ async fn main() {
     });
 
     // Main and refresh loop
-    let io = IOManager::new();
-
     let cmd = io.get_command_requester();
     tokio::task::spawn(async move {
         refresh_loop(cmd).await;

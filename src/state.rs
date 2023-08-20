@@ -73,4 +73,8 @@ impl State {
             settings,
         }
     }
+
+    pub fn is_initialized() -> bool {
+        STATE.read().expect("State poisoned").is_some()
+    }
 }
