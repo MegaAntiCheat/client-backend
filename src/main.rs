@@ -171,6 +171,9 @@ async fn main() {
 
     // Initialize State
     State::initialize_state(State::new(settings, playerlist));
+    let io = IOManager::new();
+
+    web::init_command_issuer(io.get_command_requester()).await;
 
     // Spawn web server
     tokio::spawn(async move {
@@ -184,8 +187,6 @@ async fn main() {
     });
 
     // Main and refresh loop
-    let io = IOManager::new();
-
     let cmd = io.get_command_requester();
     tokio::task::spawn(async move {
         refresh_loop(cmd).await;
