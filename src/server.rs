@@ -106,17 +106,17 @@ impl Server {
     /// should be run before calling this function again to prevent removing all players from the player list.
     pub fn refresh(&mut self) {
         // Get old players
-        let unaccounted_players: Vec<Player> = self
-            .players
-            .values()
-            .filter(|p| !p.game_info.accounted)
-            .cloned()
-            .collect();
-
-        // Remove old players from server
-        for p in &unaccounted_players {
-            self.players.remove(&p.steamid);
+        let mut unaccounted_players = Vec::new();
+        for (steamid, player) in &self.players {
+            if player.game_info.should_prune() {
+                unaccounted_players.push(*steamid);
+            }
         }
+
+        let unaccounted_players: Vec<Player> = unaccounted_players
+            .into_iter()
+            .flat_map(|sid| self.players.remove(&sid))
+            .collect();
 
         // Remove any of them from the history as they will be added more recently
         self.player_history
@@ -135,7 +135,7 @@ impl Server {
         // Mark all remaining players as unaccounted, they will be marked as accounted again
         // when they show up in status or another console command.
         for p in self.players.values_mut() {
-            p.game_info.accounted = false;
+            p.game_info.next_cycle();
         }
     }
 
@@ -223,7 +223,8 @@ impl Server {
                     if let Some(uid) = pl.userid {
                         player.game_info.userid = uid;
                     }
-                    player.game_info.accounted = true;
+
+                    player.game_info.acknowledge();
                 } else if let Some(mut player) = Player::new_from_g15(&pl, user) {
                     if let Some(mut record) = self.get_player_record_mut(steamid) {
                         if !record.previous_names.contains(&player.name) {
@@ -261,7 +262,7 @@ impl Server {
             player.game_info.loss = status.loss;
             player.game_info.state = status.state;
             player.game_info.time = status.time;
-            player.game_info.accounted = true;
+            player.game_info.acknowledge();
 
             // Update previous names
             if self
