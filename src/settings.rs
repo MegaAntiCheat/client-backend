@@ -290,7 +290,7 @@ impl Default for Settings {
             .map_err(|e| tracing::error!("Failed to create config directory: {:?}", e))
             .ok();
         let steam_user = Self::load_current_steam_user()
-            .map_err(|e| tracing::error!("Faield to load steam user: {:?}", e))
+            .map_err(|e| tracing::error!("Failed to load steam user: {:?}", e))
             .ok();
         if let Some(steam_user) = &steam_user {
             tracing::info!(

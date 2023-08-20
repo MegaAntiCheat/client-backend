@@ -20,11 +20,13 @@ pub fn locate_steam_logged_in_users() -> Result<PathBuf> {
 }
 
 pub fn locate_steam_launch_configs(steam_user: SteamID) -> Result<PathBuf> {
-    tracing::debug!("Fetching Steam userdata/<player>/config/localconfig.vdf");
     let a_id = steam_user.account_id();
+    let local_config_path = format!("userdata/{}/config/localconfig.vdf", a_id);
+    tracing::debug!("Fetching Steam {}", local_config_path);
+
     let steam = SteamDir::locate().ok_or(anyhow!("Failed to locate Steam directory."))?;
     let mut base_folder: PathBuf = steam.path;
-    base_folder.push::<PathBuf>(format!("userdata/{}/config/localconfig.vdf", a_id,).into());
+    base_folder.push(local_config_path);
     if base_folder.as_path().exists() {
         Ok(base_folder)
     } else {
