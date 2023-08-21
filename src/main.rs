@@ -9,6 +9,7 @@ use io::{Commands, IOManager};
 use launchoptions::LaunchOptionsV2;
 use settings::Settings;
 use state::State;
+use tappet::SteamAPI;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
@@ -126,6 +127,7 @@ async fn main() {
     // Just some settings we'll need later
     let port = settings.get_port();
     let steam_api_key = settings.get_steam_api_key();
+    let mut client = SteamAPI::new(steam_api_key.clone());
 
     // Playerlist
     let playerlist = if let Some(playerlist_path) = &args.playerlist {
@@ -156,8 +158,31 @@ async fn main() {
         tracing::error!("Failed to save playerlist: {:?}", e);
     }
 
+    let steam_user = match settings.get_steam_user() {
+        Some(user) => user,
+        None => {
+            tracing::error!("Failed to load Steam user from settings.");
+            return;
+        }
+    };
+
+    // Friendslist
+    let friendslist = match steamapi::request_account_friends(&mut client, steam_user).await {
+        Ok(friendslist) => {
+            tracing::info!("Successfully loaded friendslist.");
+            friendslist
+        }
+        Err(e) => {
+            tracing::warn!(
+                "Failed to load friendslist: {:?}",
+                e
+            );
+            Vec::new()
+        }
+    };
+
     // Initialize State
-    State::initialize_state(State::new(settings, playerlist));
+    State::initialize_state(State::new(settings, playerlist, friendslist));
 
     // Spawn web server
     tokio::spawn(async move {

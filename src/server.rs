@@ -12,7 +12,7 @@ use crate::{
         regexes::{self, ChatMessage, PlayerKill, StatusLine},
         IOOutput,
     },
-    player::{Player, SteamInfo},
+    player::{Friend, Player, SteamInfo},
     player_records::{PlayerRecord, PlayerRecords},
 };
 
@@ -36,6 +36,8 @@ pub struct Server {
 
     #[serde(skip)]
     player_records: PlayerRecords,
+    #[serde(skip)]
+    friend_records: Vec<Friend>,
 }
 
 #[derive(Debug, Serialize)]
@@ -47,7 +49,7 @@ pub struct Gamemode {
 }
 
 impl Server {
-    pub fn new(playerlist: PlayerRecords) -> Server {
+    pub fn new(playerlist: PlayerRecords, friendslist: Vec<Friend>) -> Server {
         Server {
             map: None,
             ip: None,
@@ -59,6 +61,7 @@ impl Server {
             gamemode: None,
 
             player_records: playerlist,
+            friend_records: friendslist,
         }
     }
 
@@ -194,6 +197,12 @@ impl Server {
         }
     }
 
+    pub fn get_friend(&self, steamid: &SteamID) -> Option<&Friend> {
+        self.friend_records
+            .iter()
+            .find(|&friend| &friend.steamid == steamid)
+    }
+
     // Other
 
     fn handle_g15_parse(
@@ -227,6 +236,11 @@ impl Server {
                         player.update_from_record(record.clone());
                     }
 
+                    match self.get_friend(steamid) {
+                        Some(_) => player.tags.push(Arc::from("Friend")),
+                        None => {}
+                    }
+
                     self.players.insert(*steamid, player);
                     new_players.push(*steamid);
                 }
@@ -256,6 +270,11 @@ impl Server {
 
             if let Some(record) = self.player_records.records.get(&status.steamid) {
                 player.update_from_record(record.clone());
+            }
+
+            match self.get_friend(&status.steamid) {
+                Some(_) => player.tags.push(Arc::from("Friend")),
+                None => {}
             }
 
             self.players.insert(status.steamid, player);
