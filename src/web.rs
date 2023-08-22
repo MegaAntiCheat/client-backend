@@ -2,22 +2,25 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     net::SocketAddr,
+    path::Path,
     sync::{Arc, Mutex},
 };
 
 use axum::{
     extract::Query,
     http::{header, StatusCode},
-    response::{sse::Event, IntoResponse, Sse},
+    response::{sse::Event, IntoResponse, Redirect, Sse},
     routing::{get, post, put},
     Json, Router,
 };
+use include_dir::{include_dir, Dir};
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 use crate::{
+    io::Commands,
     player_records::{PlayerRecord, Verdict},
     state::State,
 };
@@ -27,9 +30,27 @@ const HEADERS: [(header::HeaderName, &str); 2] = [
     (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
 ];
 
+static UI_DIR: Dir = include_dir!("ui");
+
 /// Start the web API server
 pub async fn web_main(port: u16) {
+    // Check everything is initialized
+    if !State::is_initialized() {
+        panic!("State is not initialized.");
+    }
+
+    if COMMAND_ISSUER
+        .lock()
+        .expect("Command issuer poisoned.")
+        .is_none()
+    {
+        panic!("Command issuer channel not initialized.");
+    }
+
     let api = Router::new()
+        .route("/", get(ui_redirect))
+        .route("/ui", get(ui_redirect))
+        .route("/ui/*ui", get(get_ui))
         .route("/mac/game/v1", get(get_game))
         .route("/mac/user/v1", post(post_user))
         .route("/mac/user/v1", put(put_user))
@@ -37,14 +58,66 @@ pub async fn web_main(port: u16) {
         .route("/mac/pref/v1", put(put_prefs))
         .route("/mac/game/events/v1", get(get_events))
         .route("/mac/history/v1", get(get_history))
+        .route("/mac/commands/v1", post(post_commands))
         .layer(tower_http::cors::CorsLayer::permissive());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
-    tracing::info!("Starting web server at {addr}");
+    tracing::info!("Starting web interface at http://{addr}");
     axum::Server::bind(&addr)
         .serve(api.into_make_service())
         .await
         .expect("Failed to start web service");
+}
+
+async fn ui_redirect() -> impl IntoResponse {
+    Redirect::permanent("/ui/index.html")
+}
+
+// UI
+
+async fn get_ui(axum::extract::Path(path): axum::extract::Path<String>) -> impl IntoResponse {
+    match UI_DIR.get_file(&path) {
+        Some(file) => {
+            // Serve included file
+            let content_type = guess_content_type(file.path());
+            let headers = [
+                (header::CONTENT_TYPE, content_type),
+                (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+            ];
+            (StatusCode::OK, headers, file.contents()).into_response()
+        }
+        None => (
+            StatusCode::NOT_FOUND,
+            ([(header::CONTENT_TYPE, "text/html")]),
+            "<body><h1>404 Not Found</h1></body>",
+        )
+            .into_response(),
+    }
+}
+
+/// Attempts to guess the http MIME type of a given file extension.
+/// Defaults to "application/octet-stream" if it is not recognised.
+fn guess_content_type(path: &Path) -> &'static str {
+    match path
+        .extension()
+        .and_then(|osstr| osstr.to_str())
+        .unwrap_or("bin")
+    {
+        "htm" | "html" => "text/html",
+        "jpg" | "jpeg" => "image/jpeg",
+        "js" => "test/javascript",
+        "json" => "application/json",
+        "png" => "image/png",
+        "weba" => "audio/weba",
+        "webm" => "video/webm",
+        "webp" => "image/webp",
+        "txt" => "text/plain",
+        "mp3" => "audio/mp3",
+        "mp4" => "video/mp4",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        _ => "application/octet-stream",
+    }
 }
 
 // Game
@@ -89,14 +162,14 @@ async fn put_user(users: Json<HashMap<SteamID, UserUpdate>>) -> impl IntoRespons
     let mut state = State::write_state();
     for (k, v) in users.0 {
         // Insert record if it didn't exist
-        if !state.server.has_player_record(&k) {
+        if !state.server.has_player_record(k) {
             state.server.insert_player_record(PlayerRecord::new(k));
         }
 
         // Update record
         let mut record = state
             .server
-            .get_player_record_mut(&k)
+            .get_player_record_mut(k)
             .expect("Mutating player record that was just inserted.");
 
         if let Some(custom_data) = v.custom_data {
@@ -224,4 +297,32 @@ async fn get_history(page: Query<Pagination>) -> impl IntoResponse {
         )
         .expect("Serialize player history"),
     )
+}
+
+// Commands
+
+static COMMAND_ISSUER: Mutex<Option<UnboundedSender<Commands>>> = Mutex::new(None);
+
+pub async fn init_command_issuer(cmd_issuer: UnboundedSender<Commands>) {
+    *COMMAND_ISSUER.lock().expect("Command issuer mutex") = Some(cmd_issuer);
+}
+
+#[derive(Deserialize, Debug)]
+struct RequestedCommands {
+    commands: Vec<Commands>,
+}
+
+async fn post_commands(commands: Json<RequestedCommands>) -> impl IntoResponse {
+    tracing::debug!("Commands sent: {:?}", commands);
+
+    let command_issuer = COMMAND_ISSUER.lock().expect("Command issuer mutex");
+    let cmd = command_issuer
+        .as_ref()
+        .expect("Command issuer should be initialised");
+
+    for command in commands.0.commands {
+        cmd.send(command).expect("Sending command from web API.");
+    }
+
+    (StatusCode::OK, HEADERS)
 }

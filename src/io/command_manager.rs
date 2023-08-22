@@ -2,17 +2,24 @@ use std::{fmt::Display, time::Duration};
 
 use anyhow::{Context, Result};
 use rcon::Connection;
+use serde::Deserialize;
 use tokio::{net::TcpStream, time::timeout};
 
 use crate::state::State;
 
-#[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum KickReason {
     None,
     Idle,
     Cheating,
     Scamming,
+}
+
+impl Default for KickReason {
+    fn default() -> Self {
+        Self::None
+    }
 }
 
 impl Display for KickReason {

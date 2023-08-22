@@ -53,10 +53,9 @@ pub async fn steam_api_loop(mut requests: UnboundedReceiver<SteamID>, api_key: A
 async fn send_batch(client: &mut SteamAPI, buffer: &mut VecDeque<SteamID>) {
     match request_steam_info(client, buffer.drain(..).collect()).await {
         Ok(steam_info_map) => {
+            let mut state = State::write_state();
             for (id, steam_info) in steam_info_map {
-                State::write_state()
-                    .server
-                    .insert_steam_info(id, steam_info);
+                state.server.insert_steam_info(id, steam_info);
             }
         }
         Err(e) => {
@@ -66,7 +65,10 @@ async fn send_batch(client: &mut SteamAPI, buffer: &mut VecDeque<SteamID>) {
 }
 
 /// Make a request to the Steam web API for the chosen player and return the important steam info.
-async fn request_steam_info(client: &mut SteamAPI, players: Vec<SteamID>) -> Result<Vec<(SteamID, SteamInfo)>> {
+async fn request_steam_info(
+    client: &mut SteamAPI,
+    players: Vec<SteamID>,
+) -> Result<Vec<(SteamID, SteamInfo)>> {
     tracing::debug!("Requesting steam accounts: {:?}", players);
 
     let summaries = request_player_summary(client, &players).await?;
@@ -128,7 +130,10 @@ async fn request_steam_info(client: &mut SteamAPI, players: Vec<SteamID>) -> Res
     Ok(steam_infos)
 }
 
-async fn request_player_summary(client: &mut SteamAPI, players: &[SteamID]) -> Result<Vec<PlayerSummary>> {
+async fn request_player_summary(
+    client: &mut SteamAPI,
+    players: &[SteamID],
+) -> Result<Vec<PlayerSummary>> {
     let summaries = client
         .get()
         .ISteamUser()
@@ -181,7 +186,10 @@ pub async fn request_account_friends(client: &mut SteamAPI, player: SteamID,) ->
         .collect())
 }
 
-async fn request_account_bans(client: &mut SteamAPI, players: &[SteamID]) -> Result<Vec<PlayerBans>> {
+async fn request_account_bans(
+    client: &mut SteamAPI,
+    players: &[SteamID],
+) -> Result<Vec<PlayerBans>> {
     let bans = client
         .get()
         .ISteamUser()

@@ -2,9 +2,9 @@ use anyhow::Context;
 use regex::Regex;
 
 use anyhow::{anyhow, Result};
+use serde::Deserialize;
 use std::fmt::Display;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
@@ -39,20 +39,32 @@ pub enum IOOutput {
     G15(Vec<G15Player>),
 }
 
-#[allow(dead_code)]
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub enum Commands {
     G15,
     Status,
-    Kick(Arc<str>, KickReason),
     Say(String),
+    SayTeam(String),
+    Kick {
+        player: String,
+        #[serde(default)]
+        reason: KickReason,
+    },
+    Custom(String),
 }
+
 impl Display for Commands {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Commands::G15 => f.write_str("g15_dumpplayer"),
             Commands::Status => f.write_str("status"),
-            Commands::Kick(player, reason) => write!(f, "callvote kick \"{} {}\"", player, reason),
+            Commands::Kick { player, reason } => {
+                write!(f, "callvote kick \"{} {}\"", player, reason)
+            }
             Commands::Say(message) => write!(f, "say \"{}\"", message),
+            Commands::SayTeam(message) => write!(f, "say_team \"{}\"", message),
+            Commands::Custom(command) => write!(f, "{}", command),
         }
     }
 }
@@ -136,7 +148,13 @@ impl IOManager {
                 }
                 IOOutput::MultiStatus(status_lines)
             }
-            Commands::Kick(_, _) | Commands::Say(_) => {
+            Commands::Kick {
+                player: _,
+                reason: _,
+            }
+            | Commands::Say(_)
+            | Commands::SayTeam(_)
+            | Commands::Custom(_) => {
                 IOOutput::NoOutput // No return from these other commands.
             }
         })

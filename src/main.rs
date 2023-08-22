@@ -107,19 +107,32 @@ async fn main() {
             // Add missing launch options to the localconfig.vdf for the current user.
             // This only sticks if steam is closed when the write occurs.
             let _ = opts.write_corrected_args_to_file();
-        } else if let Ok(missing_opts) = missing {
-            if !missing_opts.is_empty() {
-                tracing::error!(
-                    "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
-                );
-                tracing::error!("Missing launch options: {:?}", missing_opts);
-                if !(args.ignore_launch_options) {
-                    panic!(
-                        "Missing required launch options in TF2 for MAC to function. Aborting..."
+        } else {
+            match missing {
+                Ok(missing_opts) if !missing_opts.is_empty() => {
+                    tracing::warn!(
+                        "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
                     );
+                    tracing::warn!("Missing launch options: {:?}", missing_opts);
+                    if !(args.ignore_launch_options) {
+                        panic!(
+                            "Missing required launch options in TF2 for MAC to function. Aborting..."
+                        );
+                    }
                 }
-            } else {
-                tracing::info!("All required launch arguments are present!");
+
+                Ok(_) => {
+                    tracing::info!("All required launch arguments are present!");
+                }
+
+                Err(missing_opts_err) => {
+                    tracing::warn!("Failed to verify app launch options: {}", missing_opts_err);
+                    if !(args.ignore_launch_options) {
+                        panic!(
+                            "Missing required launch options in TF2 for MAC to function. Aborting..."
+                        );
+                    }
+                }
             }
         }
     }
@@ -184,6 +197,11 @@ async fn main() {
     // Initialize State
     State::initialize_state(State::new(settings, playerlist, friendslist));
 
+    let io = IOManager::new();
+
+    web::init_command_issuer(io.get_command_requester()).await;
+
+
     // Spawn web server
     tokio::spawn(async move {
         web::web_main(port).await;
@@ -196,8 +214,6 @@ async fn main() {
     });
 
     // Main and refresh loop
-    let io = IOManager::new();
-
     let cmd = io.get_command_requester();
     tokio::task::spawn(async move {
         refresh_loop(cmd).await;
@@ -261,7 +277,9 @@ async fn main_loop(mut io: IOManager, steam_api_requester: UnboundedSender<Steam
 async fn refresh_loop(cmd: UnboundedSender<Commands>) {
     tracing::debug!("Entering refresh loop");
     loop {
-        State::write_state().server.refresh();
+        {
+            State::write_state().server.refresh();
+        }
 
         cmd.send(Commands::Status)
             .expect("communication with main loop from refresh loop");
@@ -269,7 +287,6 @@ async fn refresh_loop(cmd: UnboundedSender<Commands>) {
         cmd.send(Commands::G15)
             .expect("communication with main loop from refresh loop");
         tokio::time::sleep(Duration::from_secs(3)).await;
-        std::thread::sleep(Duration::from_secs(3));
     }
 }
 
