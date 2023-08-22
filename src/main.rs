@@ -24,6 +24,7 @@ mod settings;
 mod state;
 mod steamapi;
 mod web;
+mod tf2bd;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
