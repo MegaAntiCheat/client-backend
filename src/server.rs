@@ -243,9 +243,8 @@ impl Server {
                         player.update_from_record(record.clone());
                     }
 
-                    match self.get_friend(steamid) {
-                        Some(_) => player.tags.push(Arc::from("Friend")),
-                        None => {}
+                    if let Some(_) = self.get_friend(&steamid) {
+                        player.tags.push(Arc::from("Friend"));
                     }
                   
                     self.players.insert(steamid, player);
@@ -305,9 +304,8 @@ impl Server {
                 player.update_from_record(record.clone());
             }
 
-            match self.get_friend(&status.steamid) {
-                Some(_) => player.tags.push(Arc::from("Friend")),
-                None => {}
+            if let Some(_) = self.get_friend(&status.steamid) {
+                player.tags.push(Arc::from("Friend"));
             }
 
             self.players.insert(status.steamid, player);
