@@ -6,7 +6,7 @@ use std::{
 use reqwest;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
-
+use steamid_ng::SteamID;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TF2BotDetectorPlayerListSchema {
@@ -31,16 +31,6 @@ pub struct LastSeen {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct TF2BDDefinitions {
-    pub tfbd_player_attributes: TfbdPlayerAttributes,
-    pub tfbd_player_attributes_array: TfbdPlayerAttributesArray,
-    pub color: Color,
-    pub steamid: SteamID,
-    pub file_info: FileInfo,
-    pub tfbd_text_match: TfbdTextMatch,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum TfbdPlayerAttributes {
     Cheater,
@@ -51,51 +41,22 @@ pub enum TfbdPlayerAttributes {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TfbdPlayerAttributesArray {
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub unique_items: bool,
     pub items: Vec<TfbdPlayerlistEntry>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Color {
     #[serde(rename = "type")]
-    pub type_: String,
-    pub min_items: u8,
-    pub max_items: u8,
-    pub items: ChannelIntensity,
+    pub r: u8,
+    pub g: u8,
+    pub b: u8,
+    pub a: u8,
     #[serde(default)]
     pub default: Vec<f64>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct ChannelIntensity {
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub description: String,
-    pub minimum: f64,
-    pub maximum: f64,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum SteamID {
-    StringPattern { type_: String, pattern: String },
-    Integer { type_: String },
-}
-
-#[derive(Debug, Serialize, Deserialize)]
 pub struct FileInfo {
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub description: String,
-    pub additional_properties: bool,
-    pub properties: FileInfoProperties,
-    pub required: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FileInfoProperties {
     pub authors: Vec<String>,
     pub title: String,
     pub description: String,
@@ -104,9 +65,6 @@ pub struct FileInfoProperties {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TfbdTextMatch {
-    #[serde(rename = "type")]
-    pub type_: String,
-    pub additional_properties: bool,
     pub description: String,
     pub properties: TextMatchProperties,
     pub required: Vec<String>,
@@ -147,7 +105,7 @@ pub async fn read_tfbd_json(path: PathBuf) -> Result<TF2BotDetectorPlayerListSch
 
     // If players list is missing and update_url exists, fetch data from that URL
     if data.players.is_empty() {
-        if let Some(url) = &data.file_info.properties.update_url {
+        if let Some(url) = &data.file_info.update_url {
             if let Ok(updated_data) = fetch_data_from_url(url).await {
                 data = updated_data;
             } else{
