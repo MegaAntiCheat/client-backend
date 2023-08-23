@@ -1,4 +1,5 @@
 use std::{
+    convert::TryFrom,
     fs::File,
     io::Read,
     path::PathBuf,
@@ -18,10 +19,40 @@ pub struct TF2BotDetectorPlayerListSchema {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TfbdPlayerlistEntry {
-    pub steamid: SteamID,  // This SteamID type is from the previous translation
-    pub attributes: TfbdPlayerAttributesArray,  // This struct is from the previous translation
+    pub steamid: SteamIdFormat,  // This SteamID type is from the previous translation
+    pub attributes: Vec<TfbdPlayerAttributes>,  // This struct is from the previous translation
     pub proof: Option<Vec<String>>,  // Assuming the array holds strings, adjust if necessary
     pub last_seen: LastSeen,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum SteamIdFormat {
+    SteamIdString(String),
+    SteamIdInteger(i64),
+}
+
+impl TryFrom<SteamIdFormat> for SteamID {
+    type Error = &'static str;
+
+    fn try_from(value: SteamIdFormat) -> Result<Self, Self::Error> {
+        match value {
+            SteamIdFormat::SteamIdString(s) => {
+                // First try to convert using Steam3 format
+                SteamID::from_steam3(&s)
+                    .or_else(|_| {
+                        // If the above fails, try to convert using Steam2 format
+                        SteamID::from_steam2(&s)
+                    })
+                    .map_err(|_| "Failed to convert from both steam3 and steam2 formats")
+            },
+            SteamIdFormat::SteamIdInteger(i) => {
+                // Convert the i64 to u64 (assuming SteamID accepts u64). 
+                // This might not be safe if you're expecting negative numbers!
+                Ok(SteamID::from(i as u64))
+            },
+        }
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -37,11 +68,6 @@ pub enum TfbdPlayerAttributes {
     Suspicious,
     Exploiter,
     Racist,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-pub struct TfbdPlayerAttributesArray {
-    pub items: Vec<TfbdPlayerlistEntry>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]

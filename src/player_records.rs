@@ -11,6 +11,7 @@ use steamid_ng::SteamID;
 use crate::{
     player::Player,
     settings::{ConfigFilesError, Settings},
+    tfbd::{TF2BotDetectorPlayerListSchema, TfbdPlayerlistEntry, TfbdPlayerAttributes, read_tfbd_json},
 };
 
 // PlayerList
@@ -44,6 +45,48 @@ impl PlayerRecords {
         }
 
         Ok(playerlist)
+    }
+
+    #[allow(dead_code)]
+    pub fn load_from_tf2bd(tf2bd: TF2BotDetectorPlayerListSchema) -> Result<PlayerRecords, ConfigFilesError> {
+        let mut records_map: HashMap<SteamID, PlayerRecord> = HashMap::new();
+
+        for player in tf2bd.players {
+            // Convert each TfbdPlayerlistEntry into a PlayerRecord
+            let record: PlayerRecord = player.into();
+            records_map.insert(record.steamid, record);
+        }
+
+        // Assuming we don't have the exact path at this point; 
+        // you might want to provide or infer the path somehow
+        let path = PathBuf::new(); 
+
+        Ok(PlayerRecords {
+            path,
+            records: records_map,
+        })
+    }
+
+    #[allow(dead_code)]
+    pub async fn load_from_tf2bd_path(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
+        let mut records_map: HashMap<SteamID, PlayerRecord> = HashMap::new();
+
+        let tf2bd = read_tfbd_json(path).await?;
+
+        for player in tf2bd.players {
+            // Convert each TfbdPlayerlistEntry into a PlayerRecord
+            let record: PlayerRecord = player.into();
+            records_map.insert(record.steamid, record);
+        }
+
+        // Assuming we don't have the exact path at this point; 
+        // you might want to provide or infer the path somehow
+        let path = PathBuf::new(); 
+
+        Ok(PlayerRecords {
+            path,
+            records: records_map,
+        })
     }
 
     /// Attempt to save the [Playerlist] to the file it was loaded from
@@ -145,6 +188,55 @@ impl PlayerRecord {
                     .as_str()
                     .map(|s| s.is_empty())
                     .unwrap_or(false)
+        }
+    }
+}
+
+
+impl From<TfbdPlayerlistEntry> for PlayerRecord {
+    fn from(entry: TfbdPlayerlistEntry) -> Self {
+        // Extracting steamid
+        let steamid = SteamID::try_from(entry.steamid)
+            .expect("Failed to convert SteamIdFormat to SteamID");
+        
+        // Mapping TFBD attributes to Verdict
+        let mut verdict = Verdict::Player;
+        let mut extra_attributes = Vec::new();
+
+        for attribute in entry.attributes {
+            match attribute {
+                TfbdPlayerAttributes::Cheater => verdict = Verdict::Cheater,
+                TfbdPlayerAttributes::Suspicious => {
+                    if verdict != Verdict::Cheater {
+                        verdict = Verdict::Suspicious;
+                    }
+                }
+                // Adding extra attributes to a separate vector
+                TfbdPlayerAttributes::Exploiter => extra_attributes.push("exploiter".to_string()),
+                TfbdPlayerAttributes::Racist => extra_attributes.push("racist".to_string()),
+            }
+        }
+
+        // Extracting previous names
+        let mut previous_names = Vec::new();
+        if let Some(player_name) = entry.last_seen.player_name {
+            previous_names.push(player_name);
+        }
+
+        // Creating custom data
+        let custom_data = if !extra_attributes.is_empty() {
+            serde_json::json!({
+                "attributes": extra_attributes,
+            })
+        } else {
+            serde_json::Value::Null
+        };
+
+        PlayerRecord {
+            steamid,
+            custom_data,
+            verdict,
+            previous_names,
         }
     }
 }
