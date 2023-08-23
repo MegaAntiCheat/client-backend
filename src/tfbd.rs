@@ -1,10 +1,9 @@
 use std::{
     convert::TryFrom,
-    fs::File,
-    io::Read,
     path::PathBuf,
 };
-use reqwest;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
@@ -13,8 +12,8 @@ use steamid_ng::SteamID;
 pub struct TF2BotDetectorPlayerListSchema {
     #[serde(rename = "$schema")]
     pub schema: String,
-    pub file_info: FileInfo,  // This FileInfo struct is from the previous translation
-    pub players: Vec<TfbdPlayerlistEntry>,
+    pub file_info: Option<FileInfo>,  // This FileInfo struct is from the previous translation
+    pub players: Option<Vec<TfbdPlayerlistEntry>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -62,7 +61,7 @@ pub struct LastSeen {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
+#[serde(rename_all = "lowercase")]
 pub enum TfbdPlayerAttributes {
     Cheater,
     Suspicious,
@@ -72,7 +71,6 @@ pub enum TfbdPlayerAttributes {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct Color {
-    #[serde(rename = "type")]
     pub r: u8,
     pub g: u8,
     pub b: u8,
@@ -114,28 +112,31 @@ pub enum TextMatchMode {
     Word,
 }
 
-#[allow(dead_code)]
 async fn fetch_data_from_url(url: &str) -> anyhow::Result<TF2BotDetectorPlayerListSchema> {
-    let response = reqwest::blocking::get(url)?;
-    let data: TF2BotDetectorPlayerListSchema = response.json()?;
+    let response = reqwest::get(url).await?;
+    let data: TF2BotDetectorPlayerListSchema = response.json().await?;
     Ok(data)
 }
 
-#[allow(dead_code)]
 pub async fn read_tfbd_json(path: PathBuf) -> Result<TF2BotDetectorPlayerListSchema, anyhow::Error> {
-    let mut file = File::open(path).expect("Unable to open the file");
+    let mut file = File::open(path).await.expect("Unable to open the file");
     let mut contents = String::new();
-    file.read_to_string(&mut contents).expect("Unable to read the file");
+    file.read_to_string(&mut contents).await.expect("Unable to read the file");
     
     let mut data: TF2BotDetectorPlayerListSchema = serde_json::from_str(&contents)?;
 
-    // If players list is missing and update_url exists, fetch data from that URL
-    if data.players.is_empty() {
-        if let Some(url) = &data.file_info.update_url {
-            if let Ok(updated_data) = fetch_data_from_url(url).await {
-                data = updated_data;
-            } else{
-                return Err(anyhow!("Unable to fetch data from URL"));
+    // If players list is missing or empty and update_url exists, fetch data from that URL
+    if data.players.as_ref().map_or(true, Vec::is_empty) {
+        if let Some(file_info) = &data.file_info {
+            if let Some(url) = &file_info.update_url {
+                match fetch_data_from_url(url).await {
+                    Ok(updated_data) => {
+                        data = updated_data;
+                    },
+                    Err(_) => {
+                        return Err(anyhow!("Unable to fetch data from URL"));
+                    }
+                }
             }
         }
     }

@@ -47,19 +47,20 @@ impl PlayerRecords {
         Ok(playerlist)
     }
 
-    #[allow(dead_code)]
     pub fn load_from_tf2bd(tf2bd: TF2BotDetectorPlayerListSchema) -> Result<PlayerRecords, ConfigFilesError> {
         let mut records_map: HashMap<SteamID, PlayerRecord> = HashMap::new();
 
-        for player in tf2bd.players {
-            // Convert each TfbdPlayerlistEntry into a PlayerRecord
-            let record: PlayerRecord = player.into();
-            records_map.insert(record.steamid, record);
-        }
+        if let Some(players) = tf2bd.players {
+            for player in players {
+                // Convert each TfbdPlayerlistEntry into a PlayerRecord
+                let record: PlayerRecord = player.into();
+                records_map.insert(record.steamid, record);
+            }
+        } 
 
         // Assuming we don't have the exact path at this point; 
         // you might want to provide or infer the path somehow
-        let path = PathBuf::new(); 
+        let path = Self::locate_playerlist_file()?;
 
         Ok(PlayerRecords {
             path,
@@ -67,26 +68,9 @@ impl PlayerRecords {
         })
     }
 
-    #[allow(dead_code)]
     pub async fn load_from_tf2bd_path(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
-        let mut records_map: HashMap<SteamID, PlayerRecord> = HashMap::new();
-
-        let tf2bd = read_tfbd_json(path).await?;
-
-        for player in tf2bd.players {
-            // Convert each TfbdPlayerlistEntry into a PlayerRecord
-            let record: PlayerRecord = player.into();
-            records_map.insert(record.steamid, record);
-        }
-
-        // Assuming we don't have the exact path at this point; 
-        // you might want to provide or infer the path somehow
-        let path = PathBuf::new(); 
-
-        Ok(PlayerRecords {
-            path,
-            records: records_map,
-        })
+        let content = read_tfbd_json(path).await?;
+        Self::load_from_tf2bd(content)
     }
 
     /// Attempt to save the [Playerlist] to the file it was loaded from
