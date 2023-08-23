@@ -12,15 +12,24 @@ use steamid_ng::SteamID;
 pub struct TF2BotDetectorPlayerListSchema {
     #[serde(rename = "$schema")]
     pub schema: String,
-    pub file_info: Option<FileInfo>,  // This FileInfo struct is from the previous translation
+    pub file_info: Option<FileInfo>, 
     pub players: Option<Vec<TfbdPlayerlistEntry>>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
+pub struct FileInfo {
+    pub authors: Vec<String>,
+    pub title: String,
+    pub description: String,
+    pub update_url: Option<String>,
+}
+
+
+#[derive(Debug, Serialize, Deserialize)]
 pub struct TfbdPlayerlistEntry {
-    pub steamid: SteamIdFormat,  // This SteamID type is from the previous translation
-    pub attributes: Vec<TfbdPlayerAttributes>,  // This struct is from the previous translation
-    pub proof: Option<Vec<String>>,  // Assuming the array holds strings, adjust if necessary
+    pub steamid: SteamIdFormat,  
+    pub attributes: Vec<TfbdPlayerAttributes>,  
+    pub proof: Option<Vec<String>>, 
     pub last_seen: LastSeen,
 }
 
@@ -46,8 +55,7 @@ impl TryFrom<SteamIdFormat> for SteamID {
                     .map_err(|_| "Failed to convert from both steam3 and steam2 formats")
             },
             SteamIdFormat::SteamIdInteger(i) => {
-                // Convert the i64 to u64 (assuming SteamID accepts u64). 
-                // This might not be safe if you're expecting negative numbers!
+                // Convert the i64 to u64
                 Ok(SteamID::from(i as u64))
             },
         }
@@ -57,7 +65,7 @@ impl TryFrom<SteamIdFormat> for SteamID {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LastSeen {
     pub player_name: Option<String>,
-    pub time: i64,  // Using i64 for the time, assuming it's a UNIX timestamp
+    pub time: i64, 
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -79,13 +87,6 @@ pub struct Color {
     pub default: Vec<f64>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-pub struct FileInfo {
-    pub authors: Vec<String>,
-    pub title: String,
-    pub description: String,
-    pub update_url: Option<String>,
-}
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TfbdTextMatch {
@@ -126,16 +127,13 @@ pub async fn read_tfbd_json(path: PathBuf) -> Result<TF2BotDetectorPlayerListSch
     let mut data: TF2BotDetectorPlayerListSchema = serde_json::from_str(&contents)?;
 
     // If players list is missing or empty and update_url exists, fetch data from that URL
-    if data.players.as_ref().map_or(true, Vec::is_empty) {
-        if let Some(file_info) = &data.file_info {
-            if let Some(url) = &file_info.update_url {
-                match fetch_data_from_url(url).await {
-                    Ok(updated_data) => {
-                        data = updated_data;
-                    },
-                    Err(_) => {
-                        return Err(anyhow!("Unable to fetch data from URL"));
-                    }
+    if let Some(file_info) = &data.file_info {
+        if let Some(url) = &file_info.update_url {
+            if data.players.as_ref().map_or(true, Vec::is_empty) {
+                if let Ok(updated_data) = fetch_data_from_url(url).await {
+                    data = updated_data;
+                } else {
+                    return Err(anyhow!("Unable to fetch data from URL"));
                 }
             }
         }
