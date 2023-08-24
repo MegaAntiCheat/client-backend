@@ -1,4 +1,5 @@
 use player_records::PlayerRecords;
+use std::path::Path;
 use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
@@ -182,6 +183,9 @@ async fn main() {
     tokio::spawn(async move {
         web::web_main(port).await;
     });
+
+    open::that(Path::new(&format!("http://localhost:{}", port)))
+        .expect("Failed to open web browser");
 
     // Steam API loop
     let (steam_api_requester, steam_api_receiver) = tokio::sync::mpsc::unbounded_channel();

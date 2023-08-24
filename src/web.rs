@@ -67,10 +67,6 @@ pub async fn web_main(port: u16) {
         .serve(api.into_make_service())
         .await
         .expect("Failed to start web service");
-
-    // Open the web browser
-    open::that(Path::new(&format!("http://localhost:{}", port)))
-        .expect("Failed to open web browser");
 }
 
 async fn ui_redirect() -> impl IntoResponse {
