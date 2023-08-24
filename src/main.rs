@@ -23,8 +23,8 @@ mod server;
 mod settings;
 mod state;
 mod steamapi;
-mod web;
 mod tfbd;
+mod web;
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]

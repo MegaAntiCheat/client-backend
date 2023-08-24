@@ -11,7 +11,9 @@ use steamid_ng::SteamID;
 use crate::{
     player::Player,
     settings::{ConfigFilesError, Settings},
-    tfbd::{TF2BotDetectorPlayerListSchema, TfbdPlayerlistEntry, TfbdPlayerAttributes, read_tfbd_json},
+    tfbd::{
+        read_tfbd_json, TF2BotDetectorPlayerListSchema, TfbdPlayerAttributes, TfbdPlayerlistEntry,
+    },
 };
 
 // PlayerList
@@ -47,7 +49,9 @@ impl PlayerRecords {
         Ok(playerlist)
     }
 
-    pub fn load_from_tf2bd(tf2bd: TF2BotDetectorPlayerListSchema) -> Result<PlayerRecords, ConfigFilesError> {
+    pub fn load_from_tf2bd(
+        tf2bd: TF2BotDetectorPlayerListSchema,
+    ) -> Result<PlayerRecords, ConfigFilesError> {
         let mut records_map: HashMap<SteamID, PlayerRecord> = HashMap::new();
 
         if let Some(players) = tf2bd.players {
@@ -56,10 +60,8 @@ impl PlayerRecords {
                 let record: PlayerRecord = player.into();
                 records_map.insert(record.steamid, record);
             }
-        } 
+        }
 
-        // Assuming we don't have the exact path at this point; 
-        // you might want to provide or infer the path somehow
         let path = Self::locate_playerlist_file()?;
 
         Ok(PlayerRecords {
@@ -176,13 +178,12 @@ impl PlayerRecord {
     }
 }
 
-
 impl From<TfbdPlayerlistEntry> for PlayerRecord {
     fn from(entry: TfbdPlayerlistEntry) -> Self {
         // Extracting steamid
-        let steamid = SteamID::try_from(entry.steamid)
-            .expect("Failed to convert SteamIdFormat to SteamID");
-        
+        let steamid =
+            SteamID::try_from(entry.steamid).expect("Failed to convert SteamIdFormat to SteamID");
+
         // Mapping TFBD attributes to Verdict
         let mut verdict = Verdict::Player;
         let mut extra_attributes = Vec::new();

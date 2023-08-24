@@ -1,18 +1,15 @@
-use std::{
-    convert::TryFrom,
-    path::PathBuf,
-};
-use tokio::fs::File;
-use tokio::io::AsyncReadExt;
 use anyhow::{anyhow, Result};
 use serde::{Deserialize, Serialize};
+use std::{convert::TryFrom, path::PathBuf};
 use steamid_ng::SteamID;
+use tokio::fs::File;
+use tokio::io::AsyncReadExt;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TF2BotDetectorPlayerListSchema {
     #[serde(rename = "$schema")]
     pub schema: String,
-    pub file_info: Option<FileInfo>, 
+    pub file_info: Option<FileInfo>,
     pub players: Option<Vec<TfbdPlayerlistEntry>>,
 }
 
@@ -24,12 +21,11 @@ pub struct FileInfo {
     pub update_url: Option<String>,
 }
 
-
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TfbdPlayerlistEntry {
-    pub steamid: SteamIdFormat,  
-    pub attributes: Vec<TfbdPlayerAttributes>,  
-    pub proof: Option<Vec<String>>, 
+    pub steamid: SteamIdFormat,
+    pub attributes: Vec<TfbdPlayerAttributes>,
+    pub proof: Option<Vec<String>>,
     pub last_seen: LastSeen,
 }
 
@@ -53,11 +49,11 @@ impl TryFrom<SteamIdFormat> for SteamID {
                         SteamID::from_steam2(&s)
                     })
                     .map_err(|_| "Failed to convert from both steam3 and steam2 formats")
-            },
+            }
             SteamIdFormat::SteamIdInteger(i) => {
                 // Convert the i64 to u64
                 Ok(SteamID::from(i as u64))
-            },
+            }
         }
     }
 }
@@ -65,7 +61,7 @@ impl TryFrom<SteamIdFormat> for SteamID {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct LastSeen {
     pub player_name: Option<String>,
-    pub time: i64, 
+    pub time: i64,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -86,7 +82,6 @@ pub struct Color {
     #[serde(default)]
     pub default: Vec<f64>,
 }
-
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TfbdTextMatch {
@@ -119,11 +114,15 @@ async fn fetch_data_from_url(url: &str) -> anyhow::Result<TF2BotDetectorPlayerLi
     Ok(data)
 }
 
-pub async fn read_tfbd_json(path: PathBuf) -> Result<TF2BotDetectorPlayerListSchema, anyhow::Error> {
+pub async fn read_tfbd_json(
+    path: PathBuf,
+) -> Result<TF2BotDetectorPlayerListSchema, anyhow::Error> {
     let mut file = File::open(path).await.expect("Unable to open the file");
     let mut contents = String::new();
-    file.read_to_string(&mut contents).await.expect("Unable to read the file");
-    
+    file.read_to_string(&mut contents)
+        .await
+        .expect("Unable to read the file");
+
     let mut data: TF2BotDetectorPlayerListSchema = serde_json::from_str(&contents)?;
 
     // If players list is missing or empty and update_url exists, fetch data from that URL
