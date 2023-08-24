@@ -49,18 +49,19 @@ impl PlayerRecords {
         Ok(playerlist)
     }
 
-    pub fn load_from_tf2bd(
-        tf2bd: TF2BotDetectorPlayerListSchema,
+    pub fn load_from_tfbd(
+        tfbd: TF2BotDetectorPlayerListSchema,
     ) -> Result<PlayerRecords, ConfigFilesError> {
         let mut records_map: HashMap<SteamID, PlayerRecord> = HashMap::new();
 
-        if let Some(players) = tf2bd.players {
+        if let Some(players) = tfbd.players {
             for player in players {
                 // Convert each TfbdPlayerlistEntry into a PlayerRecord
                 let record: PlayerRecord = player.into();
                 records_map.insert(record.steamid, record);
             }
         }
+        tracing::debug!("Loaded {} records from TFBD", records_map.len());
 
         let path = Self::locate_playerlist_file()?;
 
@@ -70,9 +71,9 @@ impl PlayerRecords {
         })
     }
 
-    pub async fn load_from_tf2bd_path(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
+    pub async fn load_from_tfbd_path(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
         let content = read_tfbd_json(path).await?;
-        Self::load_from_tf2bd(content)
+        Self::load_from_tfbd(content)
     }
 
     /// Attempt to save the [Playerlist] to the file it was loaded from

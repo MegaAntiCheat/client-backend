@@ -156,7 +156,7 @@ async fn main() {
             "Overrode default playerlist path with provided '{}'",
             tfbdlist_path
         );
-        PlayerRecords::load_from_tf2bd_path(tfbdlist_path.into()).await
+        PlayerRecords::load_from_tfbd_path(tfbdlist_path.into()).await
     } else {
         PlayerRecords::load()
     };
