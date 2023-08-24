@@ -1,4 +1,5 @@
 use player_records::PlayerRecords;
+use std::path::Path;
 use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
@@ -52,6 +53,9 @@ pub struct Args {
     /// Do not panic on detecting missing launch options or failure to read/parse the localconfig.vdf file.
     #[arg(short, long = "ignore_launch_opts", action=ArgAction::SetTrue, default_value_t=false)]
     pub ignore_launch_options: bool,
+    /// Launch the web-ui in the default browser on startup
+    #[arg(long = "autolaunch_ui", action=ArgAction::SetTrue, default_value_t=true)]
+    pub autolaunch_ui: bool,
 }
 
 #[tokio::main]
@@ -179,6 +183,9 @@ async fn main() {
     tokio::spawn(async move {
         web::web_main(port).await;
     });
+
+    open::that(Path::new(&format!("http://localhost:{}", port)))
+        .expect("Failed to open web browser");
 
     // Steam API loop
     let (steam_api_requester, steam_api_receiver) = tokio::sync::mpsc::unbounded_channel();
