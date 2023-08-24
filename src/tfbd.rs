@@ -73,60 +73,6 @@ pub enum TfbdPlayerAttributes {
     Racist,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct Color {
-    pub r: u8,
-    pub g: u8,
-    pub b: u8,
-    pub a: u8,
-}
-
-#[allow(dead_code)]
-impl Default for Color {
-    fn default() -> Self {
-        Color {
-            r: 1,
-            g: 1,
-            b: 1,
-            a: 1,
-        }
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct TfbdTextMatch {
-    pub description: String,
-    pub properties: TextMatchProperties,
-    pub required: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[allow(dead_code)]
-pub struct TextMatchProperties {
-    pub mode: TextMatchMode,
-    pub patterns: Vec<String>,
-    pub case_sensitive: Option<bool>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-#[serde(untagged)]
-#[allow(dead_code)]
-pub enum TextMatchMode {
-    #[serde(rename = "equal")]
-    Equal,
-    #[serde(rename = "contains")]
-    Contains,
-    #[serde(rename = "starts_with")]
-    StartsWith,
-    #[serde(rename = "ends_with")]
-    EndsWith,
-    #[serde(rename = "regex")]
-    Regex,
-    #[serde(rename = "word")]
-    Word,
-}
 
 async fn fetch_data_from_url(url: &str) -> anyhow::Result<TF2BotDetectorPlayerListSchema> {
     let response = reqwest::get(url).await?;
