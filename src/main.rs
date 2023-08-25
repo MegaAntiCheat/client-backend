@@ -54,7 +54,7 @@ pub struct Args {
     #[arg(short, long = "ignore_launch_opts", action=ArgAction::SetTrue, default_value_t=false)]
     pub ignore_launch_options: bool,
     /// Launch the web-ui in the default browser on startup
-    #[arg(long = "autolaunch_ui", action=ArgAction::SetTrue, default_value_t=true)]
+    #[arg(long = "autolaunch_ui", action=ArgAction::SetTrue, default_value_t=false)]
     pub autolaunch_ui: bool,
 }
 
@@ -184,8 +184,10 @@ async fn main() {
         web::web_main(port).await;
     });
 
-    open::that(Path::new(&format!("http://localhost:{}", port)))
+    if args.autolaunch_ui {
+        open::that(Path::new(&format!("http://localhost:{}", port)))
         .expect("Failed to open web browser");
+    }    
 
     // Steam API loop
     let (steam_api_requester, steam_api_receiver) = tokio::sync::mpsc::unbounded_channel();
