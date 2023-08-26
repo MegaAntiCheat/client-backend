@@ -173,6 +173,9 @@ async fn main() {
         tracing::error!("Failed to save playerlist: {:?}", e);
     }
 
+    // Check autolaunch ui setting before settings is borrowed
+    let autolaunch_ui = args.autolaunch_ui || (&settings).get_autolaunch_ui();
+
     // Initialize State
     State::initialize_state(State::new(settings, playerlist));
     let io = IOManager::new();
@@ -184,7 +187,7 @@ async fn main() {
         web::web_main(port).await;
     });
 
-    if args.autolaunch_ui {
+    if autolaunch_ui {
         open::that(Path::new(&format!("http://localhost:{}", port)))
         .expect("Failed to open web browser");
     }    
