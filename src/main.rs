@@ -189,7 +189,7 @@ async fn main() {
     }
 
     // Check autolaunch ui setting before settings is borrowed
-    let autolaunch_ui = args.autolaunch_ui || (&settings).get_autolaunch_ui();
+    let autolaunch_ui = args.autolaunch_ui || settings.get_autolaunch_ui();
 
     // Initialize State
     State::initialize_state(State::new(settings, playerlist));
@@ -206,7 +206,7 @@ async fn main() {
         if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", port))) {
             tracing::error!("Failed to open web browser: {:?}", e);
         }
-    }    
+    }
 
     // Steam API loop
     let (steam_api_requester, steam_api_receiver) = tokio::sync::mpsc::unbounded_channel();

@@ -8,7 +8,6 @@ use std::{
 use anyhow::{Context, Result};
 use regex::Regex;
 use steamid_ng::SteamID;
-use steamlocate::SteamDir;
 use substring::Substring;
 use tracing::Level;
 
