@@ -188,8 +188,9 @@ async fn main() {
     });
 
     if autolaunch_ui {
-        open::that(Path::new(&format!("http://localhost:{}", port)))
-        .expect("Failed to open web browser");
+        if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", port))) {
+            tracing::error!("Failed to open web browser: {:?}", e);
+        }
     }    
 
     // Steam API loop
