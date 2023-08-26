@@ -1,13 +1,12 @@
 use std::{
-    fs::File,
     fs::OpenOptions,
+    io::ErrorKind,
     io::{self, Write},
-    io::{ErrorKind, Read},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use directories_next::ProjectDirs;
 use keyvalues_parser::Vdf;
 use serde::{Deserialize, Serialize};
@@ -39,6 +38,7 @@ pub struct Settings {
     config_path: Option<PathBuf>,
     #[serde(skip)]
     steam_user: Option<SteamID>,
+    #[serde(skip)]
     tf2_directory: PathBuf,
     rcon_password: Arc<str>,
     steam_api_key: Arc<str>,
@@ -89,8 +89,6 @@ impl Settings {
 
         settings.config_path = Some(path);
 
-        // settings.steam_user = Settings::load_current_steam_user();
-
         tracing::debug!("Successfully loaded settings.");
         settings.set_overrides(args);
         Ok(settings)
@@ -98,29 +96,21 @@ impl Settings {
 
     /// Reads the Steam/config/loginusers.vdf file to find the currently logged in
     /// steam ID.
-    fn load_current_steam_user() -> Option<SteamID> {
+    fn load_current_steam_user() -> Result<SteamID, anyhow::Error> {
         tracing::debug!("Loading steam user login data from Steam directory");
-        let steam_user_conf = gamefinder::locate_steam_logged_in_users().unwrap_or(PathBuf::new());
-        let mut steam_use_conf_str: Vec<u8> = Vec::new();
-        if let Ok(mut file) = File::open(steam_user_conf.as_path()) {
-            let _ = file
-                .read_to_end(&mut steam_use_conf_str)
-                .context("Failed reading loginusers.vdf.");
-            tracing::info!("Loaded steam user login data.");
-        } else {
-            tracing::error!("Could not open loginusers.vdf from Steam dir.");
-        }
+        let user_conf_path = gamefinder::locate_steam_logged_in_users()
+            .context("Could not locate logged in steam user.")?;
+        let user_conf_contents = std::fs::read(user_conf_path)
+            .context("Failed to read logged in user configuration.")?;
 
-        match Vdf::parse(&String::from_utf8_lossy(&steam_use_conf_str)) {
+        match Vdf::parse(&String::from_utf8_lossy(&user_conf_contents)) {
             Ok(login_vdf) => {
-                let users_obj = if let Some(obj) = login_vdf.value.get_obj() {
-                    obj
-                } else {
-                    tracing::error!("Failed to get user data from VDF.");
-                    return None;
-                };
+                let users_obj = login_vdf
+                    .value
+                    .get_obj()
+                    .ok_or(anyhow!("Failed to parse loginusers.vdf"))?;
                 let mut latest_timestamp = 0;
-                let mut latest_user_sid64: Option<&str> = None;
+                let mut latest_user_sid64: Option<SteamID> = None;
 
                 for (user_sid64, user_data_values) in users_obj.iter() {
                     user_data_values
@@ -134,35 +124,23 @@ impl Settings {
                                 .and_then(|timestamp_str| timestamp_str.parse::<i64>().ok())
                             {
                                 if timestamp > latest_timestamp {
-                                    latest_timestamp = timestamp;
-                                    latest_user_sid64 = Some(user_sid64);
+                                    if let Ok(user_steamid) =
+                                        user_sid64.parse::<u64>().map(SteamID::from)
+                                    {
+                                        latest_timestamp = timestamp;
+                                        latest_user_sid64 = Some(user_steamid);
+                                    }
                                 }
                             }
                         });
                 }
 
-                let user_sid64 = if let Some(sid64) = latest_user_sid64 {
-                    sid64
-                } else {
-                    tracing::error!("No user with a valid timestamp found.");
-                    return None;
-                };
-
-                user_sid64.parse::<u64>().map_or_else(
-                    |why| {
-                        tracing::error!("Invalid SID64 found in user data: {}.", why);
-                        None
-                    },
-                    |user_int64| {
-                        tracing::info!("Parsed most recent steam user <{}>", user_int64);
-                        Some(SteamID::from(user_int64))
-                    },
-                )
+                latest_user_sid64.ok_or(anyhow!("No user with a valid timestamp found."))
             }
-            Err(parse_err) => {
-                tracing::error!("Failed to parse loginusers VDF data: {}.", parse_err);
-                None
-            }
+            Err(parse_err) => Err(anyhow!(
+                "Failed to parse loginusers VDF data: {}.",
+                parse_err
+            )),
         }
     }
 
@@ -308,15 +286,23 @@ impl Settings {
 
 impl Default for Settings {
     fn default() -> Self {
-        let tf2_directory = gamefinder::locate_tf2_folder().unwrap_or(PathBuf::new());
         let config_path = Self::locate_config_file_path()
             .map_err(|e| tracing::error!("Failed to create config directory: {:?}", e))
             .ok();
+        let steam_user = Self::load_current_steam_user()
+            .map_err(|e| tracing::error!("Failed to load steam user: {:?}", e))
+            .ok();
+        if let Some(steam_user) = &steam_user {
+            tracing::info!(
+                "Identified current steam user as {}",
+                u64::from(*steam_user)
+            );
+        }
 
         Settings {
-            steam_user: Self::load_current_steam_user(),
+            steam_user,
             config_path,
-            tf2_directory,
+            tf2_directory: PathBuf::default(),
             rcon_password: "mac_rcon".into(),
             steam_api_key: "YOUR_API_KEY_HERE".into(),
             port: 3621,
