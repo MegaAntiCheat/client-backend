@@ -6,9 +6,14 @@ copy NUL ui\.gitkeep
 del /s /q ui_temp\*
 rmdir /s /q ui_temp
 
-echo "Cloning and building UI"
+echo "Cloning UI repository"
 git clone https://github.com/MegaAntiCheat/MegaAntiCheat-UI ui_temp
+
+echo "Saving last commit hash"
 cd ui_temp
+git rev-parse HEAD > ../ui/last_commit_hash.txt
+
+echo "Building UI"
 call npm install -g pnpm
 call npm exec pnpm i
 call npm exec pnpm run build
