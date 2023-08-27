@@ -5,6 +5,7 @@ use std::{
 };
 
 use anyhow::Context;
+use axum::extract::path;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use steamid_ng::SteamID;
@@ -49,6 +50,39 @@ impl PlayerRecords {
 
         Ok(playerlist)
     }
+    
+    pub fn load_from_tfbd(
+        tfbd: TF2BotDetectorPlayerListSchema,
+        path: Option<PathBuf>,
+    ) -> Result<PlayerRecords, ConfigFilesError> {
+        let mut records_map: HashMap<SteamID, PlayerRecord> = HashMap::new();
+
+        if let Some(players) = tfbd.players {
+            for player in players {
+                // Convert each TfbdPlayerlistEntry into a PlayerRecord
+                let record: PlayerRecord = player.into();
+                records_map.insert(record.steamid, record);
+            }
+        }
+        tracing::debug!("Loaded {} records from TFBD", records_map.len());
+
+        let file_path = if let Some(path) = path {
+            path
+        } else {
+            Self::locate_playerlist_file()?
+        };
+            
+        Ok(PlayerRecords {
+            path: file_path,
+            records: records_map,
+        })
+    }
+
+    pub async fn load_from_tfbd_path(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
+        let content = read_tfbd_json(path.clone()).await?;
+        Self::load_from_tfbd(content, Some(path))
+    }
+
 
     #[allow(dead_code)]
     pub fn merge(&mut self, other: PlayerRecords) -> Result<(), &'static str> {
@@ -66,33 +100,6 @@ impl PlayerRecords {
         }
 
         Ok(())
-    }
-
-    pub fn load_from_tfbd(
-        tfbd: TF2BotDetectorPlayerListSchema,
-    ) -> Result<PlayerRecords, ConfigFilesError> {
-        let mut records_map: HashMap<SteamID, PlayerRecord> = HashMap::new();
-
-        if let Some(players) = tfbd.players {
-            for player in players {
-                // Convert each TfbdPlayerlistEntry into a PlayerRecord
-                let record: PlayerRecord = player.into();
-                records_map.insert(record.steamid, record);
-            }
-        }
-        tracing::debug!("Loaded {} records from TFBD", records_map.len());
-
-        let path = Self::locate_playerlist_file()?;
-
-        Ok(PlayerRecords {
-            path,
-            records: records_map,
-        })
-    }
-
-    pub async fn load_from_tfbd_path(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
-        let content = read_tfbd_json(path).await?;
-        Self::load_from_tfbd(content)
     }
 
     /// Attempt to save the [Playerlist] to the file it was loaded from
