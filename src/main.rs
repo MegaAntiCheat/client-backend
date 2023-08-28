@@ -1,9 +1,6 @@
 use player_records::PlayerRecords;
-
-use std::{
-    path::Path,
-    time::Duration,
-};
+use std::path::Path;
+use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
 use tokio::sync::mpsc::UnboundedSender;
@@ -18,7 +15,6 @@ use tracing_subscriber::{
     fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
 };
 
-mod build;
 mod gamefinder;
 mod io;
 mod launchoptions;
@@ -328,4 +324,3 @@ fn init_tracing() -> Option<WorkerGuard> {
         }
     }
 }
-
