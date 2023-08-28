@@ -1,8 +1,6 @@
 use player_records::PlayerRecords;
 
 use std::{
-    fs::File,
-    io::{BufReader, Read},
     path::Path,
     time::Duration,
 };
@@ -20,6 +18,7 @@ use tracing_subscriber::{
     fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
 };
 
+mod build;
 mod gamefinder;
 mod io;
 mod launchoptions;
@@ -207,9 +206,6 @@ async fn main() {
         web::web_main(port).await;
     });
 
-    if let Err(e) = is_ui_updated().await {
-        tracing::error!("Failed to check for UI updates: {:?}", e);
-    }
     if autolaunch_ui {
         if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", port))) {
             tracing::error!("Failed to open web browser: {:?}", e);
@@ -333,41 +329,3 @@ fn init_tracing() -> Option<WorkerGuard> {
     }
 }
 
-async fn is_ui_updated() -> Result<(), Box<dyn std::error::Error>> {
-    // Read the last commit hash from last_commit_hash.txt
-    let file = File::open("./ui/last_commit_hash.txt")?;
-    let mut buf_reader = BufReader::new(file);
-    let mut last_commit_hash = String::new();
-    buf_reader.read_to_string(&mut last_commit_hash)?;
-
-    let last_commit_hash = last_commit_hash.trim();
-
-    // Fetch the current HEAD commit hash from the remote repository
-    let url = "https://api.github.com/repos/MegaAntiCheat/MegaAntiCheat-UI/git/refs/heads/main"; // Updated URL
-    let client = reqwest::Client::new();
-    let resp = client
-        .get(url)
-        .header("User-Agent", "mac-client")
-        .send()
-        .await?;
-
-    if resp.status().is_success() {
-        let text = resp.text().await?;
-        let json_resp: serde_json::Value = serde_json::from_str(&text)?;
-
-        if let Some(current_commit_hash) = json_resp["object"]["sha"].as_str() {
-            if current_commit_hash != last_commit_hash {
-                tracing::info!("New UI update available, run `include_ui` script to update.");
-            }
-        } else {
-            tracing::debug!("Failed to get the current commit hash.");
-        }
-    } else {
-        tracing::debug!(
-            "Failed to fetch data from GitHub. Status: {}",
-            resp.status()
-        );
-    }
-
-    Ok(())
-}
