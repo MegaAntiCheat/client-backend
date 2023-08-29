@@ -1,4 +1,4 @@
-use anyhow::{anyhow, Result};
+use anyhow::Result;
 use serde::{Deserialize, Serialize};
 use std::{convert::TryFrom, path::PathBuf};
 use steamid_ng::SteamID;
@@ -24,6 +24,7 @@ pub struct FileInfo {
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TfbdPlayerlistEntry {
     pub steamid: SteamIdFormat,
+    #[serde(rename(serialize = "tfbd", deserialize = "attributes"))]
     pub attributes: Vec<TfbdPlayerAttributes>,
     pub proof: Option<Vec<String>>,
     pub last_seen: LastSeen,
@@ -73,13 +74,6 @@ pub enum TfbdPlayerAttributes {
     Racist,
 }
 
-
-async fn fetch_data_from_url(url: &str) -> anyhow::Result<TF2BotDetectorPlayerListSchema> {
-    let response = reqwest::get(url).await?;
-    let data: TF2BotDetectorPlayerListSchema = response.json().await?;
-    Ok(data)
-}
-
 pub async fn read_tfbd_json(
     path: PathBuf,
 ) -> Result<TF2BotDetectorPlayerListSchema, anyhow::Error> {
@@ -92,14 +86,12 @@ pub async fn read_tfbd_json(
     let mut data: TF2BotDetectorPlayerListSchema = serde_json::from_str(&contents)?;
 
     // If players list is missing or empty and update_url exists, fetch data from that URL
-    if let Some(file_info) = &data.file_info {
-        if let Some(url) = &file_info.update_url {
-            if data.players.as_ref().map_or(true, Vec::is_empty) {
-                if let Ok(updated_data) = fetch_data_from_url(url).await {
-                    data = updated_data;
-                } else {
-                    return Err(anyhow!("Unable to fetch data from URL"));
-                }
+    if data.players.as_ref().map_or(true, Vec::is_empty) {
+        if let Some(file_info) = &data.file_info {
+            if let Some(url) = &file_info.update_url {
+                // Attempt to fetch the new data
+                let data_response = reqwest::get(url).await?;
+                data = data_response.json().await?;
             }
         }
     }

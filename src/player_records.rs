@@ -66,14 +66,14 @@ impl PlayerRecords {
         }
         tracing::debug!("Loaded {} records from TFBD", records_map.len());
 
-        let file_path = if let Some(path) = path {
-            path
-        } else {
-            Self::locate_playerlist_file()?
-        };
+        // let file_path = if let Some(path) = path {
+        //     path
+        // } else {
+        //     Self::locate_playerlist_file()?
+        // };
             
         Ok(PlayerRecords {
-            path: file_path,
+            path: Self::locate_playerlist_file()?,
             records: records_map,
         })
     }
@@ -280,10 +280,14 @@ impl From<TfbdPlayerlistEntry> for PlayerRecord {
 
         for attribute in entry.attributes {
             match attribute {
-                TfbdPlayerAttributes::Cheater => verdict = Verdict::Cheater,
+                TfbdPlayerAttributes::Cheater => {
+                    verdict = Verdict::Cheater;
+                    // extra_attributes.push("cheater".to_string());
+                },
                 TfbdPlayerAttributes::Suspicious => {
                     if verdict != Verdict::Cheater {
                         verdict = Verdict::Suspicious;
+                        // extra_attributes.push("suspicious".to_string());
                     }
                 }
                 // Adding extra attributes to a separate vector
@@ -301,7 +305,7 @@ impl From<TfbdPlayerlistEntry> for PlayerRecord {
         // Creating custom data
         let custom_data = if !extra_attributes.is_empty() {
             serde_json::json!({
-                "attributes": extra_attributes,
+                "tfbd": extra_attributes,
             })
         } else {
             serde_json::Value::Null
