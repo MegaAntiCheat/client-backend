@@ -1,4 +1,5 @@
 use player_records::PlayerRecords;
+use std::path::Path;
 use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
@@ -6,7 +7,7 @@ use tokio::sync::mpsc::UnboundedSender;
 
 use clap::{ArgAction, Parser};
 use io::{Commands, IOManager};
-use launchoptions::LaunchOptionsV2;
+use launchoptions::LaunchOptions;
 use settings::Settings;
 use state::State;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -50,12 +51,15 @@ pub struct Args {
     /// Override the configured Steam API key,
     #[arg(short, long)]
     pub api_key: Option<String>,
-    /// Rewrite the user localconfig.vdf to append the corrected set of launch options if necessary.
+    /// Rewrite the user localconfig.vdf to append the corrected set of launch options if necessary (only works when steam is not running).
     #[arg(long = "rewrite_launch_opts", action=ArgAction::SetTrue, default_value_t=false)]
     pub rewrite_launch_options: bool,
     /// Do not panic on detecting missing launch options or failure to read/parse the localconfig.vdf file.
     #[arg(short, long = "ignore_launch_opts", action=ArgAction::SetTrue, default_value_t=false)]
     pub ignore_launch_options: bool,
+    /// Launch the web-ui in the default browser on startup
+    #[arg(long = "autolaunch_ui", action=ArgAction::SetTrue, default_value_t=false)]
+    pub autolaunch_ui: bool,
 }
 
 #[tokio::main]
@@ -76,7 +80,7 @@ async fn main() {
         Settings::load(&args)
     };
 
-    let settings = match settings {
+    let mut settings = match settings {
         Ok(settings) => settings,
         Err(e) => {
             tracing::warn!("Failed to load settings, continuing with defaults: {:?}", e);
@@ -84,8 +88,21 @@ async fn main() {
         }
     };
 
+    // Locate TF2 directory
+    match gamefinder::locate_tf2_folder() {
+        Ok(tf2_directory) => {
+            settings.set_tf2_directory(tf2_directory);
+        }
+        Err(e) => {
+            if args.tf2_dir.is_none() {
+                tracing::error!("Could not locate TF2 directory: {:?}", e);
+                tracing::error!("If you have a valid TF2 installation you can specify it manually by appending ' --tf2_dir \"Path to Team Fortress 2 folder\"' when running the program.");
+            }
+        }
+    }
+
     // Launch options and overrides
-    let launch_opts = match LaunchOptionsV2::new(
+    let launch_opts = match LaunchOptions::new(
         settings
             .get_steam_user()
             .expect("Failed to identify the local steam user (failed to find `loginusers.vdf`)"),
@@ -129,10 +146,12 @@ async fn main() {
                 }
 
                 Err(missing_opts_err) => {
-                    tracing::warn!("Failed to verify app launch options: {}", missing_opts_err);
                     if !(args.ignore_launch_options) {
-                        panic!(
-                            "Missing required launch options in TF2 for MAC to function. Aborting..."
+                        panic!("Failed to verify app launch options: {}", missing_opts_err);
+                    } else {
+                        tracing::error!(
+                            "Failed to verify app launch options: {:?}",
+                            missing_opts_err
                         );
                     }
                 }
@@ -179,6 +198,9 @@ async fn main() {
         tracing::error!("Failed to save playerlist: {:?}", e);
     }
 
+    // Check autolaunch ui setting before settings is borrowed
+    let autolaunch_ui = args.autolaunch_ui || settings.get_autolaunch_ui();
+
     // Initialize State
     State::initialize_state(State::new(settings, playerlist));
     let io = IOManager::new();
@@ -189,6 +211,12 @@ async fn main() {
     tokio::spawn(async move {
         web::web_main(port).await;
     });
+
+    if autolaunch_ui {
+        if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", port))) {
+            tracing::error!("Failed to open web browser: {:?}", e);
+        }
+    }
 
     // Steam API loop
     let (steam_api_requester, steam_api_receiver) = tokio::sync::mpsc::unbounded_channel();
