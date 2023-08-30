@@ -190,25 +190,23 @@ async fn main() {
         tracing::error!("Failed to save playerlist: {:?}", e);
     }
 
-    let steam_user = match settings.get_steam_user() {
-        Some(user) => user,
-        None => {
-            tracing::error!("Failed to load Steam user from settings.");
-            return;
-        }
-    };
-
     // Friendslist
-    let friendslist = match steamapi::request_account_friends(&mut client, steam_user).await {
-        Ok(friendslist) => {
-            tracing::info!("Successfully loaded friendslist.");
-            friendslist
-        }
-        Err(e) => {
-            tracing::warn!(
-                "Failed to load friendslist: {:?}",
-                e
-            );
+    let friendslist = match settings.get_steam_user() {
+        Some(steam_user) => match steamapi::request_account_friends(&mut client, steam_user).await {
+            Ok(friendslist) => {
+                tracing::info!("Successfully loaded friendslist.");
+                friendslist
+            }
+            Err(e) => {
+                tracing::warn!(
+                    "Failed to load friendslist: {:?}",
+                    e
+                );
+                Vec::new()
+            }
+        },
+        None => {
+            tracing::warn!("Failed to load friendslist: Steam user not found.");
             Vec::new()
         }
     };

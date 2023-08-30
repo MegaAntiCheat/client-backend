@@ -37,7 +37,7 @@ pub struct Server {
     #[serde(skip)]
     player_records: PlayerRecords,
     #[serde(skip)]
-    friend_records: Vec<Friend>,
+    friends_list: Vec<Friend>,
 }
 
 #[derive(Debug, Serialize)]
@@ -61,7 +61,7 @@ impl Server {
             gamemode: None,
 
             player_records: playerlist,
-            friend_records: friendslist,
+            friends_list: friendslist,
         }
     }
 
@@ -190,7 +190,7 @@ impl Server {
     }
 
     pub fn get_friend(&self, steamid: &SteamID) -> Option<&Friend> {
-        self.friend_records
+        self.friends_list
             .iter()
             .find(|&friend| &friend.steamid == steamid)
     }
