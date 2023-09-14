@@ -6,6 +6,7 @@ use steamid_ng::SteamID;
 use tokio::sync::mpsc::UnboundedSender;
 
 use clap::{ArgAction, Parser};
+use demo::DemoManager;
 use io::{Commands, IOManager};
 use launchoptions::LaunchOptions;
 use settings::Settings;
@@ -15,6 +16,7 @@ use tracing_subscriber::{
     fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
 };
 
+mod demo;
 mod gamefinder;
 mod io;
 mod launchoptions;
@@ -213,6 +215,8 @@ async fn main() {
     tokio::task::spawn(async move {
         steam_api_loop(steam_api_receiver, steam_api_key).await;
     });
+
+    let demo_manager = DemoManager::new(&settings.get_tf2_directory().to_path_buf()); 
 
     // Main and refresh loop
     let cmd = io.get_command_requester();
