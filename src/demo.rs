@@ -1,7 +1,6 @@
 use std::collections::HashSet;
-use std::fs::{self, DirEntry};
-use std::io;
-use std::path::{Path, PathBuf};
+use anyhow::Result;
+use std::path::PathBuf;
 
 use std::time::{Duration, SystemTime};
 use tokio::fs::metadata;
@@ -9,13 +8,13 @@ use tokio::time::sleep;
 
 pub struct DemoManager {
     newest_file: Option<PathBuf>,
-    dir_path: Option<PathBuf>,
+    dir_path: PathBuf,
     last_checked_time: SystemTime,
     known_files: HashSet<PathBuf>,
 }
 
 impl DemoManager {
-    pub fn new(demo_path: Option<PathBuf>) -> Self {
+    pub fn new(demo_path: PathBuf) -> Self {
         Self {
             newest_file: None,
             dir_path: demo_path,
@@ -24,27 +23,32 @@ impl DemoManager {
         }
     }
 
-    pub async fn find_newest_dem_file(&mut self) -> io::Result<Option<PathBuf>> {
-        let mut newest_file_time = self
-            .newest_file
-            .as_ref()
-            .and_then(|path| fs::metadata(path).ok()?.modified().ok());
+    pub async fn find_newest_dem_file(&mut self) -> Result<Option<PathBuf>> {
+        let dir_path =  &self.dir_path;
+        let mut dir = tokio::fs::read_dir(dir_path).await?;
+
+        let newest_file_metadata = match &self.newest_file {
+            Some(path) => metadata(path).await.ok(),
+            None => None,
+        };
+
+        let mut newest_file_time = newest_file_metadata.and_then(|meta| meta.modified().ok());
 
         let mut newest_file_path = None;
 
-        for entry in fs::read_dir(self.dir_path)? {
-            let path = entry?.path();
-
+        while let Some(entry) = dir.next_entry().await? {
+            let path = entry.path();
+            
             if !self.known_files.contains(&path)
                 && path.is_file()
                 && path.extension() == Some("dem".as_ref())
             {
-                let metadata = fs::metadata(&path)?;
+                let metadata = tokio::fs::metadata(&path).await?;
                 let modified_time = metadata.modified()?;
-
+        
                 if modified_time > self.last_checked_time {
                     self.known_files.insert(path.clone());
-
+        
                     if newest_file_time.map_or(true, |time| modified_time > time) {
                         newest_file_time = Some(modified_time);
                         newest_file_path = Some(path);
@@ -131,10 +135,10 @@ async fn monitor_file(file_path: PathBuf) {
     }
 }
 
-async fn get_last_modified_time(file_path: &PathBuf) -> std::io::Result<SystemTime> {
-    metadata(file_path).await?.modified()
+async fn get_last_modified_time(file_path: &PathBuf) -> Result<SystemTime> {
+    Ok(metadata(file_path).await?.modified()?)
 }
 
-async fn get_file_size(file_path: &PathBuf) -> std::io::Result<u64> {
+async fn get_file_size(file_path: &PathBuf) -> Result<u64> {
     Ok(metadata(file_path).await?.len())
 }

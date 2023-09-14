@@ -216,7 +216,9 @@ async fn main() {
         steam_api_loop(steam_api_receiver, steam_api_key).await;
     });
 
-    let demo_manager = DemoManager::new(&settings.get_tf2_directory().to_path_buf()); 
+    // Demo manager
+    let demo_path = State::read_state().settings.get_tf2_directory().join("demos");
+    let demo_manager = DemoManager::new(demo_path); 
 
     // Main and refresh loop
     let cmd = io.get_command_requester();
