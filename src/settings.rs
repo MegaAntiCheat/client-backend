@@ -31,7 +31,7 @@ pub enum ConfigFilesError {
     Other(#[from] anyhow::Error),
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     #[serde(skip)]

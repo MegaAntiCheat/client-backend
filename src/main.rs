@@ -4,7 +4,6 @@ use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
 use tokio::sync::mpsc::UnboundedSender;
-use tokio::task;
 
 use clap::{ArgAction, Parser};
 use io::{Commands, IOManager};
@@ -159,7 +158,6 @@ async fn main() {
 
     // Just some settings we'll need later
     let port = settings.get_port();
-    let steam_api_key = settings.get_steam_api_key();
 
     // Playerlist
     let playerlist = if let Some(playerlist_path) = &args.playerlist {
@@ -189,12 +187,12 @@ async fn main() {
     if let Err(e) = playerlist.save() {
         tracing::error!("Failed to save playerlist: {:?}", e);
     }
-
-    // Friendslist
-    task::spawn(load_friends_list(settings.clone()));
-
-    // Check autolaunch ui setting before settings is borrowed
+    
+    // Get vars from settings before it is borrowed
     let autolaunch_ui = args.autolaunch_ui || settings.get_autolaunch_ui();
+    let steam_api_key = settings.get_steam_api_key();
+    let client = SteamAPI::new(steam_api_key.clone());
+    let steam_user = settings.get_steam_user();
 
     // Initialize State
     State::initialize_state(State::new(settings, playerlist));
@@ -202,6 +200,9 @@ async fn main() {
     let io = IOManager::new();
 
     web::init_command_issuer(io.get_command_requester()).await;
+
+    // Friendslist
+    tokio::task::spawn(load_friends_list(client, steam_user));
 
     // Spawn web server
     tokio::spawn(async move {
@@ -281,10 +282,9 @@ async fn main_loop(mut io: IOManager, steam_api_requester: UnboundedSender<Steam
     }
 }
 
-async fn load_friends_list(settings: Settings) {
-    let steam_api_key = settings.get_steam_api_key();
-    let mut client = SteamAPI::new(steam_api_key.clone());
-    let friendslist = match settings.get_steam_user() {
+
+async fn load_friends_list(mut client: SteamAPI, steam_user_id: Option<SteamID>) {
+    let friendslist = match steam_user_id {
         Some(steam_user) => {
             match steamapi::request_account_friends(&mut client, steam_user).await {
                 Ok(friendslist) => {
