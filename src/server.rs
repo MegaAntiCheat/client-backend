@@ -49,7 +49,7 @@ pub struct Gamemode {
 }
 
 impl Server {
-    pub fn new(playerlist: PlayerRecords, friendslist: Vec<Friend>) -> Server {
+    pub fn new(playerlist: PlayerRecords) -> Server {
         Server {
             map: None,
             ip: None,
@@ -59,9 +59,8 @@ impl Server {
             players: HashMap::new(),
             player_history: VecDeque::with_capacity(MAX_HISTORY_LEN),
             gamemode: None,
-
             player_records: playerlist,
-            friends_list: friendslist,
+            friends_list: Vec::new(),
         }
     }
 
@@ -160,6 +159,10 @@ impl Server {
         found
     }
 
+    pub fn update_friends_list(&mut self, friendslist: Vec<Friend>) {
+        self.friends_list = friendslist;
+    }
+
     pub fn get_history(&self, range: Range<usize>) -> Vec<&Player> {
         self.player_history
             .iter()
@@ -243,13 +246,12 @@ impl Server {
                         player.update_from_record(record.clone());
                     }
 
-                    if let Some(_) = self.get_friend(&steamid) {
+                    if self.get_friend(&steamid).is_some() {
                         player.tags.push(Arc::from("Friend"));
                     }
-                  
+
                     self.players.insert(steamid, player);
                     new_players.push(steamid);
-
                 }
             }
         }
@@ -304,7 +306,7 @@ impl Server {
                 player.update_from_record(record.clone());
             }
 
-            if let Some(_) = self.get_friend(&status.steamid) {
+            if self.get_friend(&status.steamid).is_some() {
                 player.tags.push(Arc::from("Friend"));
             }
 

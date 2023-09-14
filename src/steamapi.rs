@@ -156,7 +156,10 @@ async fn request_player_summary(
     Ok(summaries.response.players)
 }
 
-pub async fn request_account_friends(client: &mut SteamAPI, player: SteamID,) -> Result<Vec<Friend>> {
+pub async fn request_account_friends(
+    client: &mut SteamAPI,
+    player: SteamID,
+) -> Result<Vec<Friend>> {
     let friends = client
         .get()
         .ISteamUser()
