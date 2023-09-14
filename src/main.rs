@@ -187,7 +187,7 @@ async fn main() {
     if let Err(e) = playerlist.save() {
         tracing::error!("Failed to save playerlist: {:?}", e);
     }
-    
+
     // Get vars from settings before it is borrowed
     let autolaunch_ui = args.autolaunch_ui || settings.get_autolaunch_ui();
     let steam_api_key = settings.get_steam_api_key();
@@ -281,7 +281,6 @@ async fn main_loop(mut io: IOManager, steam_api_requester: UnboundedSender<Steam
         new_players.clear();
     }
 }
-
 
 async fn load_friends_list(mut client: SteamAPI, steam_user_id: Option<SteamID>) {
     let friendslist = match steam_user_id {
