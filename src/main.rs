@@ -217,11 +217,14 @@ async fn main() {
     });
 
     // Demo manager // TODO: add a bool setting to enable/disabld
-    let demo_path = State::read_state().settings.get_tf2_directory().join("tf/demos");
+    let demo_path = State::read_state()
+        .settings
+        .get_tf2_directory()
+        .join("tf/demos");
     tracing::info!("Demo path: {:?}", demo_path);
 
     tokio::task::spawn(async move {
-        demo_loop(demo_path).await;
+        let _ = demo_loop(demo_path).await;
     });
 
     // Main and refresh loop
