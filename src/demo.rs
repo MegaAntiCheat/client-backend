@@ -6,6 +6,9 @@ use std::time::{Duration, SystemTime};
 use tokio::fs::metadata;
 use tokio::time::sleep;
 
+use crate::state::State;
+
+
 pub struct DemoManager {
     newest_file: Option<PathBuf>,
     dir_path: PathBuf,
@@ -64,6 +67,7 @@ impl DemoManager {
 
         Ok(self.newest_file.clone())
     }
+
 }
 
 
@@ -74,19 +78,19 @@ pub async fn demo_loop(demo_path: PathBuf) {
         match demo_manager.find_newest_dem_file().await {
             Ok(Some(path)) => {
                 tracing::debug!("Found new demo file: {:?}", path);
-                monitor_file(path).await;
+                monitor_file(&mut demo_manager, path).await;
             }
             Ok(None) => {}
             Err(e) => {
-                // tracing::error!("Failed to find new demo file: {}", e);
+                tracing::error!("Failed to find new demo file: {}", e);
             }
         }
 
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(5)).await;
     }
 }
 
-async fn monitor_file(file_path: PathBuf) {
+pub async fn monitor_file(demo_manager: &mut DemoManager, mut file_path: PathBuf) {
     // Check if the file exists
     if !file_path.exists() {
         tracing::debug!("File {:?} does not exist!", file_path);
@@ -110,7 +114,6 @@ async fn monitor_file(file_path: PathBuf) {
         }
     };
 
-    let mut unchanged_time = Duration::new(0, 0);
 
     loop {
         // Get current modified time and file size
@@ -132,7 +135,6 @@ async fn monitor_file(file_path: PathBuf) {
 
         // Check for updates
         if current_modified_time != last_modified_time {
-            unchanged_time = Duration::new(0, 0);
             let elapsed_time = current_modified_time
                 .duration_since(last_modified_time)
                 .unwrap();
@@ -144,7 +146,7 @@ async fn monitor_file(file_path: PathBuf) {
                 _ => "remained the same".to_string(),
             };
 
-            tracing::debug!(
+            tracing::info!(
                 "File has been updated. Time since last update: {:.2} seconds. File size {}.",
                 elapsed_time.as_secs_f64(),
                 change
@@ -154,17 +156,17 @@ async fn monitor_file(file_path: PathBuf) {
             last_file_size = current_file_size;
         } else {
             // File hasn't changed
-            unchanged_time += Duration::from_secs(1);
-    
-            if unchanged_time >= Duration::from_secs(30) {
-                tracing::info!("File has not changed in 30 seconds. Exiting loop.");
-                // need a more elegant method for changing files on new map or new recording.
-                // there's probably a way to detect new files in a directory.
-                break;
+
+            if let Ok(Some(new_file)) = demo_manager.find_newest_dem_file().await {
+                if new_file != file_path {
+                    tracing::info!("Newer file found: {:?}. Switching to monitor this file.", new_file);
+                    file_path = new_file;
+                }
             }
+            sleep(Duration::from_secs(3)).await;
         }
 
-        sleep(Duration::from_secs(1)).await;
+        sleep(Duration::from_secs(3)).await;
     }
 }
 

@@ -216,7 +216,7 @@ async fn main() {
         steam_api_loop(steam_api_receiver, steam_api_key).await;
     });
 
-    // Demo manager // TODO: add a bool setting to enable/disable this
+    // Demo manager // TODO: add a bool setting to enable/disabld
     let demo_path = State::read_state().settings.get_tf2_directory().join("tf/demos");
     tracing::info!("Demo path: {:?}", demo_path);
 
