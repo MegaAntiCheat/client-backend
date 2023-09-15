@@ -6,7 +6,7 @@ use steamid_ng::SteamID;
 use tokio::sync::mpsc::UnboundedSender;
 
 use clap::{ArgAction, Parser};
-use demo::DemoManager;
+use demo::demo_loop;
 use io::{Commands, IOManager};
 use launchoptions::LaunchOptions;
 use settings::Settings;
@@ -216,9 +216,13 @@ async fn main() {
         steam_api_loop(steam_api_receiver, steam_api_key).await;
     });
 
-    // Demo manager
-    let demo_path = State::read_state().settings.get_tf2_directory().join("demos");
-    let demo_manager = DemoManager::new(demo_path); 
+    // Demo manager // TODO: add a bool setting to enable/disable this
+    let demo_path = State::read_state().settings.get_tf2_directory().join("tf/demos");
+    tracing::info!("Demo path: {:?}", demo_path);
+
+    tokio::task::spawn(async move {
+        demo_loop(demo_path).await;
+    });
 
     // Main and refresh loop
     let cmd = io.get_command_requester();

@@ -66,6 +66,26 @@ impl DemoManager {
     }
 }
 
+
+pub async fn demo_loop(demo_path: PathBuf) {
+    let mut demo_manager = DemoManager::new(demo_path);
+
+    loop {
+        match demo_manager.find_newest_dem_file().await {
+            Ok(Some(path)) => {
+                tracing::debug!("Found new demo file: {:?}", path);
+                monitor_file(path).await;
+            }
+            Ok(None) => {}
+            Err(e) => {
+                // tracing::error!("Failed to find new demo file: {}", e);
+            }
+        }
+
+        sleep(Duration::from_secs(1)).await;
+    }
+}
+
 async fn monitor_file(file_path: PathBuf) {
     // Check if the file exists
     if !file_path.exists() {
@@ -77,7 +97,7 @@ async fn monitor_file(file_path: PathBuf) {
     let mut last_modified_time = match get_last_modified_time(&file_path).await {
         Ok(time) => time,
         Err(e) => {
-            tracing::debug!("Failed to get last modified time: {}", e);
+            tracing::warn!("Failed to get last modified time: {}", e);
             return;
         }
     };
@@ -85,17 +105,19 @@ async fn monitor_file(file_path: PathBuf) {
     let mut last_file_size = match get_file_size(&file_path).await {
         Ok(size) => size,
         Err(e) => {
-            tracing::debug!("Failed to get file size: {}", e);
+            tracing::warn!("Failed to get file size: {}", e);
             return;
         }
     };
+
+    let mut unchanged_time = Duration::new(0, 0);
 
     loop {
         // Get current modified time and file size
         let current_modified_time = match get_last_modified_time(&file_path).await {
             Ok(time) => time,
             Err(e) => {
-                tracing::debug!("Failed to get last modified time: {}", e);
+                tracing::warn!("Failed to get last modified time: {}", e);
                 continue;
             }
         };
@@ -103,13 +125,14 @@ async fn monitor_file(file_path: PathBuf) {
         let current_file_size = match get_file_size(&file_path).await {
             Ok(size) => size,
             Err(e) => {
-                tracing::debug!("Failed to get file size: {}", e);
+                tracing::warn!("Failed to get file size: {}", e);
                 continue;
             }
         };
 
         // Check for updates
         if current_modified_time != last_modified_time {
+            unchanged_time = Duration::new(0, 0);
             let elapsed_time = current_modified_time
                 .duration_since(last_modified_time)
                 .unwrap();
@@ -129,6 +152,16 @@ async fn monitor_file(file_path: PathBuf) {
 
             last_modified_time = current_modified_time;
             last_file_size = current_file_size;
+        } else {
+            // File hasn't changed
+            unchanged_time += Duration::from_secs(1);
+    
+            if unchanged_time >= Duration::from_secs(30) {
+                tracing::info!("File has not changed in 30 seconds. Exiting loop.");
+                // need a more elegant method for changing files on new map or new recording.
+                // there's probably a way to detect new files in a directory.
+                break;
+            }
         }
 
         sleep(Duration::from_secs(1)).await;
