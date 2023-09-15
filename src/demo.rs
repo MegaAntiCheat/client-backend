@@ -5,9 +5,8 @@ use std::path::PathBuf;
 use std::time::{Duration, SystemTime};
 use tokio::fs::metadata;
 use tokio::time::sleep;
-
-use crate::state::State;
-
+use tokio::sync::mpsc::channel;
+use notify::{RecommendedWatcher, Event, Config, Watcher, RecursiveMode};
 
 pub struct DemoManager {
     newest_file: Option<PathBuf>,
@@ -90,12 +89,36 @@ pub async fn demo_loop(demo_path: PathBuf) {
     }
 }
 
+
+fn async_watcher() -> notify::Result<(RecommendedWatcher, tokio::sync::mpsc::Receiver<notify::Result<Event>>)> {
+    let (mut tx, rx) = channel(1);
+
+    let watcher = RecommendedWatcher::new(
+        move |res| {
+            let mut tx = tx.clone();
+            tokio::spawn(async move {
+                tx.send(res).await.unwrap();
+            });
+        },
+        Config::default(),
+    )?;
+
+    Ok((watcher, rx))
+}
+
+
 pub async fn monitor_file(demo_manager: &mut DemoManager, mut file_path: PathBuf) {
     // Check if the file exists
     if !file_path.exists() {
         tracing::debug!("File {:?} does not exist!", file_path);
         return;
     }
+    let parent_dir = file_path.parent().unwrap(); // This should never fail
+
+    let (mut watcher, mut rx) = async_watcher().unwrap();
+
+    watcher.watch(&file_path, RecursiveMode::NonRecursive).unwrap();
+    watcher.watch(&parent_dir, RecursiveMode::NonRecursive).unwrap();
 
     // Initialize last modified time and file size
     let mut last_modified_time = match get_last_modified_time(&file_path).await {
@@ -113,7 +136,6 @@ pub async fn monitor_file(demo_manager: &mut DemoManager, mut file_path: PathBuf
             return;
         }
     };
-
 
     loop {
         // Get current modified time and file size
@@ -133,41 +155,63 @@ pub async fn monitor_file(demo_manager: &mut DemoManager, mut file_path: PathBuf
             }
         };
 
-        // Check for updates
-        if current_modified_time != last_modified_time {
-            let elapsed_time = current_modified_time
-                .duration_since(last_modified_time)
-                .unwrap();
-            let size_difference = current_file_size as i64 - last_file_size as i64;
-
-            let change = match size_difference {
-                x if x > 0 => format!("increased by {} bytes", x),
-                x if x < 0 => format!("decreased by {} bytes", x.abs()),
-                _ => "remained the same".to_string(),
-            };
-
-            tracing::info!(
-                "File has been updated. Time since last update: {:.2} seconds. File size {}.",
-                elapsed_time.as_secs_f64(),
-                change
-            );
-
-            last_modified_time = current_modified_time;
-            last_file_size = current_file_size;
-        } else {
-            // File hasn't changed
-
-            if let Ok(Some(new_file)) = demo_manager.find_newest_dem_file().await {
-                if new_file != file_path {
-                    tracing::info!("Newer file found: {:?}. Switching to monitor this file.", new_file);
-                    file_path = new_file;
+        tokio::select! {
+            _ = sleep(Duration::from_secs(3)) => {
+                // Periodic check for new files
+                if let Ok(Some(new_file)) = demo_manager.find_newest_dem_file().await {
+                    if new_file != file_path {
+                        tracing::info!("Newer file found: {:?}. Switching to monitor this file.", new_file);
+                        file_path = new_file;
+                    }
                 }
             }
-            sleep(Duration::from_secs(3)).await;
-        }
+            event_option = rx.recv() => {
+                match event_option {
+                    Some(Ok(event)) => {
+                        if event.paths.contains(&file_path) {
+                            // File has changed
 
-        sleep(Duration::from_secs(3)).await;
+                            let elapsed_time = current_modified_time
+                                .duration_since(last_modified_time)
+                                .unwrap();
+                            let size_difference = current_file_size as i64 - last_file_size as i64;
+
+                            let change = match size_difference {
+                                x if x > 0 => format!("increased by {} bytes", x),
+                                x if x < 0 => format!("decreased by {} bytes", x.abs()),
+                                _ => "remained the same".to_string(),
+                            };
+
+                            tracing::info!(
+                                "File has been updated. Time since last update: {:.2} seconds. File size {}.",
+                                elapsed_time.as_secs_f64(),
+                                change
+                            );
+
+                            last_modified_time = current_modified_time;
+                            last_file_size = current_file_size;
+                        } else {
+                            // A different file or directory has changed; check for new demo files
+                            if let Ok(Some(new_file)) = demo_manager.find_newest_dem_file().await {
+                                if new_file != file_path {
+                                    tracing::info!("Newer file found: {:?}. Switching to monitor this file.", new_file);
+                                    file_path = new_file;
+                                }
+                            }
+                        }
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!("Watch error: {:?}", e);
+                    }
+                    None => {
+                        tracing::error!("Watch channel stopped");
+                    }
+                }
+            }
+        }
     }
+
+
 }
 
 async fn get_last_modified_time(file_path: &PathBuf) -> Result<SystemTime> {
