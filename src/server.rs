@@ -12,7 +12,7 @@ use crate::{
         regexes::{self, ChatMessage, PlayerKill, StatusLine},
         IOOutput,
     },
-    player::{Player, SteamInfo},
+    player::{Friend, Player, SteamInfo},
     player_records::{PlayerRecord, PlayerRecordLock, PlayerRecords},
 };
 
@@ -36,6 +36,8 @@ pub struct Server {
 
     #[serde(skip)]
     player_records: PlayerRecords,
+    #[serde(skip)]
+    friends_list: Vec<Friend>,
 }
 
 #[derive(Debug, Serialize)]
@@ -57,8 +59,8 @@ impl Server {
             players: HashMap::new(),
             player_history: VecDeque::with_capacity(MAX_HISTORY_LEN),
             gamemode: None,
-
             player_records: playerlist,
+            friends_list: Vec::new(),
         }
     }
 
@@ -157,6 +159,10 @@ impl Server {
         found
     }
 
+    pub fn update_friends_list(&mut self, friendslist: Vec<Friend>) {
+        self.friends_list = friendslist;
+    }
+
     pub fn get_history(&self, range: Range<usize>) -> Vec<&Player> {
         self.player_history
             .iter()
@@ -184,6 +190,12 @@ impl Server {
     pub fn get_player_record_mut(&mut self, steamid: SteamID) -> Option<PlayerRecordLock> {
         self.player_records
             .get_record_mut(steamid, &mut self.players, &mut self.player_history)
+    }
+
+    pub fn get_friend(&self, steamid: &SteamID) -> Option<&Friend> {
+        self.friends_list
+            .iter()
+            .find(|&friend| &friend.steamid == steamid)
     }
 
     // Other
@@ -232,6 +244,10 @@ impl Server {
                         }
 
                         player.update_from_record(record.clone());
+                    }
+
+                    if self.get_friend(&steamid).is_some() {
+                        player.tags.push(Arc::from("Friend"));
                     }
 
                     self.players.insert(steamid, player);
@@ -288,6 +304,10 @@ impl Server {
                 }
 
                 player.update_from_record(record.clone());
+            }
+
+            if self.get_friend(&status.steamid).is_some() {
+                player.tags.push(Arc::from("Friend"));
             }
 
             self.players.insert(status.steamid, player);
