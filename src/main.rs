@@ -10,6 +10,7 @@ use io::{Commands, IOManager};
 use launchoptions::LaunchOptions;
 use settings::Settings;
 use state::State;
+use tappet::SteamAPI;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
@@ -157,7 +158,6 @@ async fn main() {
 
     // Just some settings we'll need later
     let port = settings.get_port();
-    let steam_api_key = settings.get_steam_api_key();
 
     // Playerlist
     let playerlist = if let Some(playerlist_path) = &args.playerlist {
@@ -188,14 +188,21 @@ async fn main() {
         tracing::error!("Failed to save playerlist: {:?}", e);
     }
 
-    // Check autolaunch ui setting before settings is borrowed
+    // Get vars from settings before it is borrowed
     let autolaunch_ui = args.autolaunch_ui || settings.get_autolaunch_ui();
+    let steam_api_key = settings.get_steam_api_key();
+    let client = SteamAPI::new(steam_api_key.clone());
+    let steam_user = settings.get_steam_user();
 
     // Initialize State
     State::initialize_state(State::new(settings, playerlist));
+
     let io = IOManager::new();
 
     web::init_command_issuer(io.get_command_requester()).await;
+
+    // Friendslist
+    tokio::task::spawn(load_friends_list(client, steam_user));
 
     // Spawn web server
     tokio::spawn(async move {
@@ -273,6 +280,29 @@ async fn main_loop(mut io: IOManager, steam_api_requester: UnboundedSender<Steam
 
         new_players.clear();
     }
+}
+
+async fn load_friends_list(mut client: SteamAPI, steam_user_id: Option<SteamID>) {
+    let friendslist = match steam_user_id {
+        Some(steam_user) => {
+            match steamapi::request_account_friends(&mut client, steam_user).await {
+                Ok(friendslist) => {
+                    tracing::info!("Successfully loaded friendslist.");
+                    friendslist
+                }
+                Err(e) => {
+                    tracing::warn!("Failed to load friendslist: {:?}", e);
+                    Vec::new()
+                }
+            }
+        }
+        None => {
+            tracing::warn!("Failed to load friendslist: Steam user not found.");
+            Vec::new()
+        }
+    };
+
+    State::write_state().server.update_friends_list(friendslist);
 }
 
 async fn refresh_loop(cmd: UnboundedSender<Commands>) {

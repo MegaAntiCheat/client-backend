@@ -156,16 +156,17 @@ async fn request_player_summary(
     Ok(summaries.response.players)
 }
 
-// Needs to be updated to accomodate batched SteamID requests
-#[allow(dead_code)]
-async fn request_account_friends(client: &mut SteamAPI, player: SteamID) -> Result<Vec<Friend>> {
+pub async fn request_account_friends(
+    client: &mut SteamAPI,
+    player: SteamID,
+) -> Result<Vec<Friend>> {
     let friends = client
         .get()
         .ISteamUser()
         .GetFriendList(player.into(), "all".to_string())
         .execute()
         .await
-        .context("Failed to get account friends from SteamAPI.")?;
+        .context("Failed to get account friends from SteamAPI, profile may be private.")?;
     let friends =
         serde_json::from_str::<GetFriendListResponseBase>(&friends).with_context(|| {
             format!(
