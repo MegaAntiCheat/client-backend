@@ -8,6 +8,16 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio::time::Duration;
+use serde::{Serialize, Deserialize};
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct BigBrotherPacket {
+    players: Vec<String>, // List of players on the server, array of SteamIDs
+    ip: String, // IP address of the server
+    sequence: i32, // A sequence number that starts at 0 and increments for each successive fragment
+    demo: Option<Vec<u8>>, // Up-to-date copy of demo file. None for packet 0 as the demo wouldn't be flushed to disk yet.
+}
+
 
 pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
     let (sync_tx, sync_rx) = std::sync::mpsc::channel::<Event>();
@@ -25,7 +35,6 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
 
     thread::spawn(move || loop {
         if let Ok(event) = sync_rx.recv() {
-            // tracing::info!("Received event: {:?}", event);
             let _ = tx.blocking_send(event); // This blocks in a separate thread so idgaf anymore
         }
     });
@@ -41,7 +50,6 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
         tokio::select! {
             // Handle file events
             Some(event) = rx.recv() => {
-                // tracing::info!("Event being handled: {:?}", event);
                 match event.kind {
                     notify::event::EventKind::Create(_) => {
                         let path = event.paths[0].clone();
@@ -66,20 +74,17 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
                             if buffer.len() != 0{
                                 process_file_data(buffer).await;
                             }
-                            // tracing::info!("File {} updated", &current_file_path);
                         }
                     }
                     _ => {
-                        tracing::info!("Unhandled event kind: {:?}", event.kind);
+                        tracing::error!("Unhandled event kind: {:?}", event.kind);
                     }
                 }
             },
             // Handle metadata tick
             _ = metadata_tick.tick() => {
-                // tracing::info!("Metadata tick");
                 // If there is a current file being watched, check its metadata
                 if !current_file_path.is_empty() {
-                    // tracing::info!("Checking metadata for {}", &current_file_path);
                     let current_metadata = metadata(&current_file_path).await?;
                     let current_size = current_metadata.len();
 
@@ -93,7 +98,6 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
                         if buffer.len() != 0{
                             process_file_data(buffer).await;
                         }
-                        // tracing::info!("File {} updated via metadata polling", &current_file_path);
                     }
                 }
             },
