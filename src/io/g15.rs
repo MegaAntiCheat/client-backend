@@ -252,7 +252,8 @@ impl G15Parser {
                 }
             }
         }
-        players.retain(|x| x.valid.unwrap_or(false));
+        // Only get players who are "valid" and have a non-zero userid
+        players.retain(|x| x.valid.unwrap_or(false) && x.userid.as_deref().unwrap_or("0") != "0");
 
         players
     }
