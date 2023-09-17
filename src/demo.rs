@@ -1,5 +1,4 @@
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::path::Path;
 use std::path::PathBuf;
 use std::thread;
 use tokio::fs::metadata;
@@ -26,10 +25,18 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
 
     let mut watcher: RecommendedWatcher = Watcher::new(
         Box::new(move |res: Result<Event, notify::Error>| {
-            let _ = sync_tx.send(res.unwrap());
+            match res {
+                Ok(event) => {
+                    let _ = sync_tx.send(event);
+                }
+                Err(err) => {
+                    tracing::error!("Error while watching for file changes: {}", err);
+                }
+            }
         }),
         config,
     )?;
+
 
     watcher.watch(demo_path.as_path(), RecursiveMode::NonRecursive)?;
 
@@ -39,40 +46,43 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
         }
     });
 
-    let mut current_file_path = String::new();
-    let mut current_file_position: u64 = 0;
+    
 
     // Create a tick interval to periodically check metadata
     let mut metadata_tick = interval(Duration::from_secs(5));
 
-    tracing::info!("Demo loop started");
+    tracing::debug!("Demo loop started");
+
+    let mut current_file_path = PathBuf::new();
+    let mut current_file_position: u64 = 0;
+    let mut buffer = Vec::new();
+
     loop {
         tokio::select! {
             // Handle file events
             Some(event) = rx.recv() => {
+                let path = &event.paths[0];
                 match event.kind {
                     notify::event::EventKind::Create(_) => {
                         let path = event.paths[0].clone();
                         if path.extension().map_or(false, |ext| ext == "dem") {
-                            current_file_path = path.to_string_lossy().to_string();
+                            current_file_path = path.to_path_buf();
                             current_file_position = 0;
-                            tracing::info!("New .dem file created: {}", &current_file_path);
                         } else {
-                            tracing::info!("Ignored file with non-.dem extension: {}", path.to_string_lossy());
+                            tracing::debug!("Ignored file with non-.dem extension: {}", path.to_string_lossy());
                         }
                     }
                     notify::event::EventKind::Modify(_) => {
-                        let path = event.paths[0].clone();
-                        if path.to_string_lossy() == current_file_path {
+                        if path == &current_file_path  {
                             let mut file = File::open(&current_file_path).await?;
-                            let mut buffer = Vec::new();
+                            buffer.clear();
 
                             file.seek(SeekFrom::Start(current_file_position)).await?;
                             let read_bytes = file.read_to_end(&mut buffer).await?;
                             current_file_position += read_bytes as u64;
 
                             if buffer.len() != 0{
-                                process_file_data(buffer).await;
+                                process_file_data(&buffer).await;
                             }
                         }
                     }
@@ -84,19 +94,19 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
             // Handle metadata tick
             _ = metadata_tick.tick() => {
                 // If there is a current file being watched, check its metadata
-                if !current_file_path.is_empty() {
+                if !current_file_path.as_os_str().is_empty()  {
                     let current_metadata = metadata(&current_file_path).await?;
-                    let current_size = current_metadata.len();
 
                     // If the current file size is greater than the last known position, it's been updated
-                    if current_size > current_file_position {
-                        let mut file = File::open(Path::new(&current_file_path)).await?;
-                        let mut buffer = Vec::new();
+                    if current_metadata.len() > current_file_position {
+                        let mut file = File::open(&current_file_path).await?;
+                        buffer.clear();
+
                         file.seek(SeekFrom::Start(current_file_position)).await?;
                         let read_bytes = file.read_to_end(&mut buffer).await?;
                         current_file_position += read_bytes as u64;
-                        if buffer.len() != 0{
-                            process_file_data(buffer).await;
+                        if !buffer.is_empty() {
+                            process_file_data(&buffer).await;
                         }
                     }
                 }
@@ -105,7 +115,7 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
     }
 }
 
-async fn process_file_data(data: Vec<u8>) {
+async fn process_file_data(data: &[u8]) {
     // Placeholder function
-    tracing::info!("Received data of length {}", data.len());
+    tracing::debug!("Received data of length {}", data.len());
 }
