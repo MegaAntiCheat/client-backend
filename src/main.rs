@@ -59,6 +59,9 @@ pub struct Args {
     /// Launch the web-ui in the default browser on startup
     #[arg(long = "autolaunch_ui", action=ArgAction::SetTrue, default_value_t=false)]
     pub autolaunch_ui: bool,
+    /// Enable monitoring of demo files
+    #[arg(long = "demo_monitoring", action=ArgAction::SetTrue, default_value_t=false)]
+    pub demo_monitoring: bool,
 }
 
 #[tokio::main]
@@ -223,16 +226,18 @@ async fn main() {
         steam_api_loop(steam_api_receiver, steam_api_key).await;
     });
 
-    // Demo manager // TODO: add a bool setting to enable/disabld
-    let demo_path = State::read_state()
-        .settings
-        .get_tf2_directory()
-        .join("tf/demos");
-    tracing::info!("Demo path: {:?}", demo_path);
+    // Demo manager 
+    if args.demo_monitoring {
+        let demo_path = State::read_state()
+            .settings
+            .get_tf2_directory()
+            .join("tf/demos");
+        tracing::info!("Demo path: {:?}", demo_path);
 
-    tokio::task::spawn(async move {
-        let _ = demo_loop(demo_path).await;
-    });
+        tokio::task::spawn(async move {
+            let _ = demo_loop(demo_path).await;
+        });
+    }
 
     // Main and refresh loop
     let cmd = io.get_command_requester();

@@ -1,12 +1,10 @@
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use tokio::fs::metadata;
-use tokio::fs::File;
+use tokio::fs::{metadata, File};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio::sync::mpsc;
-use tokio::time::interval;
-use tokio::time::Duration;
+use tokio::time::{interval, Duration};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
 
@@ -54,7 +52,6 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
                 let path = &event.paths[0];
                 match event.kind {
                     notify::event::EventKind::Create(_) => {
-                        let path = event.paths[0].clone();
                         if path.extension().map_or(false, |ext| ext == "dem") {
                             current_file_path = path.to_path_buf();
                             current_file_position = 0;
