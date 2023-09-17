@@ -1,4 +1,3 @@
-use anyhow::Result;
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -27,26 +26,23 @@ impl<S> Shared<S> {
 
 // State
 
-pub struct State {
-    pub log_file_state: Result<()>,
-    pub rcon_state: Result<()>,
+#[derive(Clone)]
+pub struct SharedState {
     pub command_issuer: UnboundedSender<Commands>,
-    pub server: Server,
-    pub settings: Settings,
+    pub server: Shared<Server>,
+    pub settings: Shared<Settings>,
 }
 
-impl State {
+impl SharedState {
     pub fn new(
         settings: Settings,
         playerlist: PlayerRecords,
         command_issuer: UnboundedSender<Commands>,
-    ) -> State {
-        State {
-            log_file_state: Ok(()),
-            rcon_state: Ok(()),
+    ) -> SharedState {
+        SharedState {
             command_issuer,
-            server: Server::new(playerlist),
-            settings,
+            server: Shared::new(Server::new(playerlist)),
+            settings: Shared::new(settings),
         }
     }
 }

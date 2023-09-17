@@ -2,6 +2,7 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     net::SocketAddr,
+    ops::Deref,
     path::Path,
     sync::{Arc, Mutex},
 };
@@ -16,13 +17,13 @@ use axum::{
 use include_dir::{include_dir, Dir};
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
-use tokio::sync::mpsc::{Sender, UnboundedSender};
+use tokio::sync::mpsc::Sender;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 use crate::{
     io::Commands,
     player_records::{PlayerRecord, Verdict},
-    state::{self, Shared},
+    state,
 };
 
 const HEADERS: [(header::HeaderName, &str); 2] = [
@@ -32,10 +33,10 @@ const HEADERS: [(header::HeaderName, &str); 2] = [
 
 static UI_DIR: Dir = include_dir!("ui");
 
-type AState = axum::extract::State<Shared<state::State>>;
+type AState = axum::extract::State<state::SharedState>;
 
 /// Start the web API server
-pub async fn web_main(state: Shared<state::State>, port: u16) {
+pub async fn web_main(state: state::SharedState, port: u16) {
     let api = Router::new()
         .route("/", get(ui_redirect))
         .route("/ui", get(ui_redirect))
@@ -115,10 +116,11 @@ fn guess_content_type(path: &Path) -> &'static str {
 /// API endpoint to retrieve the current server state
 async fn get_game(State(state): AState) -> impl IntoResponse {
     tracing::debug!("State requested");
+    let server = state.server.read();
     (
         StatusCode::OK,
         HEADERS,
-        serde_json::to_string(&state.read().server).expect("Serialize game state"),
+        serde_json::to_string(server.deref()).expect("Serialize game state"),
     )
 }
 
@@ -152,16 +154,15 @@ async fn put_user(
 ) -> impl IntoResponse {
     tracing::debug!("Player updates sent: {:?}", &users);
 
-    let mut state = state.write();
+    let mut server = state.server.write();
     for (k, v) in users.0 {
         // Insert record if it didn't exist
-        if !state.server.has_player_record(k) {
-            state.server.insert_player_record(PlayerRecord::new(k));
+        if !server.has_player_record(k) {
+            server.insert_player_record(PlayerRecord::new(k));
         }
 
         // Update record
-        let mut record = state
-            .server
+        let mut record = server
             .get_player_record_mut(k)
             .expect("Mutating player record that was just inserted.");
 
@@ -197,14 +198,14 @@ struct Preferences {
 async fn get_prefs(State(state): AState) -> impl IntoResponse {
     tracing::debug!("Preferences requested.");
 
-    let state = state.read();
+    let settings = state.settings.read();
     let prefs = Preferences {
         internal: Some(InternalPreferences {
-            tf2_directory: Some(state.settings.get_tf2_directory().to_string_lossy().into()),
-            rcon_password: Some(state.settings.get_rcon_password()),
-            steam_api_key: Some(state.settings.get_steam_api_key()),
+            tf2_directory: Some(settings.get_tf2_directory().to_string_lossy().into()),
+            rcon_password: Some(settings.get_rcon_password()),
+            steam_api_key: Some(settings.get_steam_api_key()),
         }),
-        external: Some(state.settings.get_external_preferences().clone()),
+        external: Some(settings.get_external_preferences().clone()),
     };
 
     (
@@ -218,9 +219,7 @@ async fn get_prefs(State(state): AState) -> impl IntoResponse {
 async fn put_prefs(State(state): AState, prefs: Json<Preferences>) -> impl IntoResponse {
     tracing::debug!("Preferences updates sent.");
 
-    let mut state = state.write();
-    let settings = &mut state.settings;
-
+    let mut settings = state.settings.write();
     if let Some(internal) = prefs.0.internal {
         if let Some(tf2_dir) = internal.tf2_directory {
             settings.set_tf2_directory(tf2_dir.to_string().into());
@@ -283,7 +282,7 @@ async fn get_history(State(state): AState, page: Query<Pagination>) -> impl Into
     (
         StatusCode::OK,
         HEADERS,
-        serde_json::to_string(&state.read().server.get_history(page.0.from..page.0.to))
+        serde_json::to_string(&state.server.read().get_history(page.0.from..page.0.to))
             .expect("Serialize player history"),
     )
 }
@@ -301,7 +300,7 @@ async fn post_commands(
 ) -> impl IntoResponse {
     tracing::debug!("Commands sent: {:?}", commands);
 
-    let command_issuer = &state.read().command_issuer;
+    let command_issuer = &state.command_issuer;
     for command in commands.0.commands {
         command_issuer
             .send(command)

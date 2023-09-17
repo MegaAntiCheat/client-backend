@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::state::{Shared, State};
+use crate::state::SharedState;
 
 use self::command_manager::{CommandManager, KickReason};
 use self::filewatcher::FileWatcher;
@@ -111,7 +111,7 @@ impl IOManager {
         self.command_send.clone()
     }
 
-    pub async fn handle_waiting_command(&mut self, state: &Shared<State>) -> Result<IOOutput> {
+    pub async fn handle_waiting_command(&mut self, state: &SharedState) -> Result<IOOutput> {
         if let Ok(Some(command)) =
             tokio::time::timeout(Duration::from_millis(50), self.command_recv.recv()).await
         {
@@ -124,7 +124,7 @@ impl IOManager {
     /// Run a command and handle the response from it
     pub async fn handle_command(
         &mut self,
-        state: &Shared<State>,
+        state: &SharedState,
         command: Commands,
     ) -> Result<IOOutput> {
         let resp: String = self
@@ -165,9 +165,9 @@ impl IOManager {
     }
 
     /// Parse all of the new log entries that have been written
-    pub fn handle_log(&mut self, state: &Shared<State>) -> Result<IOOutput> {
+    pub fn handle_log(&mut self, state: &SharedState) -> Result<IOOutput> {
         if self.log_watcher.as_ref().is_none() {
-            let dir = state.read().settings.get_tf2_directory().into();
+            let dir = state.settings.read().get_tf2_directory().into();
             self.reopen_log(dir).context("Failed to reopen log file.")?;
         }
 
