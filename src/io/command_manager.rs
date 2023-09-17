@@ -5,7 +5,7 @@ use rcon::Connection;
 use serde::Deserialize;
 use tokio::{net::TcpStream, time::timeout};
 
-use crate::state::State;
+use crate::state::{Shared, State};
 
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -47,11 +47,11 @@ impl CommandManager {
         self.rcon.is_some()
     }
 
-    pub async fn run_command(&mut self, command: &str) -> Result<String> {
+    pub async fn run_command(&mut self, state: &Shared<State>, command: &str) -> Result<String> {
         let rcon = if let Some(rcon) = self.rcon.as_mut() {
             rcon
         } else {
-            self.try_connect()
+            self.try_connect(&state.read().settings.get_rcon_password())
                 .await
                 .context("Failed to reconnect to RCon.")?
         };
@@ -66,13 +66,11 @@ impl CommandManager {
             .context("Failed to run command")
     }
 
-    async fn try_connect(&mut self) -> Result<&mut Connection<TcpStream>> {
-        let password = State::read_state().settings.get_rcon_password();
-
+    async fn try_connect(&mut self, password: &str) -> Result<&mut Connection<TcpStream>> {
         tracing::debug!("Attempting to reconnect to RCon");
         match timeout(
             Duration::from_secs(2),
-            Connection::connect("127.0.0.1:27015", &password),
+            Connection::connect("127.0.0.1:27015", password),
         )
         .await
         {
