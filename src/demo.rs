@@ -1,52 +1,42 @@
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
-use std::thread;
 use tokio::fs::metadata;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio::sync::mpsc;
 use tokio::time::interval;
 use tokio::time::Duration;
-use serde::{Serialize, Deserialize};
+use tokio_stream::wrappers::UnboundedReceiverStream;
+use tokio_stream::StreamExt;
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BigBrotherPacket {
-    players: Vec<String>, // List of players on the server, array of SteamIDs
-    ip: String, // IP address of the server
+    players: Vec<String>,  // List of players on the server, array of SteamIDs
+    ip: String,            // IP address of the server
     sequence: i32, // A sequence number that starts at 0 and increments for each successive fragment
     demo: Option<Vec<u8>>, // Up-to-date copy of demo file. None for packet 0 as the demo wouldn't be flushed to disk yet.
 }
 
-
 pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
-    let (sync_tx, sync_rx) = std::sync::mpsc::channel::<Event>();
-    let (tx, mut rx) = mpsc::channel(32);
+    let (tx, rx) = mpsc::unbounded_channel();
     let config = Config::default().with_poll_interval(Duration::from_secs(2));
 
     let mut watcher: RecommendedWatcher = Watcher::new(
-        Box::new(move |res: Result<Event, notify::Error>| {
-            match res {
-                Ok(event) => {
-                    let _ = sync_tx.send(event);
-                }
-                Err(err) => {
-                    tracing::error!("Error while watching for file changes: {}", err);
-                }
+        Box::new(move |res: Result<Event, notify::Error>| match res {
+            Ok(event) => {
+                let _ = tx.send(event);
+            }
+            Err(err) => {
+                tracing::error!("Error while watching for file changes: {}", err);
             }
         }),
         config,
     )?;
 
-
     watcher.watch(demo_path.as_path(), RecursiveMode::NonRecursive)?;
 
-    thread::spawn(move || loop {
-        if let Ok(event) = sync_rx.recv() {
-            let _ = tx.blocking_send(event); // This blocks in a separate thread so idgaf anymore
-        }
-    });
-
-    
+    let mut rx = UnboundedReceiverStream::new(rx);
 
     // Create a tick interval to periodically check metadata
     let mut metadata_tick = interval(Duration::from_secs(5));
@@ -60,7 +50,7 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
     loop {
         tokio::select! {
             // Handle file events
-            Some(event) = rx.recv() => {
+            Some(event) = rx.next() => {
                 let path = &event.paths[0];
                 match event.kind {
                     notify::event::EventKind::Create(_) => {
@@ -68,8 +58,6 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
                         if path.extension().map_or(false, |ext| ext == "dem") {
                             current_file_path = path.to_path_buf();
                             current_file_position = 0;
-                        } else {
-                            tracing::debug!("Ignored file with non-.dem extension: {}", path.to_string_lossy());
                         }
                     }
                     notify::event::EventKind::Modify(_) => {
@@ -81,7 +69,7 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
                             let read_bytes = file.read_to_end(&mut buffer).await?;
                             current_file_position += read_bytes as u64;
 
-                            if buffer.len() != 0{
+                            if !buffer.is_empty() {
                                 process_file_data(&buffer).await;
                             }
                         }
