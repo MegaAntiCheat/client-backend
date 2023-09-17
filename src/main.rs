@@ -226,7 +226,7 @@ async fn main() {
         steam_api_loop(steam_api_receiver, steam_api_key).await;
     });
 
-    // Demo manager 
+    // Demo manager
     if args.demo_monitoring {
         let demo_path = State::read_state()
             .settings
