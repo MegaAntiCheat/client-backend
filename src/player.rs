@@ -59,7 +59,7 @@ impl Player {
             is_self,
             game_info,
             steam_info: None,
-            custom_data: serde_json::Value::default(),
+            custom_data: serde_json::Value::Object(Map::new()),
             tags: Vec::new(),
             local_verdict: Verdict::Player,
             convicted: false,
