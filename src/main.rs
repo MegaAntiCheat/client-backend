@@ -9,7 +9,7 @@ use clap::{ArgAction, Parser};
 use io::{Commands, IOManager};
 use launchoptions::LaunchOptions;
 use settings::Settings;
-use state::State;
+use state::SharedState;
 use tappet::SteamAPI;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
@@ -59,8 +59,7 @@ pub struct Args {
     pub autolaunch_ui: bool,
 }
 
-#[tokio::main]
-async fn main() {
+fn main() {
     let _guard = init_tracing();
 
     // Arg handling
@@ -191,83 +190,102 @@ async fn main() {
     // Get vars from settings before it is borrowed
     let autolaunch_ui = args.autolaunch_ui || settings.get_autolaunch_ui();
     let steam_api_key = settings.get_steam_api_key();
-    let client = SteamAPI::new(steam_api_key.clone());
+    let client = SteamAPI::new(steam_api_key);
     let steam_user = settings.get_steam_user();
 
     // Initialize State
-    State::initialize_state(State::new(settings, playerlist));
-
     let io = IOManager::new();
+    let state = SharedState::new(settings, playerlist, io.get_command_requester());
 
-    web::init_command_issuer(io.get_command_requester()).await;
+    // Start the async part of the program
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async {
+            // Friendslist
+            {
+                let state = state.clone();
+                tokio::task::spawn(load_friends_list(state, client, steam_user));
+            }
 
-    // Friendslist
-    tokio::task::spawn(load_friends_list(client, steam_user));
+            // Spawn web server
+            {
+                let state = state.clone();
+                tokio::spawn(async move {
+                    web::web_main(state, port).await;
+                });
+            }
 
-    // Spawn web server
-    tokio::spawn(async move {
-        web::web_main(port).await;
-    });
+            if autolaunch_ui {
+                if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", port))) {
+                    tracing::error!("Failed to open web browser: {:?}", e);
+                }
+            }
 
-    if autolaunch_ui {
-        if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", port))) {
-            tracing::error!("Failed to open web browser: {:?}", e);
-        }
-    }
+            // Steam API loop
+            let (steam_api_requester, steam_api_receiver) = tokio::sync::mpsc::unbounded_channel();
+            {
+                let state = state.clone();
+                tokio::task::spawn(async move {
+                    steam_api_loop(state, steam_api_receiver).await;
+                });
+            }
 
-    // Steam API loop
-    let (steam_api_requester, steam_api_receiver) = tokio::sync::mpsc::unbounded_channel();
-    tokio::task::spawn(async move {
-        steam_api_loop(steam_api_receiver, steam_api_key).await;
-    });
+            // Main and refresh loop
+            {
+                let state = state.clone();
+                let cmd = io.get_command_requester();
+                tokio::task::spawn(async move {
+                    refresh_loop(state, cmd).await;
+                });
+            }
 
-    // Main and refresh loop
-    let cmd = io.get_command_requester();
-    tokio::task::spawn(async move {
-        refresh_loop(cmd).await;
-    });
-
-    main_loop(io, steam_api_requester).await;
+            main_loop(io, state, steam_api_requester).await;
+        });
 }
 
-async fn main_loop(mut io: IOManager, steam_api_requester: UnboundedSender<SteamID>) {
+async fn main_loop(
+    mut io: IOManager,
+    state: SharedState,
+    steam_api_requester: UnboundedSender<SteamID>,
+) {
     let mut new_players = Vec::new();
 
     loop {
         // Log
-        match io.handle_log() {
+        match io.handle_log(&state) {
             Ok(output) => {
-                let mut state = State::write_state();
-                let user = state.settings.get_steam_user();
-                state.log_file_state = Ok(());
-                for new_player in state.server.handle_io_output(output, user).into_iter() {
+                let user = state.settings.read().get_steam_user();
+                for new_player in state
+                    .server
+                    .write()
+                    .handle_io_output(output, user)
+                    .into_iter()
+                {
                     new_players.push(new_player);
                 }
             }
             Err(e) => {
-                let mut state = State::write_state();
-                // This one runs very frequently so we'll only print diagnostics
-                // once when it first fails.
-                if state.log_file_state.is_ok() {
-                    tracing::error!("Failed to get log file contents: {:?}", e);
-                }
-                state.log_file_state = Err(e);
+                tracing::error!("Failed to get log file contents: {:?}", e);
             }
         }
 
         // Commands
-        match io.handle_waiting_command().await {
+        match io.handle_waiting_command(&state).await {
             Ok(output) => {
-                let mut state = State::write_state();
-                let user = state.settings.get_steam_user();
-                state.rcon_state = Ok(());
-                for new_player in state.server.handle_io_output(output, user).into_iter() {
+                let user = state.settings.read().get_steam_user();
+                for new_player in state
+                    .server
+                    .write()
+                    .handle_io_output(output, user)
+                    .into_iter()
+                {
                     new_players.push(new_player);
                 }
             }
             Err(e) => {
                 tracing::error!("Failed to run command: {:?}", e);
-                State::write_state().rcon_state = Err(e);
             }
         }
 
@@ -282,7 +300,11 @@ async fn main_loop(mut io: IOManager, steam_api_requester: UnboundedSender<Steam
     }
 }
 
-async fn load_friends_list(mut client: SteamAPI, steam_user_id: Option<SteamID>) {
+async fn load_friends_list(
+    state: SharedState,
+    mut client: SteamAPI,
+    steam_user_id: Option<SteamID>,
+) {
     let friendslist = match steam_user_id {
         Some(steam_user) => {
             match steamapi::request_account_friends(&mut client, steam_user).await {
@@ -302,15 +324,13 @@ async fn load_friends_list(mut client: SteamAPI, steam_user_id: Option<SteamID>)
         }
     };
 
-    State::write_state().server.update_friends_list(friendslist);
+    state.server.write().update_friends_list(friendslist);
 }
 
-async fn refresh_loop(cmd: UnboundedSender<Commands>) {
+async fn refresh_loop(state: SharedState, cmd: UnboundedSender<Commands>) {
     tracing::debug!("Entering refresh loop");
     loop {
-        {
-            State::write_state().server.refresh();
-        }
+        state.server.write().refresh();
 
         cmd.send(Commands::Status)
             .expect("communication with main loop from refresh loop");

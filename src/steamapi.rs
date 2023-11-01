@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
-use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use steamid_ng::SteamID;
@@ -14,9 +13,11 @@ use tappet::{
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::time::{Duration, MissedTickBehavior};
 
+use crate::server::Server;
+use crate::state::Shared;
 use crate::{
     player::{Friend, SteamInfo},
-    state::State,
+    state::SharedState,
 };
 
 const BATCH_INTERVAL: Duration = Duration::from_millis(500);
@@ -24,10 +25,10 @@ const BATCH_SIZE: usize = 20; // adjust as needed
 
 /// Enter a loop to wait for steam lookup requests, make those requests from the Steam web API,
 /// and update the state to include that data. Intended to be run inside a new tokio::task
-pub async fn steam_api_loop(mut requests: UnboundedReceiver<SteamID>, api_key: Arc<str>) {
+pub async fn steam_api_loop(state: SharedState, mut requests: UnboundedReceiver<SteamID>) {
     tracing::debug!("Entering steam api request loop");
 
-    let mut client = SteamAPI::new(api_key);
+    let mut client = SteamAPI::new(state.settings.read().get_steam_api_key());
     let mut buffer: VecDeque<SteamID> = VecDeque::new();
     let mut batch_timer = tokio::time::interval(BATCH_INTERVAL);
     batch_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
@@ -37,25 +38,29 @@ pub async fn steam_api_loop(mut requests: UnboundedReceiver<SteamID>, api_key: A
             Some(request) = requests.recv() => {
                 buffer.push_back(request);
                 if buffer.len() >= BATCH_SIZE {
-                    send_batch(&mut client, &mut buffer).await;
+                    send_batch(&state.server, &mut client, &mut buffer).await;
                     batch_timer.reset();  // Reset the timer
                 }
             },
             _ = batch_timer.tick() => {
                 if !buffer.is_empty() {
-                    send_batch(&mut client, &mut buffer).await;
+                    send_batch(&state.server, &mut client, &mut buffer).await;
                 }
             }
         }
     }
 }
 
-async fn send_batch(client: &mut SteamAPI, buffer: &mut VecDeque<SteamID>) {
+async fn send_batch(
+    server: &Shared<Server>,
+    client: &mut SteamAPI,
+    buffer: &mut VecDeque<SteamID>,
+) {
     match request_steam_info(client, buffer.drain(..).collect()).await {
         Ok(steam_info_map) => {
-            let mut state = State::write_state();
+            let mut server = server.write();
             for (id, steam_info) in steam_info_map {
-                state.server.insert_steam_info(id, steam_info);
+                server.insert_steam_info(id, steam_info);
             }
         }
         Err(e) => {

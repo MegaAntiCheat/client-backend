@@ -2,12 +2,13 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     net::SocketAddr,
+    ops::Deref,
     path::Path,
     sync::{Arc, Mutex},
 };
 
 use axum::{
-    extract::Query,
+    extract::{Query, State},
     http::{header, StatusCode},
     response::{sse::Event, IntoResponse, Redirect, Sse},
     routing::{get, post, put},
@@ -16,13 +17,13 @@ use axum::{
 use include_dir::{include_dir, Dir};
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
-use tokio::sync::mpsc::{Sender, UnboundedSender};
+use tokio::sync::mpsc::Sender;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 use crate::{
     io::Commands,
     player_records::{PlayerRecord, Verdict},
-    state::State,
+    state,
 };
 
 const HEADERS: [(header::HeaderName, &str); 2] = [
@@ -32,21 +33,10 @@ const HEADERS: [(header::HeaderName, &str); 2] = [
 
 static UI_DIR: Dir = include_dir!("ui");
 
+type AState = axum::extract::State<state::SharedState>;
+
 /// Start the web API server
-pub async fn web_main(port: u16) {
-    // Check everything is initialized
-    if !State::is_initialized() {
-        panic!("State is not initialized.");
-    }
-
-    if COMMAND_ISSUER
-        .lock()
-        .expect("Command issuer poisoned.")
-        .is_none()
-    {
-        panic!("Command issuer channel not initialized.");
-    }
-
+pub async fn web_main(state: state::SharedState, port: u16) {
     let api = Router::new()
         .route("/", get(ui_redirect))
         .route("/ui", get(ui_redirect))
@@ -59,7 +49,8 @@ pub async fn web_main(port: u16) {
         .route("/mac/game/events/v1", get(get_events))
         .route("/mac/history/v1", get(get_history))
         .route("/mac/commands/v1", post(post_commands))
-        .layer(tower_http::cors::CorsLayer::permissive());
+        .layer(tower_http::cors::CorsLayer::permissive())
+        .with_state(state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     tracing::info!("Starting web interface at http://{addr}");
@@ -123,12 +114,13 @@ fn guess_content_type(path: &Path) -> &'static str {
 // Game
 
 /// API endpoint to retrieve the current server state
-async fn get_game() -> impl IntoResponse {
+async fn get_game(State(state): AState) -> impl IntoResponse {
     tracing::debug!("State requested");
+    let server = state.server.read();
     (
         StatusCode::OK,
         HEADERS,
-        serde_json::to_string(&State::read_state().server).expect("Serialize game state"),
+        serde_json::to_string(server.deref()).expect("Serialize game state"),
     )
 }
 
@@ -156,19 +148,21 @@ struct UserUpdate {
 }
 
 /// Puts a user's details to insert them into the persistent storage for that user.
-async fn put_user(users: Json<HashMap<SteamID, UserUpdate>>) -> impl IntoResponse {
+async fn put_user(
+    State(state): AState,
+    users: Json<HashMap<SteamID, UserUpdate>>,
+) -> impl IntoResponse {
     tracing::debug!("Player updates sent: {:?}", &users);
 
-    let mut state = State::write_state();
+    let mut server = state.server.write();
     for (k, v) in users.0 {
         // Insert record if it didn't exist
-        if !state.server.has_player_record(k) {
-            state.server.insert_player_record(PlayerRecord::new(k));
+        if !server.has_player_record(k) {
+            server.insert_player_record(PlayerRecord::new(k));
         }
 
         // Update record
-        let mut record = state
-            .server
+        let mut record = server
             .get_player_record_mut(k)
             .expect("Mutating player record that was just inserted.");
 
@@ -201,17 +195,17 @@ struct Preferences {
 }
 
 /// Get the current preferences
-async fn get_prefs() -> impl IntoResponse {
+async fn get_prefs(State(state): AState) -> impl IntoResponse {
     tracing::debug!("Preferences requested.");
 
-    let state = State::read_state();
+    let settings = state.settings.read();
     let prefs = Preferences {
         internal: Some(InternalPreferences {
-            tf2_directory: Some(state.settings.get_tf2_directory().to_string_lossy().into()),
-            rcon_password: Some(state.settings.get_rcon_password()),
-            steam_api_key: Some(state.settings.get_steam_api_key()),
+            tf2_directory: Some(settings.get_tf2_directory().to_string_lossy().into()),
+            rcon_password: Some(settings.get_rcon_password()),
+            steam_api_key: Some(settings.get_steam_api_key()),
         }),
-        external: Some(state.settings.get_external_preferences().clone()),
+        external: Some(settings.get_external_preferences().clone()),
     };
 
     (
@@ -222,12 +216,10 @@ async fn get_prefs() -> impl IntoResponse {
 }
 
 /// Puts any preferences to be updated
-async fn put_prefs(prefs: Json<Preferences>) -> impl IntoResponse {
+async fn put_prefs(State(state): AState, prefs: Json<Preferences>) -> impl IntoResponse {
     tracing::debug!("Preferences updates sent.");
 
-    let mut state = State::write_state();
-    let settings = &mut state.settings;
-
+    let mut settings = state.settings.write();
     if let Some(internal) = prefs.0.internal {
         if let Some(tf2_dir) = internal.tf2_directory {
             settings.set_tf2_directory(tf2_dir.to_string().into());
@@ -285,43 +277,34 @@ impl Default for Pagination {
 
 /// Gets a historical record of the last (up to) 100 players that the user has
 /// been on servers with.
-async fn get_history(page: Query<Pagination>) -> impl IntoResponse {
+async fn get_history(State(state): AState, page: Query<Pagination>) -> impl IntoResponse {
     tracing::debug!("History requested");
     (
         StatusCode::OK,
         HEADERS,
-        serde_json::to_string(
-            &State::read_state()
-                .server
-                .get_history(page.0.from..page.0.to),
-        )
-        .expect("Serialize player history"),
+        serde_json::to_string(&state.server.read().get_history(page.0.from..page.0.to))
+            .expect("Serialize player history"),
     )
 }
 
 // Commands
-
-static COMMAND_ISSUER: Mutex<Option<UnboundedSender<Commands>>> = Mutex::new(None);
-
-pub async fn init_command_issuer(cmd_issuer: UnboundedSender<Commands>) {
-    *COMMAND_ISSUER.lock().expect("Command issuer mutex") = Some(cmd_issuer);
-}
 
 #[derive(Deserialize, Debug)]
 struct RequestedCommands {
     commands: Vec<Commands>,
 }
 
-async fn post_commands(commands: Json<RequestedCommands>) -> impl IntoResponse {
+async fn post_commands(
+    State(state): AState,
+    commands: Json<RequestedCommands>,
+) -> impl IntoResponse {
     tracing::debug!("Commands sent: {:?}", commands);
 
-    let command_issuer = COMMAND_ISSUER.lock().expect("Command issuer mutex");
-    let cmd = command_issuer
-        .as_ref()
-        .expect("Command issuer should be initialised");
-
+    let command_issuer = &state.command_issuer;
     for command in commands.0.commands {
-        cmd.send(command).expect("Sending command from web API.");
+        command_issuer
+            .send(command)
+            .expect("Sending command from web API.");
     }
 
     (StatusCode::OK, HEADERS)

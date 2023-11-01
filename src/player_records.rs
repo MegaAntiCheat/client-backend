@@ -120,7 +120,7 @@ impl PlayerRecord {
     pub fn new(steamid: SteamID) -> PlayerRecord {
         PlayerRecord {
             steamid,
-            custom_data: serde_json::Value::default(),
+            custom_data: serde_json::Value::Object(serde_json::Map::new()),
             verdict: Verdict::Player,
             previous_names: Vec::new(),
         }
