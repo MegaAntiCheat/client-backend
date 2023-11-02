@@ -1,5 +1,6 @@
 use player_records::PlayerRecords;
-use std::path::Path;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
@@ -8,7 +9,7 @@ use tokio::sync::mpsc::UnboundedSender;
 use clap::{ArgAction, Parser};
 use io::{Commands, IOManager};
 use launchoptions::LaunchOptions;
-use settings::Settings;
+use settings::{ConfigFilesError, Settings};
 use state::SharedState;
 use tappet::SteamAPI;
 use tracing_appender::non_blocking::WorkerGuard;
@@ -159,27 +160,35 @@ fn main() {
     let port = settings.get_port();
 
     // Playerlist
-    let playerlist = if let Some(playerlist_path) = &args.playerlist {
-        tracing::info!(
-            "Overrode default playerlist path with provided '{}'",
-            playerlist_path
-        );
-        PlayerRecords::load_from(playerlist_path.into())
-    } else {
-        PlayerRecords::load()
-    };
+    let playerlist_path: PathBuf = args
+        .playerlist
+        .as_ref()
+        .map(|i| Ok(i.into()))
+        .unwrap_or(PlayerRecords::locate_playerlist_file()).map_err(|e| {
+            tracing::error!("Could not find a suitable location for the playerlist: {} \nPlease specify a file path manually with --playerlist otherwise information may not be saved.", e); 
+        }).unwrap_or(PathBuf::from("playerlist.json"));
 
-    let playerlist = match playerlist {
-        Ok(playerlist) => {
-            tracing::info!("Successfully loaded playerlist.");
+    let playerlist = match PlayerRecords::load_from(playerlist_path) {
+        Ok(playerlist) => playerlist,
+        Err(ConfigFilesError::Json(path, e)) => {
+            tracing::error!("{} could not be loaded: {:?}", path, e);
+            tracing::error!(
+                "Please resolve any issues or remove the file, otherwise data may be lost."
+            );
+            panic!("Failed to load playerlist")
+        }
+        Err(ConfigFilesError::IO(path, e)) if e.kind() == ErrorKind::NotFound => {
+            tracing::warn!("Could not locate {}, creating new playerlist.", &path);
+            let mut playerlist = PlayerRecords::default();
+            playerlist.set_path(path.into());
             playerlist
         }
         Err(e) => {
-            tracing::warn!(
-                "Failed to load playerlist, creating new playerlist: {:?}",
-                e
+            tracing::error!("Could not load playerlist: {:?}", e);
+            tracing::error!(
+                "Please resolve any issues or remove the file, otherwise data may be lost."
             );
-            PlayerRecords::default()
+            panic!("Failed to load playerlist")
         }
     };
 
