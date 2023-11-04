@@ -5,12 +5,17 @@ use std::{
 };
 
 use anyhow::Context;
+use axum::extract::path;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 use steamid_ng::SteamID;
 
 use crate::{
     player::Player,
     settings::{ConfigFilesError, Settings},
+    tfbd::{
+        read_tfbd_json, TF2BotDetectorPlayerListSchema, TfbdPlayerAttributes, TfbdPlayerlistEntry,
+    },
 };
 
 // PlayerList
@@ -44,6 +49,57 @@ impl PlayerRecords {
         }
 
         Ok(playerlist)
+    }
+    
+    pub fn load_from_tfbd(
+        tfbd: TF2BotDetectorPlayerListSchema,
+        path: Option<PathBuf>,
+    ) -> Result<PlayerRecords, ConfigFilesError> {
+        let mut records_map: HashMap<SteamID, PlayerRecord> = HashMap::new();
+
+        if let Some(players) = tfbd.players {
+            for player in players {
+                // Convert each TfbdPlayerlistEntry into a PlayerRecord
+                let record: PlayerRecord = player.into();
+                records_map.insert(record.steamid, record);
+            }
+        }
+        tracing::debug!("Loaded {} records from TFBD", records_map.len());
+
+        // let file_path = if let Some(path) = path {
+        //     path
+        // } else {
+        //     Self::locate_playerlist_file()?
+        // };
+            
+        Ok(PlayerRecords {
+            path: Self::locate_playerlist_file()?,
+            records: records_map,
+        })
+    }
+
+    pub async fn load_from_tfbd_path(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
+        let content = read_tfbd_json(path.clone()).await?;
+        Self::load_from_tfbd(content, Some(path))
+    }
+
+
+    #[allow(dead_code)]
+    pub fn merge(&mut self, other: PlayerRecords) -> Result<(), &'static str> {
+        for (other_steam_id, other_record) in other.records {
+            // Check if a record with the same SteamID exists in self.records
+            if let Some(existing_record) = self.records.get_mut(&other_steam_id) {
+                // Perform the merge operation
+                let merged_record = existing_record.merge(&other_record)?;
+                // Replace the existing record with the merged one
+                *existing_record = merged_record;
+            } else {
+                // If a record with this SteamID doesn't exist, insert it
+                self.records.insert(other_steam_id, other_record);
+            }
+        }
+
+        Ok(())
     }
 
     /// Attempt to save the [Playerlist] to the file it was loaded from
@@ -145,6 +201,121 @@ impl PlayerRecord {
                     .as_str()
                     .map(|s| s.is_empty())
                     .unwrap_or(false)
+        }
+    }
+
+#[allow(dead_code)]
+pub fn merge(&self, other: &PlayerRecord) -> Result<PlayerRecord, &'static str> {
+    // Make sure both records have the same SteamID (most unnecessary but just in case)
+    if self.steamid != other.steamid {
+        return Err("SteamIDs must match to merge records");
+    }
+
+    let merged_custom_data = merge_json(&self.custom_data, &other.custom_data);
+
+    let merged_verdict = match (self.verdict, other.verdict) {
+        (Verdict::Cheater, _) | (_, Verdict::Cheater) => Verdict::Cheater,
+        (Verdict::Bot, _) | (_, Verdict::Bot) => Verdict::Bot,
+        (Verdict::Suspicious, _) | (_, Verdict::Suspicious) => Verdict::Suspicious,
+        _ => Verdict::Player,
+    };
+
+    // Merge previous_names avoiding duplicates
+    let mut merged_names = self.previous_names.clone();
+    for name in &other.previous_names {
+        if !merged_names.contains(name) {
+            merged_names.push(name.clone());
+        }
+    }
+
+    Ok(PlayerRecord {
+        steamid: self.steamid,
+        custom_data: merged_custom_data,
+        verdict: merged_verdict,
+        previous_names: merged_names,
+    })
+}
+
+
+}
+
+#[allow(dead_code)]
+fn merge_json(original_json: &Value, priority_json: &Value) -> Value {
+    match (original_json, priority_json) {
+        (Value::Object(a_map), Value::Object(b_map)) => {
+            let mut merged = Map::new();
+            for (k, v) in a_map.iter().chain(b_map.iter()) {
+                // If the key exists in both a and b, merge the values
+                if a_map.contains_key(k) && b_map.contains_key(k) {
+                    // Recursive step
+                    merged.insert(k.clone(), merge_json(a_map.get(k).unwrap(), b_map.get(k).unwrap()));
+                } else if a_map.contains_key(k) {
+                    merged.insert(k.clone(), a_map.get(k).unwrap().clone());
+                } else {
+                    merged.insert(k.clone(), b_map.get(k).unwrap().clone());
+                }
+            }
+            Value::Object(merged)
+        },
+        (Value::Array(a_vec), Value::Array(b_vec)) => {
+            let mut merged = a_vec.clone();
+            merged.extend(b_vec.clone());
+            Value::Array(merged)
+        },
+        // Prefer to overwrite with priority_json (new playerlist overwrite value of old playerlist)
+        (_, _) => priority_json.clone(),
+    }
+}
+
+
+impl From<TfbdPlayerlistEntry> for PlayerRecord {
+    fn from(entry: TfbdPlayerlistEntry) -> Self {
+        // Extracting steamid
+        let steamid =
+            SteamID::try_from(entry.steamid).expect("Failed to convert SteamIdFormat to SteamID");
+
+        // Mapping TFBD attributes to Verdict
+        let mut verdict = Verdict::Player;
+        let mut extra_attributes = Vec::new();
+
+        for attribute in entry.attributes {
+            match attribute {
+                TfbdPlayerAttributes::Cheater => {
+                    verdict = Verdict::Cheater;
+                    // extra_attributes.push("cheater".to_string());
+                },
+                TfbdPlayerAttributes::Suspicious => {
+                    if verdict != Verdict::Cheater {
+                        verdict = Verdict::Suspicious;
+                        // extra_attributes.push("suspicious".to_string());
+                    }
+                }
+                // Adding extra attributes to a separate vector
+                TfbdPlayerAttributes::Exploiter => extra_attributes.push("exploiter".to_string()),
+                TfbdPlayerAttributes::Racist => extra_attributes.push("racist".to_string()),
+            }
+        }
+
+        // Extracting previous names
+        let mut previous_names = Vec::new();
+        if let Some(player_name) = entry.last_seen.player_name {
+            previous_names.push(player_name);
+        }
+
+        // Creating custom data
+        let custom_data = if !extra_attributes.is_empty() {
+            serde_json::json!({
+                "tfbd": extra_attributes,
+            })
+        } else {
+            serde_json::Value::Null
+        };
+
+        PlayerRecord {
+            steamid,
+            custom_data,
+            verdict,
+            previous_names,
         }
     }
 }

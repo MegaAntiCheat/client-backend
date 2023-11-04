@@ -25,6 +25,7 @@ mod server;
 mod settings;
 mod state;
 mod steamapi;
+mod tfbd;
 mod web;
 
 #[derive(Parser, Debug)]
@@ -39,6 +40,9 @@ pub struct Args {
     /// Override the playerlist to use
     #[arg(long)]
     pub playerlist: Option<String>,
+    /// Override the playerlist to use
+    #[arg(long)]
+    pub tfbdlist: Option<String>,
     /// Override the default tf2 directory
     #[arg(short = 'd', long)]
     pub tf2_dir: Option<String>,
@@ -165,6 +169,12 @@ fn main() {
             playerlist_path
         );
         PlayerRecords::load_from(playerlist_path.into())
+    } else if let Some(tfbdlist_path) = &args.tfbdlist {
+        tracing::info!(
+            "Overrode default playerlist path with provided '{}'",
+            tfbdlist_path
+        );
+        PlayerRecords::load_from_tfbd_path(tfbdlist_path.into()).await
     } else {
         PlayerRecords::load()
     };
