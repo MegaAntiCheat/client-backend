@@ -114,7 +114,8 @@ async fn main() {
                 tracing::error!("Missing launch options: {:?}", missing_opts);
                 if !(args.ignore_launch_options) {
                     panic!(
-                        "Missing required launch options in TF2 for MAC to function. Aborting..."
+                        "Missing required launch options in TF2 for MAC to function. Aborting...\n
+                        (Add the command-line argument '--ignore_launch_opts' to ignore this)."
                     );
                 }
             } else {
