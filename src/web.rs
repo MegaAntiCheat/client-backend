@@ -48,6 +48,7 @@ pub async fn web_main(state: state::SharedState, port: u16) {
         .route("/mac/pref/v1", put(put_prefs))
         .route("/mac/game/events/v1", get(get_events))
         .route("/mac/history/v1", get(get_history))
+        .route("/mac/playerlist/v1", get(get_playerlist))
         .route("/mac/commands/v1", post(post_commands))
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(state);
@@ -287,6 +288,18 @@ async fn get_history(State(state): AState, page: Query<Pagination>) -> impl Into
     )
 }
 
+/// Gets the Serde serialised PlayerRecords object from the current state server object.
+async fn get_playerlist(State(state): AState) -> impl IntoResponse {
+    tracing::debug!("Playerlist requested");
+    (
+        StatusCode::OK,
+        HEADERS,
+        serde_json::to_string(
+            &state.server.read().get_player_records()
+        )
+        .expect("Serialize player records")
+    )
+}
 // Commands
 
 #[derive(Deserialize, Debug)]

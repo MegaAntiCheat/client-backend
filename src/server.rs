@@ -178,6 +178,10 @@ impl Server {
         self.player_records.get_records().contains_key(&steamid)
     }
 
+    pub fn get_player_records(&self) -> &PlayerRecords {
+        &self.player_records
+    }
+
     pub fn insert_player_record(&mut self, record: PlayerRecord) {
         self.player_records.insert_record(record);
     }

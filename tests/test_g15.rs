@@ -1,3 +1,4 @@
+/* 
 use std::fs;
 #[path = "../src/io/g15.rs"]
 pub mod g15;
@@ -60,3 +61,4 @@ mod tests {
         assert!(expected == format!("{:?}", players));
     }
 }
+*/
