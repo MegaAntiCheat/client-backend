@@ -50,6 +50,16 @@ impl PlayerRecords {
         Ok(())
     }
 
+    /// Attempt to save the [Playerlist], log errors and ignore result
+    pub fn save_ok(&self) {
+        if let Err(e) = self.save() {
+            tracing::error!("Failed to save playerlist: {:?}", e);
+            return;
+        }
+        // this will never fail to unwrap because the above error would have occured first and broken control flow.
+        tracing::debug!("Playerlist saved to {:?}", self.path);
+    }
+
     pub fn set_path(&mut self, path: PathBuf) {
         self.path = path;
     }

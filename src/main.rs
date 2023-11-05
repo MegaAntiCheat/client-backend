@@ -67,23 +67,40 @@ fn main() {
     let args = Args::parse();
 
     // Load settings
-    let settings = if let Some(config_path) = &args.config {
-        tracing::info!(
-            "Overrode default config path with provided '{}'",
-            config_path
-        );
-        Settings::load_from(config_path.into(), &args)
-    } else {
-        Settings::load(&args)
-    };
+    let settings_path: PathBuf = args
+        .config
+        .as_ref()
+        .map(|i| Ok(i.into()))
+        .unwrap_or(Settings::locate_config_file_path()).map_err(|e| {
+            tracing::error!("Could not find a suitable location for the configuration: {}\nPlease specify a file path manually with --config", e);
+        }).unwrap_or(PathBuf::from("config.yaml"));
 
-    let mut settings = match settings {
+    let mut settings = match Settings::load_from(settings_path, &args) {
         Ok(settings) => settings,
+        Err(ConfigFilesError::Yaml(path, e)) => {
+            tracing::error!("{} could not be loaded: {:?}", path, e);
+            tracing::error!(
+                "Please resolve any issues or remove the file, otherwise data may be lost."
+            );
+            panic!("Failed to load configuration")
+        }
+        Err(ConfigFilesError::IO(path, e)) if e.kind() == ErrorKind::NotFound => {
+            tracing::warn!("Could not locate {}, creating new configuration.", &path);
+            let mut settings = Settings::default();
+            settings.set_config_path(path.into());
+            settings.set_overrides(&args);
+            settings
+        }
         Err(e) => {
-            tracing::warn!("Failed to load settings, continuing with defaults: {:?}", e);
-            Settings::default()
+            tracing::error!("Could not load configuration: {:?}", e);
+            tracing::error!(
+                "Please resolve any issues or remove the file, otherwise data may be lost."
+            );
+            panic!("Failed to load configuration")
         }
     };
+
+    settings.save_ok();
 
     // Locate TF2 directory
     match gamefinder::locate_tf2_folder() {
@@ -192,9 +209,7 @@ fn main() {
         }
     };
 
-    if let Err(e) = playerlist.save() {
-        tracing::error!("Failed to save playerlist: {:?}", e);
-    }
+    playerlist.save_ok();
 
     // Get vars from settings before it is borrowed
     let autolaunch_ui = args.autolaunch_ui || settings.get_autolaunch_ui();

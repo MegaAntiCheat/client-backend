@@ -1,6 +1,5 @@
 use std::{
     fs::OpenOptions,
-    io::ErrorKind,
     io::{self, Write},
     path::{Path, PathBuf},
     sync::Arc,
@@ -67,23 +66,8 @@ impl Settings {
     /// Attempt to load settings from a provided configuration file, or just use default config
     pub fn load_from(path: PathBuf, args: &Args) -> Result<Settings, ConfigFilesError> {
         // Read config.yaml file if it exists, otherwise try to create a default file.
-        let contents = match std::fs::read_to_string(&path) {
-            Ok(content) => Ok(content),
-            Err(why) => match why.kind() {
-                ErrorKind::NotFound => {
-                    tracing::warn!(
-                        "No config file found in config directory. Creating default file..."
-                    );
-                    let def_settings = Settings::default();
-                    def_settings.save()?;
-                    tracing::info!("Saved default config file to {:?}...", path);
-                    return Ok(def_settings); // Short circuit due to fresh default settings
-                }
-                _ => Err(why),
-            },
-        }
-        .map_err(|e| ConfigFilesError::IO(path.to_string_lossy().into(), e))?;
-
+        let contents = std::fs::read_to_string(&path)
+            .map_err(|e| ConfigFilesError::IO(path.to_string_lossy().into(), e))?;
         let mut settings = serde_yaml::from_str::<Settings>(&contents)
             .map_err(|e| ConfigFilesError::Yaml(path.to_string_lossy().into(), e))?;
 
@@ -146,7 +130,7 @@ impl Settings {
 
     /// Pull all values from the args struct and set to our override values,
     /// make sure to add tracing for any values overridden!
-    fn set_overrides(&mut self, args: &Args) {
+    pub fn set_overrides(&mut self, args: &Args) {
         // Override (and log if) the Port used to host the middleware API (default 3621)
         self.override_port = args.port.map(|val| {
             tracing::info!("Overrode configured port value {:?}->{:?}", self.port, val);
@@ -209,7 +193,7 @@ impl Settings {
             return;
         }
         // this will never fail to unwrap because the above error would have occured first and broken control flow.
-        tracing::info!("Settings saved to {:?}", self.config_path.clone().unwrap());
+        tracing::debug!("Settings saved to {:?}", self.config_path.clone().unwrap());
     }
 
     // Setters & Getters
@@ -264,9 +248,14 @@ impl Settings {
         self.steam_api_key = key;
         self.save_ok();
     }
+
     pub fn update_external_preferences(&mut self, prefs: serde_json::Value) {
         merge_json_objects(&mut self.external, prefs);
         self.save_ok();
+    }
+
+    pub fn set_config_path(&mut self, config: PathBuf) {
+        self.config_path = Some(config);
     }
 
     /// Attempts to find (and create) a directory to be used for configuration files
@@ -279,7 +268,7 @@ impl Settings {
         Ok(PathBuf::from(dir))
     }
 
-    fn locate_config_file_path() -> Result<PathBuf, ConfigFilesError> {
+    pub fn locate_config_file_path() -> Result<PathBuf, ConfigFilesError> {
         Self::locate_config_directory().map(|dir| dir.join("config.yaml"))
     }
 }
