@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
+use serde_json::Map;
 use steamid_ng::SteamID;
 
 use crate::{
@@ -23,11 +24,6 @@ pub struct PlayerRecords {
 }
 
 impl PlayerRecords {
-    /// Attempt to load the [Playerlist] from the default file
-    pub fn load() -> Result<PlayerRecords, ConfigFilesError> {
-        Self::load_from(Self::locate_playerlist_file()?)
-    }
-
     /// Attempt to load the [Playerlist] from the provided file
     pub fn load_from(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
         let contents = std::fs::read_to_string(&path)
@@ -52,6 +48,20 @@ impl PlayerRecords {
         std::fs::write(&self.path, contents)
             .map_err(|e| ConfigFilesError::IO(self.path.to_string_lossy().into(), e))?;
         Ok(())
+    }
+
+    /// Attempt to save the [Playerlist], log errors and ignore result
+    pub fn save_ok(&self) {
+        if let Err(e) = self.save() {
+            tracing::error!("Failed to save playerlist: {:?}", e);
+            return;
+        }
+        // this will never fail to unwrap because the above error would have occured first and broken control flow.
+        tracing::debug!("Playerlist saved to {:?}", self.path);
+    }
+
+    pub fn set_path(&mut self, path: PathBuf) {
+        self.path = path;
     }
 
     pub fn insert_record(&mut self, record: PlayerRecord) {
@@ -85,7 +95,7 @@ impl PlayerRecords {
         }
     }
 
-    fn locate_playerlist_file() -> Result<PathBuf, ConfigFilesError> {
+    pub fn locate_playerlist_file() -> Result<PathBuf, ConfigFilesError> {
         Settings::locate_config_directory().map(|dir| dir.join("playerlist.json"))
     }
 }
@@ -110,6 +120,7 @@ impl Default for PlayerRecords {
 pub struct PlayerRecord {
     #[serde(skip)]
     pub steamid: SteamID,
+    #[serde(default = "default_custom_data")]
     pub custom_data: serde_json::Value,
     pub verdict: Verdict,
     #[serde(default)]
@@ -147,6 +158,10 @@ impl PlayerRecord {
                     .unwrap_or(false)
         }
     }
+}
+
+fn default_custom_data() -> serde_json::Value {
+    serde_json::Value::Object(Map::new())
 }
 
 /// What a player is marked as in the personal playerlist
