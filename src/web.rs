@@ -37,6 +37,7 @@ pub async fn web_main(port: u16) {
         .route("/mac/pref/v1", put(put_prefs))
         .route("/mac/game/events/v1", get(get_events))
         .route("/mac/history/v1", get(get_history))
+        .route("/mac/playerlist/v1", get(get_playerlist))
         .layer(tower_http::cors::CorsLayer::permissive());
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
@@ -223,5 +224,20 @@ async fn get_history(page: Query<Pagination>) -> impl IntoResponse {
                 .get_history(page.0.from..page.0.to),
         )
         .expect("Serialize player history"),
+    )
+}
+
+/// Gets the Serde serialised PlayerRecords object from the current state server object.
+async fn get_playerlist() -> impl IntoResponse {
+    tracing::debug!("Playerlist requested");
+    (
+        StatusCode::OK,
+        HEADERS,
+        serde_json::to_string(
+            &State::read_state()
+                .server
+                .get_player_records()
+        )
+        .expect("Serialize player records")
     )
 }
