@@ -7,6 +7,7 @@ use steamid_ng::SteamID;
 use tokio::sync::mpsc::UnboundedSender;
 
 use clap::{ArgAction, Parser};
+use demo::demo_loop;
 use io::{Commands, IOManager};
 use launchoptions::LaunchOptions;
 use settings::{ConfigFilesError, Settings};
@@ -17,6 +18,7 @@ use tracing_subscriber::{
     fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
 };
 
+mod demo;
 mod gamefinder;
 mod io;
 mod launchoptions;
@@ -58,6 +60,9 @@ pub struct Args {
     /// Launch the web-ui in the default browser on startup
     #[arg(long = "autolaunch_ui", action=ArgAction::SetTrue, default_value_t=false)]
     pub autolaunch_ui: bool,
+    /// Enable monitoring of demo files
+    #[arg(long = "demo_monitoring", action=ArgAction::SetTrue, default_value_t=false)]
+    pub demo_monitoring: bool,
 }
 
 fn main() {
@@ -254,6 +259,18 @@ fn main() {
                 tokio::task::spawn(async move {
                     steam_api_loop(state, steam_api_receiver).await;
                 });
+            }
+
+            // Demo manager
+            {
+                if args.demo_monitoring {
+                    let demo_path = state.settings.read().get_tf2_directory().join("tf/demos");
+                    tracing::info!("Demo path: {:?}", demo_path);
+
+                    tokio::task::spawn(async move {
+                        let _ = demo_loop(demo_path).await;
+                    });
+                }
             }
 
             // Main and refresh loop
