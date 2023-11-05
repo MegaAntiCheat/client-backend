@@ -1,7 +1,5 @@
 {
   "build": {
-    "beforeBuildCommand": "",
-    "beforeDevCommand": "",
     "devPath": "http://localhost:3621"
   },
   "package": {
@@ -20,6 +18,9 @@
         "depends": []
       },
       "externalBin": [],
+      "icon": [
+        "icons/icon.png"
+      ],
       "identifier": "com.tauri.dev",
       "longDescription": "",
       "macOS": {
