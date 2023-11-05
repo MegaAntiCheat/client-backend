@@ -219,7 +219,7 @@ fn main() {
     playerlist.save_ok();
 
     // Get vars from settings before it is borrowed
-    let autolaunch_ui = args.autolaunch_ui || settings.get_autolaunch_ui();
+    let autolaunch_ui = args.autolaunch_ui || settings.get_autolaunch_browser();
     let steam_api_key = settings.get_steam_api_key();
     let client = SteamAPI::new(steam_api_key);
     let steam_user = settings.get_steam_user();
@@ -285,7 +285,7 @@ fn main() {
             }
 
             // Desktop app
-            if args.desktop {
+            if args.desktop || state.settings.read().get_autolaunch_desktop() {
                 tokio::task::spawn(async move {
                     main_loop(io, state, steam_api_requester).await;
                 });

@@ -42,7 +42,8 @@ pub struct Settings {
     rcon_password: Arc<str>,
     steam_api_key: Arc<str>,
     port: u16,
-    autolaunch_ui: bool,
+    autolaunch_browser: bool,
+    autolaunch_desktop: bool,
     external: serde_json::Value,
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
@@ -240,8 +241,12 @@ impl Settings {
         self.save_ok();
     }
 
-    pub fn get_autolaunch_ui(&self) -> bool {
-        self.autolaunch_ui
+    pub fn get_autolaunch_browser(&self) -> bool {
+        self.autolaunch_browser
+    }
+
+    pub fn get_autolaunch_desktop(&self) -> bool {
+        self.autolaunch_desktop
     }
 
     pub fn set_steam_api_key(&mut self, key: Arc<str>) {
@@ -295,7 +300,8 @@ impl Default for Settings {
             rcon_password: "mac_rcon".into(),
             steam_api_key: "YOUR_API_KEY_HERE".into(),
             port: 3621,
-            autolaunch_ui: false,
+            autolaunch_browser: false,
+            autolaunch_desktop: false,
             override_tf2_dir: None,
             override_rcon_password: None,
             override_steam_api_key: None,
