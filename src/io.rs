@@ -2,13 +2,13 @@ use anyhow::Context;
 use regex::Regex;
 
 use anyhow::{anyhow, Result};
+use serde::Deserialize;
 use std::fmt::Display;
 use std::path::PathBuf;
-use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 
-use crate::state::State;
+use crate::state::SharedState;
 
 use self::command_manager::{CommandManager, KickReason};
 use self::filewatcher::FileWatcher;
@@ -39,20 +39,32 @@ pub enum IOOutput {
     G15(Vec<G15Player>),
 }
 
-#[allow(dead_code)]
+#[derive(Deserialize, Debug)]
+#[serde(rename_all = "camelCase")]
 pub enum Commands {
     G15,
     Status,
-    Kick(Arc<str>, KickReason),
     Say(String),
+    SayTeam(String),
+    Kick {
+        player: String,
+        #[serde(default)]
+        reason: KickReason,
+    },
+    Custom(String),
 }
+
 impl Display for Commands {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Commands::G15 => f.write_str("g15_dumpplayer"),
             Commands::Status => f.write_str("status"),
-            Commands::Kick(player, reason) => write!(f, "callvote kick \"{} {}\"", player, reason),
+            Commands::Kick { player, reason } => {
+                write!(f, "callvote kick \"{} {}\"", player, reason)
+            }
             Commands::Say(message) => write!(f, "say \"{}\"", message),
+            Commands::SayTeam(message) => write!(f, "say_team \"{}\"", message),
+            Commands::Custom(command) => write!(f, "{}", command),
         }
     }
 }
@@ -99,21 +111,25 @@ impl IOManager {
         self.command_send.clone()
     }
 
-    pub async fn handle_waiting_command(&mut self) -> Result<IOOutput> {
+    pub async fn handle_waiting_command(&mut self, state: &SharedState) -> Result<IOOutput> {
         if let Ok(Some(command)) =
             tokio::time::timeout(Duration::from_millis(50), self.command_recv.recv()).await
         {
-            return self.handle_command(command).await;
+            return self.handle_command(state, command).await;
         }
 
         Ok(IOOutput::NoOutput)
     }
 
     /// Run a command and handle the response from it
-    pub async fn handle_command(&mut self, command: Commands) -> Result<IOOutput> {
+    pub async fn handle_command(
+        &mut self,
+        state: &SharedState,
+        command: Commands,
+    ) -> Result<IOOutput> {
         let resp: String = self
             .command_manager
-            .run_command(&format!("{}", command))
+            .run_command(state, &format!("{}", command))
             .await
             .context("Failed to run command")?;
         Ok(match command {
@@ -136,16 +152,23 @@ impl IOManager {
                 }
                 IOOutput::MultiStatus(status_lines)
             }
-            Commands::Kick(_, _) | Commands::Say(_) => {
+            Commands::Kick {
+                player: _,
+                reason: _,
+            }
+            | Commands::Say(_)
+            | Commands::SayTeam(_)
+            | Commands::Custom(_) => {
                 IOOutput::NoOutput // No return from these other commands.
             }
         })
     }
 
     /// Parse all of the new log entries that have been written
-    pub fn handle_log(&mut self) -> Result<IOOutput> {
+    pub fn handle_log(&mut self, state: &SharedState) -> Result<IOOutput> {
         if self.log_watcher.as_ref().is_none() {
-            self.reopen_log().context("Failed to reopen log file.")?;
+            let dir = state.settings.read().get_tf2_directory().into();
+            self.reopen_log(dir).context("Failed to reopen log file.")?;
         }
 
         loop {
@@ -207,12 +230,10 @@ impl IOManager {
     }
 
     /// Attempt to reopen the log file with the currently set directory.
-    fn reopen_log(&mut self) -> Result<()> {
-        let state = State::read_state();
-        let mut dir: PathBuf = state.settings.get_tf2_directory().into();
-        dir.push("tf/console.log");
+    fn reopen_log(&mut self, mut tf2_dir: PathBuf) -> Result<()> {
+        tf2_dir.push("tf/console.log");
 
-        match FileWatcher::new(dir) {
+        match FileWatcher::new(tf2_dir) {
             Ok(lw) => {
                 self.log_watcher = Some(lw);
                 tracing::info!("Successfully opened log file.");

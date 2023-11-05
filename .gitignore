@@ -5,3 +5,5 @@
 .env
 *.log
 bundle/
+/ui/*
+/ui_temp
