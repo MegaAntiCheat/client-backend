@@ -55,6 +55,7 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
                         if path.extension().map_or(false, |ext| ext == "dem") {
                             current_file_path = path.to_path_buf();
                             current_file_position = 0;
+                            tracing::debug!("Demo file created: {:?}", current_file_path.file_name());
                         }
                     }
                     notify::event::EventKind::Modify(_) => {
@@ -72,7 +73,7 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
                         }
                     }
                     _ => {
-                        tracing::error!("Unhandled event kind: {:?}", event.kind);
+                        tracing::debug!("Unhandled event kind: {:?}", event.kind);
                     }
                 }
             },
