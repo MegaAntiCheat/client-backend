@@ -63,6 +63,8 @@ pub struct Args {
     /// Enable monitoring of demo files
     #[arg(long = "demo_monitoring", action=ArgAction::SetTrue, default_value_t=false)]
     pub demo_monitoring: bool,
+    #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
+    pub desktop: bool,
 }
 
 fn main() {
@@ -282,7 +284,18 @@ fn main() {
                 });
             }
 
-            main_loop(io, state, steam_api_requester).await;
+            // Desktop app
+            if args.desktop {
+                tokio::task::spawn(async move {
+                    main_loop(io, state, steam_api_requester).await;
+                });
+
+                tauri::Builder::default()
+                    .run(tauri::generate_context!())
+                    .expect("error while running tauri application");
+            } else {
+                main_loop(io, state, steam_api_requester).await;
+            }
         });
 }
 
