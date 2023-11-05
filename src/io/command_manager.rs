@@ -2,17 +2,24 @@ use std::{fmt::Display, time::Duration};
 
 use anyhow::{Context, Result};
 use rcon::Connection;
+use serde::Deserialize;
 use tokio::{net::TcpStream, time::timeout};
 
-use crate::state::State;
+use crate::state::SharedState;
 
-#[allow(dead_code)]
-#[derive(Debug)]
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub enum KickReason {
     None,
     Idle,
     Cheating,
     Scamming,
+}
+
+impl Default for KickReason {
+    fn default() -> Self {
+        Self::None
+    }
 }
 
 impl Display for KickReason {
@@ -40,11 +47,12 @@ impl CommandManager {
         self.rcon.is_some()
     }
 
-    pub async fn run_command(&mut self, command: &str) -> Result<String> {
+    pub async fn run_command(&mut self, state: &SharedState, command: &str) -> Result<String> {
         let rcon = if let Some(rcon) = self.rcon.as_mut() {
             rcon
         } else {
-            self.try_connect()
+            let pwd = state.settings.read().get_rcon_password();
+            self.try_connect(&pwd)
                 .await
                 .context("Failed to reconnect to RCon.")?
         };
@@ -59,13 +67,11 @@ impl CommandManager {
             .context("Failed to run command")
     }
 
-    async fn try_connect(&mut self) -> Result<&mut Connection<TcpStream>> {
-        let password = State::read_state().settings.get_rcon_password();
-
+    async fn try_connect(&mut self, password: &str) -> Result<&mut Connection<TcpStream>> {
         tracing::debug!("Attempting to reconnect to RCon");
         match timeout(
             Duration::from_secs(2),
-            Connection::connect("127.0.0.1:27015", &password),
+            Connection::connect("127.0.0.1:27015", password),
         )
         .await
         {

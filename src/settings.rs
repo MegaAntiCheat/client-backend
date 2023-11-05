@@ -1,13 +1,11 @@
 use std::{
-    fs::File,
     fs::OpenOptions,
     io::{self, Write},
-    io::{ErrorKind, Read},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
-use anyhow::{Context, Result};
+use anyhow::{anyhow, Context, Result};
 use directories_next::ProjectDirs;
 use keyvalues_parser::Vdf;
 use serde::{Deserialize, Serialize};
@@ -39,10 +37,12 @@ pub struct Settings {
     config_path: Option<PathBuf>,
     #[serde(skip)]
     steam_user: Option<SteamID>,
+    #[serde(skip)]
     tf2_directory: PathBuf,
     rcon_password: Arc<str>,
     steam_api_key: Arc<str>,
     port: u16,
+    autolaunch_ui: bool,
     external: serde_json::Value,
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
@@ -66,29 +66,12 @@ impl Settings {
     /// Attempt to load settings from a provided configuration file, or just use default config
     pub fn load_from(path: PathBuf, args: &Args) -> Result<Settings, ConfigFilesError> {
         // Read config.yaml file if it exists, otherwise try to create a default file.
-        let contents = match std::fs::read_to_string(&path) {
-            Ok(content) => Ok(content),
-            Err(why) => match why.kind() {
-                ErrorKind::NotFound => {
-                    tracing::warn!(
-                        "No config file found in config directory. Creating default file..."
-                    );
-                    let def_settings = Settings::default();
-                    def_settings.save()?;
-                    tracing::info!("Saved default config file to {:?}...", path);
-                    return Ok(def_settings); // Short circuit due to fresh default settings
-                }
-                _ => Err(why),
-            },
-        }
-        .map_err(|e| ConfigFilesError::IO(path.to_string_lossy().into(), e))?;
-
+        let contents = std::fs::read_to_string(&path)
+            .map_err(|e| ConfigFilesError::IO(path.to_string_lossy().into(), e))?;
         let mut settings = serde_yaml::from_str::<Settings>(&contents)
             .map_err(|e| ConfigFilesError::Yaml(path.to_string_lossy().into(), e))?;
 
         settings.config_path = Some(path);
-
-        // settings.steam_user = Settings::load_current_steam_user();
 
         tracing::debug!("Successfully loaded settings.");
         settings.set_overrides(args);
@@ -97,44 +80,57 @@ impl Settings {
 
     /// Reads the Steam/config/loginusers.vdf file to find the currently logged in
     /// steam ID.
-    fn load_current_steam_user() -> Option<SteamID> {
+    fn load_current_steam_user() -> Result<SteamID, anyhow::Error> {
         tracing::debug!("Loading steam user login data from Steam directory");
-        let steam_user_conf = gamefinder::locate_steam_logged_in_users().unwrap_or(PathBuf::new());
-        let mut steam_use_conf_str: Vec<u8> = Vec::new();
-        if let Ok(mut file) = File::open(steam_user_conf.as_path()) {
-            let _ = file
-                .read_to_end(&mut steam_use_conf_str)
-                .context("Failed reading loginusers.vdf.");
-            tracing::info!("Loaded steam user login data.");
-        } else {
-            tracing::error!("Could not open loginusers.vdf from Steam dir.");
-        }
+        let user_conf_path = gamefinder::locate_steam_logged_in_users()
+            .context("Could not locate logged in steam user.")?;
+        let user_conf_contents = std::fs::read(user_conf_path)
+            .context("Failed to read logged in user configuration.")?;
 
-        match Vdf::parse(&String::from_utf8_lossy(&steam_use_conf_str)) {
+        match Vdf::parse(&String::from_utf8_lossy(&user_conf_contents)) {
             Ok(login_vdf) => {
-                let user_obj = login_vdf.value.unwrap_obj();
-                let user_sid64 = user_obj.keys().next().unwrap();
-                match user_sid64.parse::<u64>() {
-                    Ok(user_int64) => {
-                        tracing::info!("Parsed current logged in steam user <{}>", user_int64);
-                        Some(SteamID::from(user_int64))
-                    }
-                    Err(why) => {
-                        tracing::error!("Invalid SID64 found in user data: {}.", why);
-                        None
-                    }
+                let users_obj = login_vdf
+                    .value
+                    .get_obj()
+                    .ok_or(anyhow!("Failed to parse loginusers.vdf"))?;
+                let mut latest_timestamp = 0;
+                let mut latest_user_sid64: Option<SteamID> = None;
+
+                for (user_sid64, user_data_values) in users_obj.iter() {
+                    user_data_values
+                        .iter()
+                        .filter_map(|value| value.get_obj())
+                        .for_each(|user_data_obj| {
+                            if let Some(timestamp) = user_data_obj
+                                .get("Timestamp")
+                                .and_then(|timestamp_values| timestamp_values.get(0))
+                                .and_then(|timestamp_vdf| timestamp_vdf.get_str())
+                                .and_then(|timestamp_str| timestamp_str.parse::<i64>().ok())
+                            {
+                                if timestamp > latest_timestamp {
+                                    if let Ok(user_steamid) =
+                                        user_sid64.parse::<u64>().map(SteamID::from)
+                                    {
+                                        latest_timestamp = timestamp;
+                                        latest_user_sid64 = Some(user_steamid);
+                                    }
+                                }
+                            }
+                        });
                 }
+
+                latest_user_sid64.ok_or(anyhow!("No user with a valid timestamp found."))
             }
-            Err(parse_err) => {
-                tracing::error!("Failed to parse loginusers VDF data: {}.", parse_err);
-                None
-            }
+            Err(parse_err) => Err(anyhow!(
+                "Failed to parse loginusers VDF data: {}.",
+                parse_err
+            )),
         }
     }
 
     /// Pull all values from the args struct and set to our override values,
     /// make sure to add tracing for any values overridden!
-    fn set_overrides(&mut self, args: &Args) {
+    pub fn set_overrides(&mut self, args: &Args) {
         // Override (and log if) the Port used to host the middleware API (default 3621)
         self.override_port = args.port.map(|val| {
             tracing::info!("Overrode configured port value {:?}->{:?}", self.port, val);
@@ -177,6 +173,7 @@ impl Settings {
         let mut file = open_options
             .create(true)
             .write(true)
+            .truncate(true)
             .open(config_path)
             .context("Failed to create or open config file.")?;
         write!(
@@ -196,7 +193,7 @@ impl Settings {
             return;
         }
         // this will never fail to unwrap because the above error would have occured first and broken control flow.
-        tracing::info!("Settings saved to {:?}", self.config_path.clone().unwrap());
+        tracing::debug!("Settings saved to {:?}", self.config_path.clone().unwrap());
     }
 
     // Setters & Getters
@@ -242,13 +239,23 @@ impl Settings {
         self.port = port;
         self.save_ok();
     }
+
+    pub fn get_autolaunch_ui(&self) -> bool {
+        self.autolaunch_ui
+    }
+
     pub fn set_steam_api_key(&mut self, key: Arc<str>) {
         self.steam_api_key = key;
         self.save_ok();
     }
+
     pub fn update_external_preferences(&mut self, prefs: serde_json::Value) {
         merge_json_objects(&mut self.external, prefs);
         self.save_ok();
+    }
+
+    pub fn set_config_path(&mut self, config: PathBuf) {
+        self.config_path = Some(config);
     }
 
     /// Attempts to find (and create) a directory to be used for configuration files
@@ -261,25 +268,34 @@ impl Settings {
         Ok(PathBuf::from(dir))
     }
 
-    fn locate_config_file_path() -> Result<PathBuf, ConfigFilesError> {
+    pub fn locate_config_file_path() -> Result<PathBuf, ConfigFilesError> {
         Self::locate_config_directory().map(|dir| dir.join("config.yaml"))
     }
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        let tf2_directory = gamefinder::locate_tf2_folder().unwrap_or(PathBuf::new());
         let config_path = Self::locate_config_file_path()
             .map_err(|e| tracing::error!("Failed to create config directory: {:?}", e))
             .ok();
+        let steam_user = Self::load_current_steam_user()
+            .map_err(|e| tracing::error!("Failed to load steam user: {:?}", e))
+            .ok();
+        if let Some(steam_user) = &steam_user {
+            tracing::info!(
+                "Identified current steam user as {}",
+                u64::from(*steam_user)
+            );
+        }
 
         Settings {
-            steam_user: Self::load_current_steam_user(),
+            steam_user,
             config_path,
-            tf2_directory,
+            tf2_directory: PathBuf::default(),
             rcon_password: "mac_rcon".into(),
             steam_api_key: "YOUR_API_KEY_HERE".into(),
             port: 3621,
+            autolaunch_ui: false,
             override_tf2_dir: None,
             override_rcon_password: None,
             override_steam_api_key: None,

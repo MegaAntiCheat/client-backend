@@ -23,14 +23,14 @@ pub const TF2_REQUIRED_OPTS: [&str; 4] = ["-condebug", "-conclearlog", "-usercon
 /// ID.
 /// Handles referencing the VDF store of a Steam app's launch options and provides an interface to read
 /// and write launch options based on a set of required options.
-pub struct LaunchOptionsV2 {
+pub struct LaunchOptions {
     local_config: PathBuf,
     launch_args_regex: Regex,
     app_data: Option<String>,
     new_app_data: Option<String>,
 }
 
-impl LaunchOptionsV2 {
+impl LaunchOptions {
     /// Get the current configured launch options for the target app under the current logged in steam user.
     ///
     /// # Errors
@@ -39,7 +39,7 @@ impl LaunchOptionsV2 {
     /// - Could not read the `localconfig.vdf` file. (because of any non-`ErrorKind::Interrupted` during read)
     /// - Failed to parse the `localconfig.vdf` file. (File is corrupted/broken/incomplete)
     /// - Target app ID does not exist in `localconfig.vdf` file or the object is corrupted.
-    pub fn new(user: SteamID, target_app: String) -> Result<LaunchOptionsV2, anyhow::Error> {
+    pub fn new(user: SteamID, target_app: String) -> Result<LaunchOptions, anyhow::Error> {
         let span = tracing::span!(Level::INFO, "LaunchOptions");
         let _enter = span.enter();
 
@@ -84,7 +84,7 @@ impl LaunchOptionsV2 {
         let launch_options_regex = Regex::new(r#"\t{6}"LaunchOptions"\t{2}"([(\-\w)\s]*)""#)
             .expect("Constructing LaunchOptions regex");
 
-        Ok(LaunchOptionsV2 {
+        Ok(LaunchOptions {
             local_config: config_path,
             launch_args_regex: launch_options_regex,
             app_data: matched_app_block,
@@ -109,10 +109,13 @@ impl LaunchOptionsV2 {
             None => &self.app_data,
         };
         let app_data = data_ref.clone().context("No data currently stored.")?;
-        let current_args = self
-            .launch_args_regex
-            .find(&app_data)
-            .context("Failed to find launch args object.")?;
+        let current_args = match self.launch_args_regex.find(&app_data) {
+            Some(current_args) => current_args,
+            None => {
+                missing_args.extend(TF2_REQUIRED_OPTS.iter());
+                return Ok(missing_args);
+            }
+        };
 
         let mat_str = current_args.as_str();
         TF2_REQUIRED_OPTS.iter().for_each(|opt| {
