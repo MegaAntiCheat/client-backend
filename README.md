@@ -8,8 +8,44 @@ Documentation for the API can be found at https://github.com/MegaAntiCheat/clien
 
 ## Building
 1. Install Rust from https://www.rust-lang.org/tools/install
-2. Navigate to inside the project folder using your favourite command line interface
-3. Run with `cargo run`
+2. (Linux) install the depndencies listed below
+3. Navigate to inside the project folder using your favourite command line interface
+4. (optional) Add the UI by running `./include_ui.sh` or `include_ui.bat`
+5. Run with `cargo run`
+
+### Dependencies
+The following packages are required on linux environments. (See https://tauri.app/v1/guides/getting-started/prerequisites/#setting-up-linux)
+
+**Debian/Ubuntu:**
+```
+sudo apt update
+sudo apt install libwebkit2gtk-4.0-dev \
+    build-essential \
+    curl \
+    wget \
+    file \
+    libssl-dev \
+    libgtk-3-dev \
+    libayatana-appindicator3-dev \
+    librsvg2-dev
+```
+
+**Arch:**
+```
+sudo pacman -Syu
+sudo pacman -S --needed \
+    webkit2gtk \
+    base-devel \
+    curl \
+    wget \
+    file \
+    openssl \
+    appmenu-gtk-module \
+    gtk3 \
+    libappindicator-gtk3 \
+    librsvg \
+    libvips
+```
 
 Troubleshooting:
 * Update rust with `rustup update`
@@ -39,11 +75,11 @@ net_start
 
 ### Notes:
 
-> The rcon_password is subject to change. If you use loopback (127.0.0.1) for the rcon IP, you are prevented from joining community servers.
+* The rcon_password is subject to change. If you use loopback (127.0.0.1) for the rcon IP, you are prevented from joining community servers.
 
-> Be aware that if either the 'net_start' command or your 'autoexec' config with 'net_start' are executed multiple times during a single game, this can result in the game's networking being reset.
+* Be aware that if either the 'net_start' command or your 'autoexec' config with 'net_start' are executed multiple times during a single game, this can result in the game's networking being reset.
 
-> The rcon command manager relies on accessing the port 27015, which causes issues if another application is using it. iTunes (AppleDeviceServices) is a notable application that binds to this port. 
+* The rcon command manager relies on accessing the port 27015, which causes issues if another application is using it. iTunes (AppleDeviceServices) is a notable application that binds to this port. 
 
 
 You will also need to provide a SteamAPI key to the client. The client looks for configs in a config folder specified by OS.
