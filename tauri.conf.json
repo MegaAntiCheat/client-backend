@@ -8,7 +8,9 @@
   },
   "tauri": {
     "allowlist": {
-      "all": false
+      "shell": {
+        "open": true
+      }
     },
     "bundle": {
       "active": true,
