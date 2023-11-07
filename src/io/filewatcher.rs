@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 pub struct FileWatcher {
     /// Used to reopen the file for the next bulk read
     file_path: PathBuf,
-    /// Data from last file read, split on 0xA <u8> bytes
+    /// Data from last file read, split on 0xA (u8) bytes
     lines_buf: VecDeque<String>,
     /// Size of the file (in bytes) when it was last read
     last_size: usize,
