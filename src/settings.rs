@@ -43,7 +43,11 @@ pub struct Settings {
     steam_api_key: Arc<str>,
     port: u16,
     autolaunch_browser: bool,
+
     autolaunch_desktop: bool,
+    window_position: Option<[f64; 2]>,
+    window_size: Option<[f64; 2]>,
+
     external: serde_json::Value,
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
@@ -249,6 +253,22 @@ impl Settings {
         self.autolaunch_desktop
     }
 
+    pub fn get_window_position(&self) -> Option<[f64; 2]> {
+        self.window_position.clone()
+    }
+
+    pub fn get_window_size(&self) -> Option<[f64; 2]> {
+        self.window_size.clone()
+    }
+
+    pub fn set_window_position(&mut self, position: [f64; 2]) {
+        self.window_position = Some(position);
+    }
+
+    pub fn set_window_size(&mut self, size: [f64; 2]) {
+        self.window_size = Some(size);
+    }
+
     pub fn set_steam_api_key(&mut self, key: Arc<str>) {
         self.steam_api_key = key;
         self.save_ok();
@@ -302,6 +322,8 @@ impl Default for Settings {
             port: 3621,
             autolaunch_browser: false,
             autolaunch_desktop: false,
+            window_position: None,
+            window_size: None,
             override_tf2_dir: None,
             override_rcon_password: None,
             override_steam_api_key: None,

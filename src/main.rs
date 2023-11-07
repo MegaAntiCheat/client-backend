@@ -275,7 +275,7 @@ fn main() {
                 }
             }
 
-            // Main and refresh loop
+            // Refresh loop
             {
                 let state = state.clone();
                 let cmd = io.get_command_requester();
@@ -284,16 +284,56 @@ fn main() {
                 });
             }
 
-            // Desktop app
+            // Desktop app and main loop
             if args.desktop || state.settings.read().get_autolaunch_desktop() {
-                tokio::task::spawn(async move {
-                    main_loop(io, state, steam_api_requester).await;
-                });
+                // Main loop
+                {
+                    let state = state.clone();
+                    tokio::task::spawn(async move {
+                        main_loop(io, state, steam_api_requester).await;
+                    });
+                }
+
+                // Desktop app
+                let mut context = tauri::generate_context!();
+
+                {
+                    // Restore window size and position
+                    let window_config = &mut context.config_mut().tauri.windows[0];
+                    let settings = state.settings.read();
+                    if let Some([x, y]) = settings.get_window_position() {
+                        window_config.x = Some(x);
+                        window_config.y = Some(y);
+                    }
+                    if let Some([width, height]) = settings.get_window_size() {
+                        window_config.width = width;
+                        window_config.height = height;
+                    }
+                }
 
                 tauri::Builder::default()
-                    .run(tauri::generate_context!())
+                    .on_window_event(move |event| match event.event() {
+                        tauri::WindowEvent::Resized(size) => {
+                            state
+                                .settings
+                                .write()
+                                .set_window_size([size.width.into(), size.height.into()]);
+                        }
+                        tauri::WindowEvent::Moved(pos) => {
+                            state
+                                .settings
+                                .write()
+                                .set_window_position([pos.x.into(), pos.y.into()]);
+                        }
+                        tauri::WindowEvent::Destroyed => {
+                            state.settings.read().save_ok();
+                        }
+                        _ => {}
+                    })
+                    .run(context)
                     .expect("error while running tauri application");
             } else {
+                // Main loop
                 main_loop(io, state, steam_api_requester).await;
             }
         });
