@@ -19,7 +19,7 @@ serde = { version = "1.0.164", features = ["rc"] }
 serde_json = "1.0.99"
 serde_yaml = "0.9.22"
 steamid-ng = "1.0.0"
-tappet = { git = "https://github.com/Bash-09/SteamHelper-rs" }
+tappet = { git = "https://github.com/MegaAntiCheat/SteamHelper-rs" }
 thiserror = "1.0.43"
 tokio = { version = "1.29.1", features = ["full"] }
 tokio-stream = "0.1.14"

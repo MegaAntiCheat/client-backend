@@ -1937,7 +1937,7 @@ dependencies = [
 [[package]]
 name = "steam-language-gen"
 version = "0.1.2"
-source = "git+https://github.com/Bash-09/SteamHelper-rs#3b1e462b9a22afcd2acc26edb7ddac1cc35e2f86"
+source = "git+https://github.com/MegaAntiCheat/SteamHelper-rs#3b1e462b9a22afcd2acc26edb7ddac1cc35e2f86"
 dependencies = [
  "arrayref",
  "bincode",
@@ -1955,7 +1955,7 @@ dependencies = [
 [[package]]
 name = "steam-language-gen-derive"
 version = "0.1.2"
-source = "git+https://github.com/Bash-09/SteamHelper-rs#3b1e462b9a22afcd2acc26edb7ddac1cc35e2f86"
+source = "git+https://github.com/MegaAntiCheat/SteamHelper-rs#3b1e462b9a22afcd2acc26edb7ddac1cc35e2f86"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -1965,7 +1965,7 @@ dependencies = [
 [[package]]
 name = "steam-protobuf"
 version = "0.1.2"
-source = "git+https://github.com/Bash-09/SteamHelper-rs#3b1e462b9a22afcd2acc26edb7ddac1cc35e2f86"
+source = "git+https://github.com/MegaAntiCheat/SteamHelper-rs#3b1e462b9a22afcd2acc26edb7ddac1cc35e2f86"
 dependencies = [
  "glob",
  "protobuf",
@@ -2071,7 +2071,7 @@ dependencies = [
 [[package]]
 name = "tappet"
 version = "0.5.0"
-source = "git+https://github.com/Bash-09/SteamHelper-rs#3b1e462b9a22afcd2acc26edb7ddac1cc35e2f86"
+source = "git+https://github.com/MegaAntiCheat/SteamHelper-rs#3b1e462b9a22afcd2acc26edb7ddac1cc35e2f86"
 dependencies = [
  "async-trait",
  "cfg-if",
@@ -2091,7 +2091,7 @@ dependencies = [
 [[package]]
 name = "tappet-derive"
 version = "0.3.2"
-source = "git+https://github.com/Bash-09/SteamHelper-rs#3b1e462b9a22afcd2acc26edb7ddac1cc35e2f86"
+source = "git+https://github.com/MegaAntiCheat/SteamHelper-rs#3b1e462b9a22afcd2acc26edb7ddac1cc35e2f86"
 dependencies = [
  "proc-macro2",
  "quote",
