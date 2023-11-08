@@ -187,6 +187,31 @@ dependencies = [
 ]
 
 [[package]]
+name = "bitbuffer"
+version = "0.10.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "525586993a118417512a49bada2d143319310891f48b0b116c8f64fbb6486c87"
+dependencies = [
+ "bitbuffer_derive",
+ "err-derive",
+ "memchr",
+ "num-traits 0.2.16",
+ "serde",
+]
+
+[[package]]
+name = "bitbuffer_derive"
+version = "0.10.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "052a5a614540ae9bb7de25c2c86a94b6de7374cb7e3230f3128955bdaea62c3f"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+ "syn_util",
+]
+
+[[package]]
 name = "bitflags"
 version = "1.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -297,6 +322,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "axum",
+ "bitbuffer",
  "clap",
  "clap_lex",
  "directories-next",
@@ -314,6 +340,7 @@ dependencies = [
  "steamlocate",
  "substring",
  "tappet",
+ "tf-demo-parser",
  "thiserror",
  "tokio",
  "tokio-stream",
@@ -516,6 +543,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "be4551092f4d519593039259a9ed8daedf0da12e5109c5280338073eaeb81180"
 dependencies = [
  "num-traits 0.1.43",
+]
+
+[[package]]
+name = "enumflags2"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5998b4f30320c9d93aed72f63af821bfdac50465b75428fce77b48ec482c3939"
+dependencies = [
+ "enumflags2_derive",
+ "serde",
+]
+
+[[package]]
+name = "enumflags2_derive"
+version = "0.7.8"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f95e2801cd355d4a1a3e3953ce6ee5ae9603a5c833455343a8bfe3f44d418246"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 2.0.27",
 ]
 
 [[package]]
@@ -1071,6 +1119,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b06a4cde4c0f271a446782e3eff8de789548ce57dbc8eca9292c27f4a42004b4"
 
 [[package]]
+name = "main_error"
+version = "0.1.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "155db5e86c6e45ee456bf32fad5a290ee1f7151c2faca27ea27097568da67d1a"
+
+[[package]]
 name = "maplit"
 version = "1.0.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1282,6 +1336,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "num_enum"
+version = "0.5.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1f646caf906c20226733ed5b1374287eb97e3c2a5c227ce668c1f2ce20ae57c9"
+dependencies = [
+ "num_enum_derive",
+]
+
+[[package]]
+name = "num_enum_derive"
+version = "0.5.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "dcbff9bc912032c62bf65ef1d5aea88983b420f4f839db1e9b0c281a25c9c799"
+dependencies = [
+ "proc-macro-crate",
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "object"
 version = "0.31.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1387,6 +1462,32 @@ dependencies = [
 ]
 
 [[package]]
+name = "parse-display"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "813e91c6232dbeb2e9deba0eb0dc5c967bd6f380676fd34419f9ddd71411faa7"
+dependencies = [
+ "once_cell",
+ "parse-display-derive",
+ "regex",
+]
+
+[[package]]
+name = "parse-display-derive"
+version = "0.5.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "007ed61a69cf7d9b95cc5dc18489dbb4f70d4adb0a0c100e2dd46f0be241711a"
+dependencies = [
+ "once_cell",
+ "proc-macro2",
+ "quote",
+ "regex",
+ "regex-syntax 0.6.29",
+ "structmeta",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "paste"
 version = "1.0.14"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1485,6 +1586,16 @@ name = "pkg-config"
 version = "0.3.27"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "26072860ba924cbfa98ea39c8c19b4dd6a4a25423dbdf219c1eca91aa0cf6964"
+
+[[package]]
+name = "proc-macro-crate"
+version = "1.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7f4c021e1093a56626774e81216a4ce732a735e5bad4868a03f3ed65ca0c3919"
+dependencies = [
+ "once_cell",
+ "toml_edit",
+]
 
 [[package]]
 name = "proc-macro-error"
@@ -1925,6 +2036,12 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "62bb4feee49fdd9f707ef802e22365a35de4b7b299de4763d44bfea899442ff9"
 
 [[package]]
+name = "snap"
+version = "1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5e9f0ab6ef7eb7353d9119c170a436d1bf248eea575ac42d19d12f4e34130831"
+
+[[package]]
 name = "socket2"
 version = "0.4.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2020,6 +2137,29 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "73473c0e59e6d5812c5dfe2a064a6444949f089e20eec9a2e5506596494e4623"
 
 [[package]]
+name = "structmeta"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "104842d6278bf64aa9d2f182ba4bde31e8aec7a131d29b7f444bb9b344a09e2a"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "structmeta-derive",
+ "syn 1.0.109",
+]
+
+[[package]]
+name = "structmeta-derive"
+version = "0.1.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "24420be405b590e2d746d83b01f09af673270cf80e9b003a5fa7b651c58c7d93"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
+]
+
+[[package]]
 name = "substring"
 version = "1.4.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2048,6 +2188,17 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "syn_util"
+version = "0.4.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6754c4559b79657554e9d8a0d56e65e490c76d382b9c23108364ec4125dea23c"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn 1.0.109",
 ]
 
 [[package]]
@@ -2109,6 +2260,29 @@ dependencies = [
  "redox_syscall 0.3.5",
  "rustix",
  "windows-sys",
+]
+
+[[package]]
+name = "tf-demo-parser"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab62e8ac4388dbc344ba16e7c8be6030f7aa3094154afb7f949cc9ed4228e2b7"
+dependencies = [
+ "bitbuffer",
+ "enumflags2",
+ "err-derive",
+ "fnv",
+ "main_error",
+ "num-traits 0.2.16",
+ "num_enum",
+ "parse-display",
+ "serde",
+ "serde_json",
+ "serde_repr",
+ "snap",
+ "steamid-ng",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]
@@ -2263,6 +2437,23 @@ dependencies = [
  "pin-project-lite",
  "tokio",
  "tracing",
+]
+
+[[package]]
+name = "toml_datetime"
+version = "0.6.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3550f4e9685620ac18a50ed434eb3aec30db8ba93b0287467bca5826ea25baf1"
+
+[[package]]
+name = "toml_edit"
+version = "0.19.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1b5bb770da30e5cbfde35a2d7b9b8a2c4b8ef89548a7a6aeab5c9a576e3e7421"
+dependencies = [
+ "indexmap 2.0.0",
+ "toml_datetime",
+ "winnow",
 ]
 
 [[package]]
@@ -2697,6 +2888,15 @@ name = "windows_x86_64_msvc"
 version = "0.48.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1a515f5799fe4961cb532f983ce2b23082366b898e52ffbce459c86f67c8378a"
+
+[[package]]
+name = "winnow"
+version = "0.5.19"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "829846f3e3db426d4cee4510841b71a8e58aa2a76b1132579487ae430ccd9c7b"
+dependencies = [
+ "memchr",
+]
 
 [[package]]
 name = "winreg"

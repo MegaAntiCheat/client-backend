@@ -1,12 +1,108 @@
+use anyhow::{anyhow, Context, Result};
+use bitbuffer::{BitReadBuffer, BitReadStream, LittleEndian};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+use tf_demo_parser::demo::header::Header;
+use tf_demo_parser::demo::parser::RawPacketStream;
+use tf_demo_parser::demo::Buffer;
 use tokio::fs::{metadata, File};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio::sync::mpsc;
 use tokio::time::{interval, Duration};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
+
+pub struct DemoManager {
+    previous_demos: Vec<OpenDemo>,
+    current_demo: Option<OpenDemo>,
+}
+
+pub struct OpenDemo {
+    pub file_path: PathBuf,
+    pub header: Option<Header>,
+    pub bytes: Vec<u8>,
+    pub offset: usize,
+}
+
+impl DemoManager {
+    /// Create a new DemoManager
+    pub fn new() -> DemoManager {
+        DemoManager {
+            previous_demos: Vec::new(),
+            current_demo: None,
+        }
+    }
+
+    /// Start tracking a new demo file. A demo must be being tracked before bytes can be appended.
+    pub fn new_demo(&mut self, path: PathBuf) {
+        if let Some(old) = self.current_demo.take() {
+            self.previous_demos.push(old);
+        }
+
+        tracing::debug!("Watching new demo: {:?}", path);
+
+        self.current_demo = Some(OpenDemo {
+            file_path: path,
+            header: None,
+            bytes: Vec::new(),
+            offset: 0,
+        });
+    }
+
+    pub fn current_demo_path(&self) -> Option<&Path> {
+        self.current_demo.as_ref().map(|d| d.file_path.as_path())
+    }
+
+    pub async fn read_next_bytes(&mut self) {
+        if let Some(demo) = self.current_demo.as_mut() {
+            if let Err(e) = demo.read_next_bytes().await {
+                tracing::error!("Error when reading demo {:?}: {:?}", demo.file_path, e);
+                tracing::error!("Demo is being abandoned");
+                self.current_demo = None;
+            }
+        }
+    }
+}
+
+impl OpenDemo {
+    /// Append the provided bytes to the current demo being watched, and handle any packets
+    pub async fn read_next_bytes(&mut self) -> Result<()> {
+        let current_metadata = metadata(&self.file_path)
+            .await
+            .context("Couldn't read demo metadata")?;
+
+        // Check there's actually data to read
+        if current_metadata.len() < self.bytes.len() as u64 {
+            return Err(anyhow!("Demo has shortened. Something has gone wrong."));
+        } else if current_metadata.len() == self.bytes.len() as u64 {
+            return Ok(());
+        }
+
+        let mut file = File::open(&self.file_path).await?;
+        let last_size = self.bytes.len();
+
+        file.seek(SeekFrom::Start(last_size as u64)).await?;
+        let read_bytes = file.read_to_end(&mut self.bytes).await?;
+
+        if read_bytes > 0 {
+            tracing::debug!("Got {} demo bytes", read_bytes);
+            self.process_next_chunk().await;
+        }
+
+        Ok(())
+    }
+
+    async fn process_next_chunk(&mut self) {
+        tracing::debug!("New demo length: {}", self.bytes.len());
+
+        let buffer = BitReadBuffer::new(&self.bytes, LittleEndian);
+        let mut stream = BitReadStream::new(buffer);
+        stream.set_pos(self.offset);
+
+        let mut packets = RawPacketStream::new(stream);
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct BigBrotherPacket {
@@ -39,11 +135,9 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
     // Create a tick interval to periodically check metadata
     let mut metadata_tick = interval(Duration::from_secs(5));
 
-    tracing::debug!("Demo loop started");
+    tracing::info!("Demo loop started");
 
-    let mut current_file_path = PathBuf::new();
-    let mut current_file_position: u64 = 0;
-    let mut buffer = Vec::new();
+    let mut manager = DemoManager::new();
 
     loop {
         tokio::select! {
@@ -53,23 +147,12 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
                 match event.kind {
                     notify::event::EventKind::Create(_) => {
                         if path.extension().map_or(false, |ext| ext == "dem") {
-                            current_file_path = path.to_path_buf();
-                            current_file_position = 0;
-                            tracing::debug!("Demo file created: {:?}", current_file_path.file_name());
+                            manager.new_demo(path.clone());
                         }
                     }
                     notify::event::EventKind::Modify(_) => {
-                        if path == &current_file_path  {
-                            let mut file = File::open(&current_file_path).await?;
-                            buffer.clear();
-
-                            file.seek(SeekFrom::Start(current_file_position)).await?;
-                            let read_bytes = file.read_to_end(&mut buffer).await?;
-                            current_file_position += read_bytes as u64;
-
-                            if !buffer.is_empty() {
-                                process_file_data(&buffer).await;
-                            }
+                        if manager.current_demo_path().map(|p| p == path).unwrap_or(false) {
+                            manager.read_next_bytes().await;
                         }
                     }
                     _ => {
@@ -80,28 +163,8 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
             // Handle metadata tick
             _ = metadata_tick.tick() => {
                 // If there is a current file being watched, check its metadata
-                if !current_file_path.as_os_str().is_empty()  {
-                    let current_metadata = metadata(&current_file_path).await?;
-
-                    // If the current file size is greater than the last known position, it's been updated
-                    if current_metadata.len() > current_file_position {
-                        let mut file = File::open(&current_file_path).await?;
-                        buffer.clear();
-
-                        file.seek(SeekFrom::Start(current_file_position)).await?;
-                        let read_bytes = file.read_to_end(&mut buffer).await?;
-                        current_file_position += read_bytes as u64;
-                        if !buffer.is_empty() {
-                            process_file_data(&buffer).await;
-                        }
-                    }
-                }
+                manager.read_next_bytes().await;
             },
         }
     }
-}
-
-async fn process_file_data(data: &[u8]) {
-    // Placeholder function
-    tracing::debug!("Received data of length {}", data.len());
 }
