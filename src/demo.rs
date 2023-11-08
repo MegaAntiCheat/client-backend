@@ -2,17 +2,18 @@ use anyhow::{anyhow, Context, Result};
 use bitbuffer::{BitError, BitRead, BitReadBuffer, BitReadStream, LittleEndian};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
+use std::fs::{metadata, File};
+use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+use std::time::Duration;
+use tf_demo_parser::demo::gamevent::GameEvent;
 use tf_demo_parser::demo::header::Header;
+use tf_demo_parser::demo::message::gameevent::GameEventMessage;
+use tf_demo_parser::demo::message::Message;
+use tf_demo_parser::demo::packet::message::MessagePacket;
 use tf_demo_parser::demo::packet::Packet;
 use tf_demo_parser::demo::parser::{DemoHandler, NullHandler, RawPacketStream};
-
-use tokio::fs::{metadata, File};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
-use tokio::sync::mpsc;
-use tokio::time::{interval, Duration};
-use tokio_stream::wrappers::UnboundedReceiverStream;
-use tokio_stream::StreamExt;
 
 pub struct DemoManager<'a> {
     previous_demos: Vec<OpenDemo<'a>>,
@@ -57,9 +58,9 @@ impl<'a> DemoManager<'a> {
         self.current_demo.as_ref().map(|d| d.file_path.as_path())
     }
 
-    pub async fn read_next_bytes(&mut self) {
+    pub fn read_next_bytes(&mut self) {
         if let Some(demo) = self.current_demo.as_mut() {
-            if let Err(e) = demo.read_next_bytes().await {
+            if let Err(e) = demo.read_next_bytes() {
                 tracing::error!("Error when reading demo {:?}: {:?}", demo.file_path, e);
                 tracing::error!("Demo is being abandoned");
                 self.current_demo = None;
@@ -70,10 +71,8 @@ impl<'a> DemoManager<'a> {
 
 impl<'a> OpenDemo<'a> {
     /// Append the provided bytes to the current demo being watched, and handle any packets
-    pub async fn read_next_bytes(&mut self) -> Result<()> {
-        let current_metadata = metadata(&self.file_path)
-            .await
-            .context("Couldn't read demo metadata")?;
+    pub fn read_next_bytes(&mut self) -> Result<()> {
+        let current_metadata = metadata(&self.file_path).context("Couldn't read demo metadata")?;
 
         // Check there's actually data to read
         if current_metadata.len() < self.bytes.len() as u64 {
@@ -82,22 +81,22 @@ impl<'a> OpenDemo<'a> {
             return Ok(());
         }
 
-        let mut file = File::open(&self.file_path).await?;
+        let mut file = File::open(&self.file_path)?;
         let last_size = self.bytes.len();
 
-        file.seek(SeekFrom::Start(last_size as u64)).await?;
-        let read_bytes = file.read_to_end(&mut self.bytes).await?;
+        file.seek(std::io::SeekFrom::Start(last_size as u64))?;
+        let read_bytes = file.read_to_end(&mut self.bytes)?;
 
         if read_bytes > 0 {
             tracing::debug!("Got {} demo bytes", read_bytes);
-            self.process_next_chunk().await;
+            self.process_next_chunk()
         }
 
         Ok(())
     }
 
-    async fn process_next_chunk(&mut self) {
-        tracing::debug!("New demo length: {}", self.bytes.len());
+    fn process_next_chunk(&mut self) {
+        tracing::info!("New demo length: {}", self.bytes.len());
 
         let buffer = BitReadBuffer::new(&self.bytes, LittleEndian);
         let mut stream = BitReadStream::new(buffer);
@@ -133,13 +132,11 @@ impl<'a> OpenDemo<'a> {
                     // SAFETY: It's borrowing from the stream which is borrowing from self.bytes.
                     // self.bytes is never modified, only appended to so the data should still be valid.
                     let packet: Packet<'static> = unsafe { std::mem::transmute(packet) };
-
-                    tracing::info!("Packet: {:?}", packet);
+                    self.handle_packet(&packet);
                     self.handler.handle_packet(packet).unwrap();
                     self.offset = packets.pos();
                 }
                 Ok(None) => {
-                    tracing::info!("No packet");
                     break;
                 }
                 Err(tf_demo_parser::ParseError::ReadError(BitError::NotEnoughData {
@@ -156,6 +153,48 @@ impl<'a> OpenDemo<'a> {
             }
         }
     }
+
+    fn handle_packet(&self, packet: &Packet) {
+        if let Packet::Message(MessagePacket {
+            tick: _,
+            messages,
+            meta: _,
+        }) = packet
+        {
+            for m in messages {
+                if let Message::GameEvent(GameEventMessage {
+                    event_type_id,
+                    event,
+                }) = m
+                {
+                    match event {
+                        GameEvent::VoteStarted(e) => {
+                            tracing::info!("Vote started: {:?}", e);
+                        }
+                        GameEvent::VoteOptions(e) => {
+                            tracing::info!("Vote options: {:?}", e);
+                        }
+                        GameEvent::VoteCast(e) => {
+                            tracing::info!("Vote cast: {:?}", e);
+                        }
+                        GameEvent::VoteEnded(e) => {
+                            tracing::info!("Vote ended: {:?}", e);
+                        }
+                        GameEvent::VotePassed(e) => {
+                            tracing::info!("Vote passed: {:?}", e);
+                        }
+                        GameEvent::VoteFailed(e) => {
+                            tracing::info!("Vote failed: {:?}", e);
+                        }
+                        GameEvent::VoteChanged(e) => {
+                            tracing::info!("Vote changed: {:?}", e);
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -166,8 +205,8 @@ pub struct BigBrotherPacket {
     demo: Option<Vec<u8>>, // Up-to-date copy of demo file. None for packet 0 as the demo wouldn't be flushed to disk yet.
 }
 
-pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
-    let (tx, rx) = mpsc::unbounded_channel();
+pub fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
+    let (tx, rx) = mpsc::channel();
     let config = Config::default().with_poll_interval(Duration::from_secs(2));
 
     let mut watcher: RecommendedWatcher = Watcher::new(
@@ -184,19 +223,15 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
 
     watcher.watch(demo_path.as_path(), RecursiveMode::NonRecursive)?;
 
-    let mut rx = UnboundedReceiverStream::new(rx);
-
     // Create a tick interval to periodically check metadata
-    let mut metadata_tick = interval(Duration::from_secs(5));
+    let metadata_tick = Duration::from_secs(5);
 
     tracing::info!("Demo loop started");
 
     let mut manager = DemoManager::new();
-
     loop {
-        tokio::select! {
-            // Handle file events
-            Some(event) = rx.next() => {
+        match rx.recv_timeout(metadata_tick) {
+            Ok(event) => {
                 let path = &event.paths[0];
                 match event.kind {
                     notify::event::EventKind::Create(_) => {
@@ -205,20 +240,25 @@ pub async fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
                         }
                     }
                     notify::event::EventKind::Modify(_) => {
-                        if manager.current_demo_path().map(|p| p == path).unwrap_or(false) {
-                            manager.read_next_bytes().await;
+                        if manager
+                            .current_demo_path()
+                            .map(|p| p == path)
+                            .unwrap_or(false)
+                        {
+                            manager.read_next_bytes();
                         }
                     }
                     _ => {
                         tracing::debug!("Unhandled event kind: {:?}", event.kind);
                     }
                 }
-            },
-            // Handle metadata tick
-            _ = metadata_tick.tick() => {
-                // If there is a current file being watched, check its metadata
-                manager.read_next_bytes().await;
-            },
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {
+                manager.read_next_bytes();
+            }
+            Err(e) => {
+                panic!("Couldn't receive thingy {}", e);
+            }
         }
     }
 }
