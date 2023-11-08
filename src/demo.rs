@@ -1,11 +1,11 @@
 use anyhow::{anyhow, Context, Result};
-use bitbuffer::{BitReadBuffer, BitReadStream, LittleEndian};
+use bitbuffer::{BitError, BitRead, BitReadBuffer, BitReadStream, LittleEndian};
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tf_demo_parser::demo::header::Header;
-use tf_demo_parser::demo::parser::RawPacketStream;
-use tf_demo_parser::demo::Buffer;
+use tf_demo_parser::demo::parser::{DemoHandler, NullHandler, RawPacketStream};
+
 use tokio::fs::{metadata, File};
 use tokio::io::{AsyncReadExt, AsyncSeekExt, SeekFrom};
 use tokio::sync::mpsc;
@@ -13,21 +13,22 @@ use tokio::time::{interval, Duration};
 use tokio_stream::wrappers::UnboundedReceiverStream;
 use tokio_stream::StreamExt;
 
-pub struct DemoManager {
-    previous_demos: Vec<OpenDemo>,
-    current_demo: Option<OpenDemo>,
+pub struct DemoManager<'a> {
+    previous_demos: Vec<OpenDemo<'a>>,
+    current_demo: Option<OpenDemo<'a>>,
 }
 
-pub struct OpenDemo {
+pub struct OpenDemo<'a> {
     pub file_path: PathBuf,
     pub header: Option<Header>,
+    pub handler: DemoHandler<'a, NullHandler>,
     pub bytes: Vec<u8>,
     pub offset: usize,
 }
 
-impl DemoManager {
+impl<'a> DemoManager<'a> {
     /// Create a new DemoManager
-    pub fn new() -> DemoManager {
+    pub fn new() -> DemoManager<'a> {
         DemoManager {
             previous_demos: Vec::new(),
             current_demo: None,
@@ -45,6 +46,7 @@ impl DemoManager {
         self.current_demo = Some(OpenDemo {
             file_path: path,
             header: None,
+            handler: DemoHandler::default(),
             bytes: Vec::new(),
             offset: 0,
         });
@@ -65,7 +67,7 @@ impl DemoManager {
     }
 }
 
-impl OpenDemo {
+impl<'a> OpenDemo<'a> {
     /// Append the provided bytes to the current demo being watched, and handle any packets
     pub async fn read_next_bytes(&mut self) -> Result<()> {
         let current_metadata = metadata(&self.file_path)
@@ -98,9 +100,50 @@ impl OpenDemo {
 
         let buffer = BitReadBuffer::new(&self.bytes, LittleEndian);
         let mut stream = BitReadStream::new(buffer);
-        stream.set_pos(self.offset);
+        stream.set_pos(self.offset).unwrap();
 
-        let mut packets = RawPacketStream::new(stream);
+        if self.header.is_none() {
+            match Header::read(&mut stream) {
+                Ok(header) => {
+                    self.handler.handle_header(&header);
+                    self.header = Some(header);
+                    self.offset = stream.pos();
+                }
+                Err(bitbuffer::BitError::NotEnoughData {
+                    requested,
+                    bits_left,
+                }) => {
+                    tracing::warn!("Tried to read header but there were not enough bits. Requested: {}, Remaining: {}", requested, bits_left);
+                    return;
+                }
+                Err(e) => {
+                    tracing::error!("Error reading demo header: {}", e);
+                    return;
+                }
+            }
+        }
+
+        let mut packets: RawPacketStream = RawPacketStream::new(stream);
+        match packets.next(&self.handler.state_handler) {
+            Ok(Some(packet)) => {
+                tracing::info!("Packet: {:?}", packet);
+                self.handler.handle_packet(packet).unwrap();
+                self.offset = packets.pos();
+            }
+            Ok(None) => {
+                tracing::info!("No packet");
+            }
+            Err(tf_demo_parser::ParseError::ReadError(BitError::NotEnoughData {
+                requested,
+                bits_left,
+            })) => {
+                tracing::warn!("Tried to read header but there were not enough bits. Requested: {}, Remaining: {}", requested, bits_left);
+                return;
+            }
+            Err(e) => {
+                tracing::error!("Error reading demo packet: {}", e);
+            }
+        }
     }
 }
 
