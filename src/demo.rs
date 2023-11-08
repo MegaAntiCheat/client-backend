@@ -4,6 +4,7 @@ use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use tf_demo_parser::demo::header::Header;
+use tf_demo_parser::demo::packet::Packet;
 use tf_demo_parser::demo::parser::{DemoHandler, NullHandler, RawPacketStream};
 
 use tokio::fs::{metadata, File};
@@ -102,6 +103,7 @@ impl<'a> OpenDemo<'a> {
         let mut stream = BitReadStream::new(buffer);
         stream.set_pos(self.offset).unwrap();
 
+        // Parse header if there isn't one already
         if self.header.is_none() {
             match Header::read(&mut stream) {
                 Ok(header) => {
@@ -123,25 +125,34 @@ impl<'a> OpenDemo<'a> {
             }
         }
 
+        // Parse packets
         let mut packets: RawPacketStream = RawPacketStream::new(stream);
-        match packets.next(&self.handler.state_handler) {
-            Ok(Some(packet)) => {
-                tracing::info!("Packet: {:?}", packet);
-                self.handler.handle_packet(packet).unwrap();
-                self.offset = packets.pos();
-            }
-            Ok(None) => {
-                tracing::info!("No packet");
-            }
-            Err(tf_demo_parser::ParseError::ReadError(BitError::NotEnoughData {
-                requested,
-                bits_left,
-            })) => {
-                tracing::warn!("Tried to read header but there were not enough bits. Requested: {}, Remaining: {}", requested, bits_left);
-                return;
-            }
-            Err(e) => {
-                tracing::error!("Error reading demo packet: {}", e);
+        loop {
+            match packets.next(&self.handler.state_handler) {
+                Ok(Some(packet)) => {
+                    // SAFETY: It's borrowing from the stream which is borrowing from self.bytes.
+                    // self.bytes is never modified, only appended to so the data should still be valid.
+                    let packet: Packet<'static> = unsafe { std::mem::transmute(packet) };
+
+                    tracing::info!("Packet: {:?}", packet);
+                    self.handler.handle_packet(packet).unwrap();
+                    self.offset = packets.pos();
+                }
+                Ok(None) => {
+                    tracing::info!("No packet");
+                    break;
+                }
+                Err(tf_demo_parser::ParseError::ReadError(BitError::NotEnoughData {
+                    requested,
+                    bits_left,
+                })) => {
+                    tracing::warn!("Tried to read header but there were not enough bits. Requested: {}, Remaining: {}", requested, bits_left);
+                    break;
+                }
+                Err(e) => {
+                    tracing::error!("Error reading demo packet: {}", e);
+                    return;
+                }
             }
         }
     }
