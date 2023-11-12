@@ -37,6 +37,13 @@ impl PlayerRecords {
         // resulting file.
         for (steamid, record) in &mut playerlist.records {
             record.steamid = *steamid;
+
+            // Some old versions had the custom_data set to `null` by default, but an empty object is preferable
+            // so I'm using this to fix it lol. It's really not necessary but at the time the UI wasn't
+            // a fan of nulls in the custom_data and this fixes it so whatever. :3
+            if record.custom_data.is_null() {
+                record.custom_data = serde_json::Value::Object(serde_json::Map::new());
+            }
         }
 
         Ok(playerlist)
