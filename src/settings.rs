@@ -1,6 +1,6 @@
 use std::{
     fs::OpenOptions,
-    io::{self, Write},
+    io::{self, ErrorKind, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
@@ -58,6 +58,62 @@ pub struct Settings {
 
 #[allow(dead_code)]
 impl Settings {
+    /// Attempts to load the [Settings] at the specified override location, or the default location.
+    /// If it cannot be found, new [Settings] will be created at that location.
+    ///
+    /// **Panic**:
+    /// This function will panic if the settings were found but could not be loaded or
+    /// some other unexpected error occurs to prevent data loss.
+    pub fn load_or_create(args: &Args) -> Settings {
+        let settings_path: PathBuf = args
+        .config
+        .as_ref()
+        .map(|i| Ok(i.into()))
+        .unwrap_or(Settings::locate_config_file_path()).map_err(|e| {
+            tracing::error!("Could not find a suitable location for the configuration: {}\nPlease specify a file path manually with --config", e);
+        }).unwrap_or(PathBuf::from("config.yaml"));
+
+        let mut settings = match Settings::load_from(settings_path, &args) {
+            Ok(settings) => settings,
+            Err(ConfigFilesError::Yaml(path, e)) => {
+                tracing::error!("{} could not be loaded: {:?}", path, e);
+                tracing::error!(
+                    "Please resolve any issues or remove the file, otherwise data may be lost."
+                );
+                panic!("Failed to load configuration")
+            }
+            Err(ConfigFilesError::IO(path, e)) if e.kind() == ErrorKind::NotFound => {
+                tracing::warn!("Could not locate {}, creating new configuration.", &path);
+                let mut settings = Settings::default();
+                settings.set_config_path(path.into());
+                settings.set_overrides(&args);
+                settings
+            }
+            Err(e) => {
+                tracing::error!("Could not load configuration: {:?}", e);
+                tracing::error!(
+                    "Please resolve any issues or remove the file, otherwise data may be lost."
+                );
+                panic!("Failed to load configuration")
+            }
+        };
+
+        // Locate TF2 directory
+        match gamefinder::locate_tf2_folder() {
+            Ok(tf2_directory) => {
+                settings.set_tf2_directory(tf2_directory);
+            }
+            Err(e) => {
+                if args.tf2_dir.is_none() {
+                    tracing::error!("Could not locate TF2 directory: {:?}", e);
+                    tracing::error!("If you have a valid TF2 installation you can specify it manually by appending ' --tf2_dir \"Path to Team Fortress 2 folder\"' when running the program.");
+                }
+            }
+        }
+
+        settings
+    }
+
     /// Attempt to load settings from the user's saved configuration file
     pub fn load(args: &Args) -> Result<Settings, ConfigFilesError> {
         Self::load_from(Self::locate_config_file_path()?, args)

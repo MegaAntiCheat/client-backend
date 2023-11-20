@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    io::ErrorKind,
     ops::{Deref, DerefMut},
     path::PathBuf,
 };
@@ -12,6 +13,7 @@ use steamid_ng::SteamID;
 use crate::{
     player::Player,
     settings::{ConfigFilesError, Settings},
+    Args,
 };
 
 // PlayerList
@@ -24,6 +26,49 @@ pub struct PlayerRecords {
 }
 
 impl PlayerRecords {
+    /// Attempts to load the playerlist from the overriden (if provided in [Args]) or default location.
+    /// If it cannot be found, then a new one is created at the location.
+    ///
+    /// **Panics**:
+    /// This function can panic if the playerlist file was provided but could not be parsed, or another
+    /// unexpected error occurred to prevent data loss.
+    pub fn load_or_create(args: &Args) -> PlayerRecords {
+        // Playerlist
+        let playerlist_path: PathBuf = args
+        .playerlist
+        .as_ref()
+        .map(|i| Ok(i.into()))
+        .unwrap_or(PlayerRecords::locate_playerlist_file()).map_err(|e| {
+            tracing::error!("Could not find a suitable location for the playerlist: {} \nPlease specify a file path manually with --playerlist otherwise information may not be saved.", e); 
+        }).unwrap_or(PathBuf::from("playerlist.json"));
+
+        let playerlist = match PlayerRecords::load_from(playerlist_path) {
+            Ok(playerlist) => playerlist,
+            Err(ConfigFilesError::Json(path, e)) => {
+                tracing::error!("{} could not be loaded: {:?}", path, e);
+                tracing::error!(
+                    "Please resolve any issues or remove the file, otherwise data may be lost."
+                );
+                panic!("Failed to load playerlist")
+            }
+            Err(ConfigFilesError::IO(path, e)) if e.kind() == ErrorKind::NotFound => {
+                tracing::warn!("Could not locate {}, creating new playerlist.", &path);
+                let mut playerlist = PlayerRecords::default();
+                playerlist.set_path(path.into());
+                playerlist
+            }
+            Err(e) => {
+                tracing::error!("Could not load playerlist: {:?}", e);
+                tracing::error!(
+                    "Please resolve any issues or remove the file, otherwise data may be lost."
+                );
+                panic!("Failed to load playerlist")
+            }
+        };
+
+        playerlist
+    }
+
     /// Attempt to load the [Playerlist] from the provided file
     pub fn load_from(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
         let contents = std::fs::read_to_string(&path)
