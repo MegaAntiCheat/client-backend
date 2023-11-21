@@ -70,19 +70,9 @@ impl Server {
     pub fn handle_io_output(&mut self, response: IOOutput, user: Option<SteamID>) -> NewPlayers {
         use IOOutput::*;
         match response {
-            NoOutput => {}
             G15(players) => return self.handle_g15_parse(players, user).into(),
             Status(status) => {
                 return self.handle_status_line(status, user).into();
-            }
-            MultiStatus(status_lines) => {
-                let mut new_players = Vec::new();
-                for status in status_lines {
-                    if let Some(new_player) = self.handle_status_line(status, user) {
-                        new_players.push(new_player);
-                    }
-                }
-                return new_players.into();
             }
             Chat(chat) => self.handle_chat(chat),
             Kill(kill) => self.handle_kill(kill),

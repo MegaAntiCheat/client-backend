@@ -1,14 +1,15 @@
+use io::command_manager::CommandSender;
 use player_records::PlayerRecords;
 use steamapi::SteamAPIManager;
+use tokio::select;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 use steamid_ng::SteamID;
-use tokio::sync::mpsc::UnboundedSender;
 
 use clap::{ArgAction, Parser};
 // use demo::demo_loop;
-use io::{Commands, IOManager};
+use io::{Command, IOManager};
 use launchoptions::LaunchOptions;
 use settings::Settings;
 use state::SharedState;
@@ -147,16 +148,19 @@ fn main() {
     let steam_api_key = settings.get_steam_api_key().to_string(); // This one is for the API servicing loop
     let steam_user = settings.get_steam_user();
 
-    // Initialize State
-    let io = IOManager::new();
-    let state = SharedState::new(settings, playerlist, io.get_command_requester());
-
     // Start the async part of the program
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap()
         .block_on(async {
+            // Initialize State
+            let log_file_path: PathBuf =
+                PathBuf::from(settings.get_tf2_directory()).join("tf/console.log");
+
+            let io = IOManager::new(log_file_path, settings.get_rcon_password().to_string()).await;
+            let state = SharedState::new(settings, playerlist, io.get_command_requester());
+
             // Friendslist
             {
                 let state = state.clone();
@@ -213,54 +217,32 @@ async fn main_loop(mut io: IOManager, state: SharedState, mut steam_api: SteamAP
     let mut new_players = Vec::new();
 
     loop {
-        // Log
-        match io.handle_log(&state) {
-            Ok(output) => {
-                let user = state.settings.read().get_steam_user();
-                for new_player in state
-                    .server
-                    .write()
-                    .handle_io_output(output, user)
-                    .into_iter()
-                {
-                    new_players.push(new_player);
-                }
-            }
-            Err(e) => {
-                tracing::error!("Failed to get log file contents: {:?}", e);
-            }
-        }
+        select! {
 
-        // Commands
-        match io.handle_waiting_command(&state).await {
-            Ok(output) => {
-                let user = state.settings.read().get_steam_user();
-                for new_player in state
-                    .server
-                    .write()
-                    .handle_io_output(output, user)
-                    .into_iter()
-                {
-                    new_players.push(new_player);
+            // IO output
+            io_output_iter = io.next_io_output() => {
+                for output in io_output_iter {
+                    let user = state.settings.read().get_steam_user();
+                    for new_player in state
+                        .server
+                        .write()
+                        .handle_io_output(output, user)
+                        .into_iter()
+                    {
+                        new_players.push(new_player);
+                    }
                 }
-            }
-            Err(e) => {
-                tracing::error!("Failed to run command: {:?}", e);
+            },
+
+            // Steam API responses
+            (steamid, steaminfo) = steam_api.next_response() => {
+                state.server.write().insert_steam_info(steamid, steaminfo);
             }
         }
 
         // Request steam API stuff on new players and clear
         for player in &new_players {
             steam_api.request_lookup(*player);
-        }
-
-        loop {
-            match steam_api.next_response() {
-                Some((steamid, steaminfo)) => {
-                    state.server.write().insert_steam_info(steamid, steaminfo);
-                }
-                None => break,
-            }
         }
 
         new_players.clear();
@@ -294,16 +276,14 @@ async fn load_friends_list(
     state.server.write().update_friends_list(friendslist);
 }
 
-async fn refresh_loop(state: SharedState, cmd: UnboundedSender<Commands>) {
+async fn refresh_loop(state: SharedState, cmd: CommandSender) {
     tracing::debug!("Entering refresh loop");
     loop {
         state.server.write().refresh();
 
-        cmd.send(Commands::Status)
-            .expect("communication with main loop from refresh loop");
+        cmd.run_command(Command::Status);
         tokio::time::sleep(Duration::from_secs(3)).await;
-        cmd.send(Commands::G15)
-            .expect("communication with main loop from refresh loop");
+        cmd.run_command(Command::G15);
         tokio::time::sleep(Duration::from_secs(3)).await;
     }
 }

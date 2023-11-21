@@ -54,7 +54,8 @@ impl SteamAPIManager {
             .expect("API thread ded");
     }
 
-    pub fn next_response(&mut self) -> Option<(SteamID, SteamInfo)> {
+    /// Attempts to receive the next response. Returns [None] if there is none ready
+    pub fn try_next_response(&mut self) -> Option<(SteamID, SteamInfo)> {
         match self.receiver.try_recv() {
             Ok(response) => Some(response),
             Err(TryRecvError::Empty) => None,
@@ -62,7 +63,9 @@ impl SteamAPIManager {
         }
     }
 
-    pub async fn next_reponse_blocking(&mut self) -> (SteamID, SteamInfo) {
+    /// Receives the next response. Since this just reading from a [tokio::mpsc::UnboundedReceiver]
+    /// it is cancellation safe.
+    pub async fn next_response(&mut self) -> (SteamID, SteamInfo) {
         self.receiver.recv().await.expect("Steam API loop ded")
     }
 }

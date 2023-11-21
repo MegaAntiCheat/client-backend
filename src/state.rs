@@ -1,7 +1,9 @@
 use std::sync::{Arc, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use tokio::sync::mpsc::UnboundedSender;
 
-use crate::{io::Commands, player_records::PlayerRecords, server::Server, settings::Settings};
+use crate::{
+    io::command_manager::CommandSender, player_records::PlayerRecords, server::Server,
+    settings::Settings,
+};
 
 // Struct for shared state and lock helpers
 pub struct Shared<S>(Arc<RwLock<S>>);
@@ -28,7 +30,7 @@ impl<S> Shared<S> {
 
 #[derive(Clone)]
 pub struct SharedState {
-    pub command_issuer: UnboundedSender<Commands>,
+    pub command_issuer: CommandSender,
     pub server: Shared<Server>,
     pub settings: Shared<Settings>,
 }
@@ -37,7 +39,7 @@ impl SharedState {
     pub fn new(
         settings: Settings,
         playerlist: PlayerRecords,
-        command_issuer: UnboundedSender<Commands>,
+        command_issuer: CommandSender,
     ) -> SharedState {
         SharedState {
             command_issuer,

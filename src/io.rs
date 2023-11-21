@@ -1,16 +1,13 @@
-use anyhow::Context;
 use regex::Regex;
 
-use anyhow::{anyhow, Result};
 use serde::Deserialize;
 use std::fmt::Display;
 use std::path::PathBuf;
-use std::time::Duration;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::mpsc::error::TryRecvError;
 
-use crate::state::SharedState;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
-use self::command_manager::{CommandManager, KickReason};
+use self::command_manager::{CommandManager, CommandSender};
 use self::filewatcher::FileWatcher;
 use self::g15::{G15Parser, G15Player};
 use self::regexes::{
@@ -25,11 +22,13 @@ pub mod regexes;
 
 // Enums
 
+pub struct IOOutputIter {
+    iter: Option<SingleOrVecIter<IOOutput>>,
+}
+
 #[derive(Debug)]
 pub enum IOOutput {
-    NoOutput,
     Status(StatusLine),
-    MultiStatus(Vec<StatusLine>),
     Chat(ChatMessage),
     Kill(PlayerKill),
     Hostname(Hostname),
@@ -41,7 +40,7 @@ pub enum IOOutput {
 
 #[derive(Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-pub enum Commands {
+pub enum Command {
     G15,
     Status,
     Say(String),
@@ -54,28 +53,80 @@ pub enum Commands {
     Custom(String),
 }
 
-impl Display for Commands {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Commands::G15 => f.write_str("g15_dumpplayer"),
-            Commands::Status => f.write_str("status"),
-            Commands::Kick { player, reason } => {
-                write!(f, "callvote kick \"{} {}\"", player, reason)
-            }
-            Commands::Say(message) => write!(f, "say \"{}\"", message),
-            Commands::SayTeam(message) => write!(f, "say_team \"{}\"", message),
-            Commands::Custom(command) => write!(f, "{}", command),
-        }
-    }
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum KickReason {
+    None,
+    Idle,
+    Cheating,
+    Scamming,
 }
 
 // IOThread
 
+enum IOManagerMessage {
+    SetLogFilePath(PathBuf),
+    SetRconPassword(String),
+}
+
 pub struct IOManager {
-    command_recv: UnboundedReceiver<Commands>,
-    command_send: UnboundedSender<Commands>,
+    sender: UnboundedSender<IOManagerMessage>,
+    receiver: UnboundedReceiver<IOOutputIter>,
+
+    command_sender: CommandSender,
+}
+
+impl IOManager {
+    pub async fn new(log_file_path: PathBuf, rcon_password: String) -> IOManager {
+        let command_manager = CommandManager::new(rcon_password).await;
+        let file_watcher = FileWatcher::new(log_file_path).await;
+        let command_sender = command_manager.get_command_sender();
+
+        let (req_tx, resp_rx) = IOManagerInner::new(command_manager, file_watcher).await;
+
+        IOManager {
+            sender: req_tx,
+            receiver: resp_rx,
+            command_sender,
+        }
+    }
+
+    pub fn get_command_requester(&self) -> CommandSender {
+        self.command_sender.clone()
+    }
+
+    pub fn set_file_path(&self, path: PathBuf) {
+        self.sender
+            .send(IOManagerMessage::SetLogFilePath(path))
+            .expect("IO manager ded");
+    }
+
+    pub fn set_rcon_password(&self, password: String) {
+        self.sender
+            .send(IOManagerMessage::SetRconPassword(password))
+            .expect("IO manager ded");
+    }
+
+    pub fn try_next_io_output(&mut self) -> Option<IOOutputIter> {
+        match self.receiver.try_recv() {
+            Ok(out) => Some(out),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => panic!("IO manager ded"),
+        }
+    }
+
+    pub async fn next_io_output(&mut self) -> IOOutputIter {
+        self.receiver.recv().await.expect("IO manager ded")
+    }
+}
+
+struct IOManagerInner {
     command_manager: CommandManager,
-    log_watcher: Option<FileWatcher>,
+    file_watcher: FileWatcher,
+
+    message_recv: UnboundedReceiver<IOManagerMessage>,
+    response_send: UnboundedSender<IOOutputIter>,
+
     parser: G15Parser,
     regex_status: Regex,
     regex_chat: Regex,
@@ -86,16 +137,24 @@ pub struct IOManager {
     regex_playercount: Regex,
 }
 
-impl IOManager {
-    pub fn new() -> IOManager {
-        let command_manager = CommandManager::new();
-        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+impl IOManagerInner {
+    async fn new(
+        command_manager: CommandManager,
+        file_watcher: FileWatcher,
+    ) -> (
+        UnboundedSender<IOManagerMessage>,
+        UnboundedReceiver<IOOutputIter>,
+    ) {
+        let (req_tx, req_rx) = unbounded_channel();
+        let (resp_tx, resp_rx) = unbounded_channel();
 
-        IOManager {
-            command_recv: rx,
-            command_send: tx,
+        let mut inner = IOManagerInner {
             command_manager,
-            log_watcher: None,
+            file_watcher,
+
+            message_recv: req_rx,
+            response_send: resp_tx,
+
             parser: G15Parser::new(),
             regex_status: Regex::new(REGEX_STATUS).expect("Compile static regex"),
             regex_chat: Regex::new(REGEX_CHAT).expect("Compile static regex"),
@@ -104,145 +163,183 @@ impl IOManager {
             regex_ip: Regex::new(REGEX_IP).expect("Compile static regex"),
             regex_map: Regex::new(REGEX_MAP).expect("Compile static regex"),
             regex_playercount: Regex::new(REGEX_PLAYERCOUNT).expect("Compile static regex"),
-        }
+        };
+
+        tokio::task::spawn(async move {
+            inner.io_loop().await;
+        });
+
+        (req_tx, resp_rx)
     }
 
-    pub fn get_command_requester(&self) -> UnboundedSender<Commands> {
-        self.command_send.clone()
-    }
-
-    pub async fn handle_waiting_command(&mut self, state: &SharedState) -> Result<IOOutput> {
-        if let Ok(Some(command)) =
-            tokio::time::timeout(Duration::from_millis(50), self.command_recv.recv()).await
-        {
-            return self.handle_command(state, command).await;
-        }
-
-        Ok(IOOutput::NoOutput)
-    }
-
-    /// Run a command and handle the response from it
-    pub async fn handle_command(
-        &mut self,
-        state: &SharedState,
-        command: Commands,
-    ) -> Result<IOOutput> {
-        let resp: String = self
-            .command_manager
-            .run_command(state, &format!("{}", command))
-            .await
-            .context("Failed to run command")?;
-        Ok(match command {
-            Commands::G15 => {
-                let players = self.parser.parse_g15(&resp);
-                IOOutput::G15(players)
-            }
-            Commands::Status => {
-                let mut status_lines = Vec::new();
-                for l in resp.lines() {
-                    if let Some(status_resp) = self.regex_status.captures(l).map(StatusLine::parse)
-                    {
-                        match status_resp {
-                            Ok(status) => status_lines.push(status),
-                            Err(e) => {
-                                tracing::error!("Error parsing status line: {:?}", e);
-                            }
-                        }
+    async fn io_loop(&mut self) {
+        loop {
+            tokio::select! {
+                message = self.message_recv.recv() => {
+                    self.handle_message(message.expect("Main loop ded"));
+                },
+                command_response = self.command_manager.next_response() => {
+                    let out = self.read_command_response(command_response);
+                    if out.len() > 0 {
+                        self.response_send.send(IOOutputs::Multiple(out).into_iter()).expect("Main loop ded");
+                    }
+                },
+                log_line = self.file_watcher.next_line() => {
+                    if let Some(out) = self.read_log_line(&log_line) {
+                        self.response_send.send(IOOutputs::Single(out).into_iter()).expect("Main loop ded");
                     }
                 }
-                IOOutput::MultiStatus(status_lines)
             }
-            Commands::Kick {
-                player: _,
-                reason: _,
+        }
+    }
+
+    fn handle_message(&mut self, message: IOManagerMessage) {
+        match message {
+            IOManagerMessage::SetLogFilePath(path) => self.file_watcher.set_watched_file(path),
+            IOManagerMessage::SetRconPassword(password) => {
+                self.command_manager.set_rcon_password(password)
             }
-            | Commands::Say(_)
-            | Commands::SayTeam(_)
-            | Commands::Custom(_) => {
-                IOOutput::NoOutput // No return from these other commands.
+        }
+    }
+
+    fn read_command_response(&self, response: String) -> Vec<IOOutput> {
+        let mut out = Vec::new();
+
+        // Parse out anything from status
+        for l in response.lines() {
+            if let Some(line) = self.read_log_line(l) {
+                out.push(line);
             }
+        }
+
+        // Check for G15 output
+        let players = self.parser.parse_g15(&response);
+        if players.len() > 0 {
+            out.push(IOOutput::G15(players));
+        }
+
+        out
+    }
+
+    fn read_log_line(&self, line: &str) -> Option<IOOutput> {
+        // Match status
+        if let Some(caps) = self.regex_status.captures(&line) {
+            match StatusLine::parse(caps) {
+                Ok(status) => return Some(IOOutput::Status(status)),
+                Err(e) => tracing::error!("Error parsing status line: {:?}", e),
+            }
+        }
+        // Match chat message
+        if let Some(caps) = self.regex_chat.captures(&line) {
+            let chat = ChatMessage::parse(caps);
+            return Some(IOOutput::Chat(chat));
+        }
+        // Match player kills
+        if let Some(caps) = self.regex_kill.captures(&line) {
+            let kill = PlayerKill::parse(caps);
+            return Some(IOOutput::Kill(kill));
+        }
+        // Match server hostname
+        if let Some(caps) = self.regex_hostname.captures(&line) {
+            let hostname = Hostname::parse(caps);
+            return Some(IOOutput::Hostname(hostname));
+        }
+        // Match server IP
+        if let Some(caps) = self.regex_ip.captures(&line) {
+            let ip = ServerIP::parse(caps);
+            return Some(IOOutput::ServerIP(ip));
+        }
+        // Match server map
+        if let Some(caps) = self.regex_map.captures(&line) {
+            let map = Map::parse(caps);
+            return Some(IOOutput::Map(map));
+        }
+        // Match server player count
+        if let Some(caps) = self.regex_playercount.captures(&line) {
+            let playercount = PlayerCount::parse(caps);
+            return Some(IOOutput::PlayerCount(playercount));
+        }
+
+        None
+    }
+}
+
+// Iterator impl and other convenience stuff we don't need to worry about
+
+impl Display for Command {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Command::G15 => f.write_str("g15_dumpplayer"),
+            Command::Status => f.write_str("status"),
+            Command::Kick { player, reason } => {
+                write!(f, "callvote kick \"{} {}\"", player, reason)
+            }
+            Command::Say(message) => write!(f, "say \"{}\"", message),
+            Command::SayTeam(message) => write!(f, "say_team \"{}\"", message),
+            Command::Custom(command) => write!(f, "{}", command),
+        }
+    }
+}
+
+impl Default for KickReason {
+    fn default() -> Self {
+        Self::None
+    }
+}
+
+impl Display for KickReason {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self {
+            KickReason::None => "other",
+            KickReason::Idle => "idle",
+            KickReason::Cheating => "cheating",
+            KickReason::Scamming => "scamming",
         })
     }
+}
 
-    /// Parse all of the new log entries that have been written
-    pub fn handle_log(&mut self, state: &SharedState) -> Result<IOOutput> {
-        if self.log_watcher.as_ref().is_none() {
-            let dir = state.settings.read().get_tf2_directory().into();
-            self.reopen_log(dir).context("Failed to reopen log file.")?;
-        }
+#[derive(Debug)]
+pub enum IOOutputs {
+    Single(IOOutput),
+    Multiple(Vec<IOOutput>),
+}
 
-        loop {
-            match self
-                .log_watcher
-                .as_mut()
-                .ok_or(anyhow!("Failed to read lines from log file."))?
-                .get_line()
-            {
-                Ok(None) => break,
-                Ok(Some(line)) => {
-                    // Match status
-                    if let Some(caps) = self.regex_status.captures(&line) {
-                        match StatusLine::parse(caps) {
-                            Ok(status) => return Ok(IOOutput::Status(status)),
-                            Err(e) => tracing::error!("Error parsing status line: {:?}", e),
-                        }
-                        continue;
-                    }
-                    // Match chat message
-                    if let Some(caps) = self.regex_chat.captures(&line) {
-                        let chat = ChatMessage::parse(caps);
-                        return Ok(IOOutput::Chat(chat));
-                    }
-                    // Match player kills
-                    if let Some(caps) = self.regex_kill.captures(&line) {
-                        let kill = PlayerKill::parse(caps);
-                        return Ok(IOOutput::Kill(kill));
-                    }
-                    // Match server hostname
-                    if let Some(caps) = self.regex_hostname.captures(&line) {
-                        let hostname = Hostname::parse(caps);
-                        return Ok(IOOutput::Hostname(hostname));
-                    }
-                    // Match server IP
-                    if let Some(caps) = self.regex_ip.captures(&line) {
-                        let ip = ServerIP::parse(caps);
-                        return Ok(IOOutput::ServerIP(ip));
-                    }
-                    // Match server map
-                    if let Some(caps) = self.regex_map.captures(&line) {
-                        let map = Map::parse(caps);
-                        return Ok(IOOutput::Map(map));
-                    }
-                    // Match server player count
-                    if let Some(caps) = self.regex_playercount.captures(&line) {
-                        let playercount = PlayerCount::parse(caps);
-                        return Ok(IOOutput::PlayerCount(playercount));
-                    }
-                }
-                Err(e) => {
-                    self.log_watcher = None;
-                    tracing::error!("Failed to read log line: {:?}", e);
+impl Iterator for IOOutputIter {
+    type Item = IOOutput;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match &mut self.iter {
+            Some(SingleOrVecIter::Single(_)) => {
+                let mut a = None;
+                std::mem::swap(&mut a, &mut self.iter);
+                if let Some(SingleOrVecIter::Single(a)) = a {
+                    Some(a)
+                } else {
+                    None
                 }
             }
+            Some(SingleOrVecIter::Vec(iter)) => iter.next(),
+            None => None,
         }
-
-        Ok(IOOutput::NoOutput)
     }
+}
 
-    /// Attempt to reopen the log file with the currently set directory.
-    fn reopen_log(&mut self, mut tf2_dir: PathBuf) -> Result<()> {
-        tf2_dir.push("tf/console.log");
+enum SingleOrVecIter<T> {
+    Single(T),
+    Vec(<Vec<T> as IntoIterator>::IntoIter),
+}
 
-        match FileWatcher::new(tf2_dir) {
-            Ok(lw) => {
-                self.log_watcher = Some(lw);
-                tracing::info!("Successfully opened log file.");
-                Ok(())
-            }
-            Err(e) => {
-                self.log_watcher = None;
-                Err(e)
-            }
+impl IntoIterator for IOOutputs {
+    type Item = IOOutput;
+
+    type IntoIter = IOOutputIter;
+
+    fn into_iter(self) -> Self::IntoIter {
+        IOOutputIter {
+            iter: match self {
+                IOOutputs::Single(a) => Some(SingleOrVecIter::Single(a)),
+                IOOutputs::Multiple(vec) => Some(SingleOrVecIter::Vec(vec.into_iter())),
+            },
         }
     }
 }
