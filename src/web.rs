@@ -294,10 +294,8 @@ async fn get_playerlist(State(state): AState) -> impl IntoResponse {
     (
         StatusCode::OK,
         HEADERS,
-        serde_json::to_string(
-            &state.server.read().get_player_records()
-        )
-        .expect("Serialize player records")
+        serde_json::to_string(&state.server.read().get_player_records())
+            .expect("Serialize player records"),
     )
 }
 // Commands
