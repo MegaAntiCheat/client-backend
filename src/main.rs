@@ -1,8 +1,8 @@
 use player_records::PlayerRecords;
+use steamapi::SteamAPIManager;
 
 use std::path::Path;
 use std::time::Duration;
-use steamapi::steam_api_loop;
 use steamid_ng::SteamID;
 use tokio::sync::mpsc::UnboundedSender;
 
@@ -142,8 +142,9 @@ fn main() {
 
     // Get vars from settings before it is borrowed
     let autolaunch_ui = args.autolaunch_ui || settings.get_autolaunch_ui();
-    let steam_api_key = settings.get_steam_api_key();
+    let steam_api_key = settings.get_steam_api_key().to_string();
     let client = SteamAPI::new(steam_api_key);
+    let steam_api_key = settings.get_steam_api_key().to_string(); // This one is for the API servicing loop
     let steam_user = settings.get_steam_user();
 
     // Initialize State
@@ -179,13 +180,7 @@ fn main() {
             }
 
             // Steam API loop
-            let (steam_api_requester, steam_api_receiver) = tokio::sync::mpsc::unbounded_channel();
-            {
-                let state = state.clone();
-                tokio::task::spawn(async move {
-                    steam_api_loop(state, steam_api_receiver).await;
-                });
-            }
+            let api_manager = SteamAPIManager::new(steam_api_key).await;
 
             // Demo manager
             /*
@@ -210,15 +205,11 @@ fn main() {
                 });
             }
 
-            main_loop(io, state, steam_api_requester).await;
+            main_loop(io, state, api_manager).await;
         });
 }
 
-async fn main_loop(
-    mut io: IOManager,
-    state: SharedState,
-    steam_api_requester: UnboundedSender<SteamID>,
-) {
+async fn main_loop(mut io: IOManager, state: SharedState, mut steam_api: SteamAPIManager) {
     let mut new_players = Vec::new();
 
     loop {
@@ -260,9 +251,16 @@ async fn main_loop(
 
         // Request steam API stuff on new players and clear
         for player in &new_players {
-            steam_api_requester
-                .send(*player)
-                .expect("Steam API task ded");
+            steam_api.request_lookup(*player);
+        }
+
+        loop {
+            match steam_api.next_response() {
+                Some((steamid, steaminfo)) => {
+                    state.server.write().insert_steam_info(steamid, steaminfo);
+                }
+                None => break,
+            }
         }
 
         new_players.clear();
