@@ -22,10 +22,6 @@ pub mod regexes;
 
 // Enums
 
-pub struct IOOutputIter {
-    iter: Option<SingleOrVecIter<IOOutput>>,
-}
-
 #[derive(Debug)]
 pub enum IOOutput {
     Status(StatusLine),
@@ -46,6 +42,7 @@ pub enum Command {
     Say(String),
     SayTeam(String),
     Kick {
+        /// The uid of the player as returned by [Command::Status] or [Command::G15]
         player: String,
         #[serde(default)]
         reason: KickReason,
@@ -69,14 +66,56 @@ enum IOManagerMessage {
     SetRconPassword(String),
 }
 
+/// A thread-safe and cloneable [UnboundedSender] which can be user to send IO updates or run commands
+#[derive(Clone)]
+pub struct IOSender {
+    sender: UnboundedSender<IOManagerMessage>,
+    command_sender: CommandSender,
+}
+
+impl IOSender {
+    /// Get a copy of a [CommandSender], which is much like an [IOSender] but is limited to only running commands.
+    pub fn get_command_sender(&self) -> CommandSender {
+        self.command_sender.clone()
+    }
+
+    /// Request for a console command to be run in-game asynchronously. Eventually the result
+    /// of this command can be read with [IOManager::next_io_output] or [IOManager::try_next_io_output] if it was successful.
+    pub fn run_command(&self, cmd: Command) {
+        self.command_sender.run_command(cmd);
+    }
+
+    /// Set the path of the `console.log` file to watch
+    pub fn set_file_path(&self, path: PathBuf) {
+        self.sender
+            .send(IOManagerMessage::SetLogFilePath(path))
+            .expect("IO manager ded");
+    }
+
+    /// Set the password used by rcon to connect to the game and send console commands.
+    pub fn set_rcon_password(&self, password: String) {
+        self.sender
+            .send(IOManagerMessage::SetRconPassword(password))
+            .expect("IO manager ded");
+    }
+}
+
+/// [IOManager] provides and interface to asynchronously watch the `console.log` file for updates and run
+/// commands in the in-game console. Such updates to `console.log` and output from the run commands
+/// can be received through [Self::next_io_output] and [Self::try_next_io_output].
+///
+/// The IOManager can also be used to update the configuration of the internal [FileWatcher] and [CommandManager]
+/// such as setting the file path and rcon password.
 pub struct IOManager {
     sender: UnboundedSender<IOManagerMessage>,
-    receiver: UnboundedReceiver<IOOutputIter>,
+    receiver: UnboundedReceiver<Vec<IOOutput>>,
 
     command_sender: CommandSender,
 }
 
 impl IOManager {
+    /// Create a new [IOManager] which internally consists of a [FileWatcher] and [CommandManager] to watch the given
+    /// `console.log` file at `log_file_path`, and send commands over rcon to `localhost` using `rcon_password`
     pub async fn new(log_file_path: PathBuf, rcon_password: String) -> IOManager {
         let command_manager = CommandManager::new(rcon_password).await;
         let file_watcher = FileWatcher::new(log_file_path).await;
@@ -91,23 +130,41 @@ impl IOManager {
         }
     }
 
-    pub fn get_command_requester(&self) -> CommandSender {
+    /// Get a copy of the [UnboundedSender] which can be used to send IO updates and run commands
+    pub fn get_io_sender(&self) -> IOSender {
+        IOSender {
+            sender: self.sender.clone(),
+            command_sender: self.command_sender.clone(),
+        }
+    }
+
+    /// Get a copy of the [UnboundedSender] which can be used to run commands
+    pub fn get_command_sender(&self) -> CommandSender {
         self.command_sender.clone()
     }
 
+    /// Request for a console command to be run in-game asynchronously. Eventually the result
+    /// of this command can be read with [Self::next_io_output] or [Self::try_next_io_output] if it was successful.
+    pub fn run_command(&self, cmd: Command) {
+        self.command_sender.run_command(cmd);
+    }
+
+    /// Set the path of the `console.log` file to watch
     pub fn set_file_path(&self, path: PathBuf) {
         self.sender
             .send(IOManagerMessage::SetLogFilePath(path))
             .expect("IO manager ded");
     }
 
+    /// Set the password used by rcon to connect to the game and send console commands.
     pub fn set_rcon_password(&self, password: String) {
         self.sender
             .send(IOManagerMessage::SetRconPassword(password))
             .expect("IO manager ded");
     }
 
-    pub fn try_next_io_output(&mut self) -> Option<IOOutputIter> {
+    /// Attempts to receive the next io output. Returns [None] if there is not one ready.
+    pub fn try_next_io_output(&mut self) -> Option<Vec<IOOutput>> {
         match self.receiver.try_recv() {
             Ok(out) => Some(out),
             Err(TryRecvError::Empty) => None,
@@ -115,7 +172,9 @@ impl IOManager {
         }
     }
 
-    pub async fn next_io_output(&mut self) -> IOOutputIter {
+    /// Receives the next io output. Since this just reading from a [UnboundedReceiver]
+    /// it is cancellation safe.
+    pub async fn next_io_output(&mut self) -> Vec<IOOutput> {
         self.receiver.recv().await.expect("IO manager ded")
     }
 }
@@ -125,7 +184,7 @@ struct IOManagerInner {
     file_watcher: FileWatcher,
 
     message_recv: UnboundedReceiver<IOManagerMessage>,
-    response_send: UnboundedSender<IOOutputIter>,
+    response_send: UnboundedSender<Vec<IOOutput>>,
 
     parser: G15Parser,
     regex_status: Regex,
@@ -143,7 +202,7 @@ impl IOManagerInner {
         file_watcher: FileWatcher,
     ) -> (
         UnboundedSender<IOManagerMessage>,
-        UnboundedReceiver<IOOutputIter>,
+        UnboundedReceiver<Vec<IOOutput>>,
     ) {
         let (req_tx, req_rx) = unbounded_channel();
         let (resp_tx, resp_rx) = unbounded_channel();
@@ -181,12 +240,12 @@ impl IOManagerInner {
                 command_response = self.command_manager.next_response() => {
                     let out = self.read_command_response(command_response);
                     if out.len() > 0 {
-                        self.response_send.send(IOOutputs::Multiple(out).into_iter()).expect("Main loop ded");
+                        self.response_send.send(out).expect("Main loop ded");
                     }
                 },
                 log_line = self.file_watcher.next_line() => {
                     if let Some(out) = self.read_log_line(&log_line) {
-                        self.response_send.send(IOOutputs::Single(out).into_iter()).expect("Main loop ded");
+                        self.response_send.send(vec![out]).expect("Main loop ded");
                     }
                 }
             }
@@ -295,51 +354,5 @@ impl Display for KickReason {
             KickReason::Cheating => "cheating",
             KickReason::Scamming => "scamming",
         })
-    }
-}
-
-#[derive(Debug)]
-pub enum IOOutputs {
-    Single(IOOutput),
-    Multiple(Vec<IOOutput>),
-}
-
-impl Iterator for IOOutputIter {
-    type Item = IOOutput;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match &mut self.iter {
-            Some(SingleOrVecIter::Single(_)) => {
-                let mut a = None;
-                std::mem::swap(&mut a, &mut self.iter);
-                if let Some(SingleOrVecIter::Single(a)) = a {
-                    Some(a)
-                } else {
-                    None
-                }
-            }
-            Some(SingleOrVecIter::Vec(iter)) => iter.next(),
-            None => None,
-        }
-    }
-}
-
-enum SingleOrVecIter<T> {
-    Single(T),
-    Vec(<Vec<T> as IntoIterator>::IntoIter),
-}
-
-impl IntoIterator for IOOutputs {
-    type Item = IOOutput;
-
-    type IntoIter = IOOutputIter;
-
-    fn into_iter(self) -> Self::IntoIter {
-        IOOutputIter {
-            iter: match self {
-                IOOutputs::Single(a) => Some(SingleOrVecIter::Single(a)),
-                IOOutputs::Multiple(vec) => Some(SingleOrVecIter::Vec(vec.into_iter())),
-            },
-        }
     }
 }

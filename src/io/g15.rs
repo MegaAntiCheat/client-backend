@@ -10,7 +10,7 @@ use crate::player::Team;
 
 #[derive(Debug, Error)]
 pub enum G15Error {
-    /// Occurs when m_someArray[X] has some X greater than 33 (since these are static 34 element arrays)
+    /// Occurs when m_someArray\[X\] has some X greater than 33 (since these are static 34 element arrays)
     #[error("index provided from output of g15 command was invalid")]
     IndexOutOfBounds,
 }

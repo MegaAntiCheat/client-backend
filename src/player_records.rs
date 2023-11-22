@@ -69,7 +69,7 @@ impl PlayerRecords {
         playerlist
     }
 
-    /// Attempt to load the [Playerlist] from the provided file
+    /// Attempt to load the [PlayerRecords] from the provided file
     pub fn load_from(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
         let contents = std::fs::read_to_string(&path)
             .map_err(|e| ConfigFilesError::IO(path.to_string_lossy().into(), e))?;
@@ -94,7 +94,7 @@ impl PlayerRecords {
         Ok(playerlist)
     }
 
-    /// Attempt to save the [Playerlist] to the file it was loaded from
+    /// Attempt to save the [PlayerRecords] to the file it was loaded from
     pub fn save(&self) -> Result<(), ConfigFilesError> {
         let contents = serde_json::to_string(self).context("Failed to serialize playerlist.")?;
         std::fs::write(&self.path, contents)
@@ -102,7 +102,7 @@ impl PlayerRecords {
         Ok(())
     }
 
-    /// Attempt to save the [Playerlist], log errors and ignore result
+    /// Attempt to save the [PlayerRecords], log errors and ignore result
     pub fn save_ok(&self) {
         if let Err(e) = self.save() {
             tracing::error!("Failed to save playerlist: {:?}", e);

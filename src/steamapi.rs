@@ -27,12 +27,36 @@ enum SteamAPIRequest {
     SetAPIKey(String),
 }
 
+/// A thread-safe and cloneable [UnboundedSender] which can be used to request Steam web API lookups of accounts.
+#[derive(Clone)]
+pub struct SteamAPISender {
+    sender: UnboundedSender<SteamAPIRequest>,
+}
+
+impl SteamAPISender {
+    pub fn request_lookup(&self, steamid: SteamID) {
+        self.sender
+            .send(SteamAPIRequest::Lookup(steamid))
+            .expect("API thread ded");
+    }
+
+    pub fn set_api_key(&self, api_key: String) {
+        self.sender
+            .send(SteamAPIRequest::SetAPIKey(api_key))
+            .expect("API thread ded");
+    }
+}
+
+/// [SteamAPIManager] provides an interface to asynchronously request lookups of steam accounts via the steam web API.
+/// Finished lookups can be received through [Self::next_response] and [Self::try_next_response].
 pub struct SteamAPIManager {
     sender: UnboundedSender<SteamAPIRequest>,
     receiver: UnboundedReceiver<(SteamID, SteamInfo)>,
 }
 
 impl SteamAPIManager {
+    /// Create a new [SteamAPIManager] which will handle Steam web API lookups using `api_key` in a
+    /// dedicated [tokio::task].
     pub async fn new(api_key: String) -> SteamAPIManager {
         let (req_tx, resp_rx) = SteamAPIManagerInner::new(api_key).await;
 
@@ -42,12 +66,22 @@ impl SteamAPIManager {
         }
     }
 
+    /// Get a copy of the [UnboundedSender] which can be used to request steam account lookups.
+    pub fn get_api_sender(&self) -> SteamAPISender {
+        SteamAPISender {
+            sender: self.sender.clone(),
+        }
+    }
+
+    /// Request that a particular steam account be looked up via the Steam web API. Eventually the result
+    /// of this lookup can be read with [Self::next_response] or [Self::try_next_response] if it was successful.
     pub fn request_lookup(&self, steamid: SteamID) {
         self.sender
             .send(SteamAPIRequest::Lookup(steamid))
             .expect("API thread ded");
     }
 
+    /// Set the API key to be used for lookups
     pub fn set_api_key(&self, api_key: String) {
         self.sender
             .send(SteamAPIRequest::SetAPIKey(api_key))
@@ -63,7 +97,7 @@ impl SteamAPIManager {
         }
     }
 
-    /// Receives the next response. Since this just reading from a [tokio::mpsc::UnboundedReceiver]
+    /// Receives the next response. Since this just reading from a [UnboundedReceiver]
     /// it is cancellation safe.
     pub async fn next_response(&mut self) -> (SteamID, SteamInfo) {
         self.receiver.recv().await.expect("Steam API loop ded")

@@ -154,7 +154,6 @@ fn main() {
 
             let mut io =
                 IOManager::new(log_file_path, settings.get_rcon_password().to_string()).await;
-            let cmd = io.get_command_requester();
 
             if args.autolaunch_ui || settings.get_autolaunch_ui() {
                 if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", port))) {
@@ -196,7 +195,8 @@ fn main() {
 
             let shared_state = SharedState {
                 ui: Some(&UI_DIR),
-                cmd: cmd.clone(),
+                io: io.get_io_sender(),
+                api: steam_api.get_api_sender(),
                 server: server.clone(),
                 settings: settings.clone(),
             };
@@ -236,9 +236,9 @@ fn main() {
                     _ = refresh_interval.tick() => {
                         if refresh_iteration % 2 == 0 {
                             server.write().unwrap().refresh();
-                            cmd.run_command(Command::Status);
+                            io.run_command(Command::Status);
                         } else {
-                            cmd.run_command(Command::G15);
+                            io.run_command(Command::G15);
                         }
 
                         refresh_iteration += 1;

@@ -8,12 +8,14 @@ use tokio::{
     sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
 
+/// Asynchronously watch a file and read any updates made to it
 pub struct FileWatcher {
     sender: UnboundedSender<PathBuf>,
     receiver: UnboundedReceiver<String>,
 }
 
 impl FileWatcher {
+    /// Start watching a file for updates in a dedicated [tokio::task]
     pub async fn new(path: PathBuf) -> FileWatcher {
         let (req_tx, resp_rx) = FileWatcherInner::new(path).await;
 
@@ -23,6 +25,7 @@ impl FileWatcher {
         }
     }
 
+    /// Change the path of the file to watch
     pub fn set_watched_file(&self, path: PathBuf) {
         self.sender.send(path).expect("File watcher loop ded");
     }
@@ -36,7 +39,7 @@ impl FileWatcher {
         }
     }
 
-    /// Receives the next line. Since this just reading from a [tokio::mpsc::UnboundedReceiver]
+    /// Receives the next line. Since this just reading from a [UnboundedReceiver]
     /// it is cancellation safe.
     pub async fn next_line(&mut self) -> String {
         self.receiver.recv().await.expect("File watcher loop ded")

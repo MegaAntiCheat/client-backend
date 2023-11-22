@@ -3,7 +3,7 @@ use std::{
     convert::Infallible,
     net::SocketAddr,
     ops::Deref,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex, RwLock},
 };
 
@@ -21,10 +21,11 @@ use tokio::sync::mpsc::Sender;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 use crate::{
-    io::{command_manager::CommandSender, Command},
+    io::{Command, IOSender},
     player_records::{PlayerRecord, Verdict},
     server::Server,
     settings::Settings,
+    steamapi::SteamAPISender,
 };
 
 const HEADERS: [(header::HeaderName, &str); 2] = [
@@ -35,7 +36,8 @@ const HEADERS: [(header::HeaderName, &str); 2] = [
 #[derive(Clone)]
 pub struct SharedState {
     pub ui: Option<&'static Dir<'static>>,
-    pub cmd: CommandSender,
+    pub io: IOSender,
+    pub api: SteamAPISender,
     pub server: Arc<RwLock<Server>>,
     pub settings: Arc<RwLock<Settings>>,
 }
@@ -242,12 +244,16 @@ async fn put_prefs(State(state): AState, prefs: Json<Preferences>) -> impl IntoR
     let mut settings = state.settings.write().unwrap();
     if let Some(internal) = prefs.0.internal {
         if let Some(tf2_dir) = internal.tf2_directory {
-            settings.set_tf2_directory(tf2_dir.to_string().into());
+            let path: PathBuf = tf2_dir.to_string().into();
+            state.io.set_file_path(path.join("tf/console.log"));
+            settings.set_tf2_directory(path);
         }
         if let Some(rcon_pwd) = internal.rcon_password {
+            state.io.set_rcon_password(rcon_pwd.to_string());
             settings.set_rcon_password(rcon_pwd);
         }
         if let Some(steam_api_key) = internal.steam_api_key {
+            state.api.set_api_key(steam_api_key.to_string());
             settings.set_steam_api_key(steam_api_key);
         }
     }
@@ -338,7 +344,7 @@ async fn post_commands(
 ) -> impl IntoResponse {
     tracing::debug!("Commands sent: {:?}", commands);
 
-    let command_issuer = &state.cmd;
+    let command_issuer = &state.io.get_command_sender();
     for command in commands.0.commands {
         command_issuer.run_command(command);
     }
