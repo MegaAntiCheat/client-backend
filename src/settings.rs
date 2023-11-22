@@ -13,8 +13,8 @@ use serde_json::{Map, Value};
 use steamid_ng::SteamID;
 use thiserror::Error;
 
+use crate::args::Args;
 use crate::gamefinder;
-use crate::Args;
 
 #[derive(Debug, Error)]
 pub enum ConfigFilesError {

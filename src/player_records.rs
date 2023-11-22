@@ -11,9 +11,9 @@ use serde_json::Map;
 use steamid_ng::SteamID;
 
 use crate::{
+    args::Args,
     player::Player,
     settings::{ConfigFilesError, Settings},
-    Args,
 };
 
 // PlayerList

@@ -1,6 +1,6 @@
 use serde::{Serialize, Serializer};
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{hash_map::Values, HashMap, VecDeque},
     ops::Range,
     sync::Arc,
 };
@@ -156,7 +156,7 @@ impl Server {
         self.friends_list = friendslist;
     }
 
-    pub fn get_history(&self, range: Range<usize>) -> Vec<&Player> {
+    pub fn get_player_history(&self, range: Range<usize>) -> Vec<&Player> {
         self.player_history
             .iter()
             .rev()
@@ -179,7 +179,6 @@ impl Server {
         self.player_records.insert_record(record);
     }
 
-    #[allow(dead_code)]
     pub fn get_player_record(&self, steamid: SteamID) -> Option<&PlayerRecord> {
         self.player_records.get_record(steamid)
     }
@@ -193,6 +192,10 @@ impl Server {
         self.friends_list
             .iter()
             .find(|&friend| &friend.steamid == steamid)
+    }
+
+    pub fn get_players(&self) -> &HashMap<SteamID, Player> {
+        &self.players
     }
 
     // Other

@@ -32,7 +32,7 @@ pub struct Player {
 }
 
 impl Player {
-    pub fn new_from_status(status: &StatusLine, user: Option<SteamID>) -> Player {
+    pub(crate) fn new_from_status(status: &StatusLine, user: Option<SteamID>) -> Player {
         let is_self = user.map(|user| user == status.steamid).unwrap_or(false);
         Player {
             name: status.name.clone(),
@@ -48,7 +48,7 @@ impl Player {
         }
     }
 
-    pub fn new_from_g15(g15: &G15Player, user: Option<SteamID>) -> Option<Player> {
+    pub(crate) fn new_from_g15(g15: &G15Player, user: Option<SteamID>) -> Option<Player> {
         let steamid = g15.steamid?;
         let game_info = GameInfo::new_from_g15(g15)?;
         let is_self = user.map(|user| user == steamid).unwrap_or(false);
@@ -198,7 +198,7 @@ pub struct GameInfo {
 }
 
 impl GameInfo {
-    pub fn new_from_g15(g15: &G15Player) -> Option<GameInfo> {
+    pub(crate) fn new_from_g15(g15: &G15Player) -> Option<GameInfo> {
         Some(GameInfo {
             userid: g15.userid.clone()?,
             team: g15.team.unwrap_or(Team::Unassigned),
@@ -213,7 +213,7 @@ impl GameInfo {
         })
     }
 
-    pub fn new_from_status(status: &StatusLine) -> GameInfo {
+    pub(crate) fn new_from_status(status: &StatusLine) -> GameInfo {
         GameInfo {
             userid: status.userid.clone(),
             team: Team::Unassigned,
@@ -229,7 +229,7 @@ impl GameInfo {
         }
     }
 
-    pub fn next_cycle(&mut self) {
+    pub(crate) fn next_cycle(&mut self) {
         const DISCONNECTED_THRESHOLD: u32 = 1;
 
         self.last_seen += 1;
@@ -238,12 +238,12 @@ impl GameInfo {
         }
     }
 
-    pub fn acknowledge(&mut self) {
+    pub(crate) fn acknowledge(&mut self) {
         self.last_seen = 0;
         self.disconnected = false;
     }
 
-    pub fn should_prune(&self) -> bool {
+    pub(crate) fn should_prune(&self) -> bool {
         const CYCLE_LIMIT: u32 = 5;
         self.last_seen > CYCLE_LIMIT
     }

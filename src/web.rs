@@ -269,8 +269,8 @@ async fn put_prefs(State(state): AState, prefs: Json<Preferences>) -> impl IntoR
 
 // Events
 
-pub type Subscriber = Sender<Result<Event, Infallible>>;
-pub static SUBSCRIBERS: Mutex<Option<Vec<Subscriber>>> = Mutex::new(None);
+type Subscriber = Sender<Result<Event, Infallible>>;
+static SUBSCRIBERS: Mutex<Option<Vec<Subscriber>>> = Mutex::new(None);
 
 /// Gets a SSE stream to listen for any updates the client can provide.
 async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
@@ -315,7 +315,7 @@ async fn get_history(State(state): AState, page: Query<Pagination>) -> impl Into
                 .server
                 .read()
                 .unwrap()
-                .get_history(page.0.from..page.0.to),
+                .get_player_history(page.0.from..page.0.to),
         )
         .expect("Serialize player history"),
     )

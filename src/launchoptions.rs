@@ -11,7 +11,7 @@ use steamid_ng::SteamID;
 use substring::Substring;
 use tracing::Level;
 
-use crate::gamefinder::locate_steam_launch_configs;
+use crate::gamefinder::{locate_steam_launch_configs, TF2_GAME_ID};
 
 /// -condebug enables the console.log file to be written to by the game.
 /// -conclearlog clears the console.log file on launch of TF2
@@ -39,7 +39,7 @@ impl LaunchOptions {
     /// - Could not read the `localconfig.vdf` file. (because of any non-`ErrorKind::Interrupted` during read)
     /// - Failed to parse the `localconfig.vdf` file. (File is corrupted/broken/incomplete)
     /// - Target app ID does not exist in `localconfig.vdf` file or the object is corrupted.
-    pub fn new(user: SteamID, target_app: String) -> Result<LaunchOptions, anyhow::Error> {
+    pub fn new(user: SteamID) -> Result<LaunchOptions, anyhow::Error> {
         let span = tracing::span!(Level::INFO, "LaunchOptions");
         let _enter = span.enter();
 
@@ -62,7 +62,7 @@ impl LaunchOptions {
             .context("No capture groups found -  no apps list present in localconfig.vdf.")?;
 
         let mut matched_app_block: Option<String> = None;
-        let open_match = format!("\t\t\t\t\t\"{}\"", target_app);
+        let open_match = format!("\t\t\t\t\t\"{}\"", TF2_GAME_ID);
 
         let mat_opt = caps.get(1);
         if let Some(mat) = mat_opt {
