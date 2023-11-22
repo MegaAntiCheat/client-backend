@@ -285,15 +285,12 @@ impl Settings {
     }
     pub fn set_tf2_directory(&mut self, dir: PathBuf) {
         self.tf2_directory = dir;
-        self.save_ok();
     }
     pub fn set_rcon_password(&mut self, pwd: Arc<str>) {
         self.rcon_password = pwd;
-        self.save_ok();
     }
     pub fn set_port(&mut self, port: u16) {
         self.port = port;
-        self.save_ok();
     }
 
     pub fn get_autolaunch_ui(&self) -> bool {
@@ -302,12 +299,10 @@ impl Settings {
 
     pub fn set_steam_api_key(&mut self, key: Arc<str>) {
         self.steam_api_key = key;
-        self.save_ok();
     }
 
     pub fn update_external_preferences(&mut self, prefs: serde_json::Value) {
         merge_json_objects(&mut self.external, prefs);
-        self.save_ok();
     }
 
     pub fn set_config_path(&mut self, config: PathBuf) {

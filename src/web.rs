@@ -4,7 +4,7 @@ use std::{
     net::SocketAddr,
     ops::Deref,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, RwLock},
 };
 
 use axum::{
@@ -14,16 +14,17 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use include_dir::{include_dir, Dir};
+use include_dir::Dir;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
 use tokio::sync::mpsc::Sender;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 use crate::{
-    io::Commands,
+    io::{command_manager::CommandSender, Command},
     player_records::{PlayerRecord, Verdict},
-    state,
+    server::Server,
+    settings::Settings,
 };
 
 const HEADERS: [(header::HeaderName, &str); 2] = [
@@ -31,12 +32,18 @@ const HEADERS: [(header::HeaderName, &str); 2] = [
     (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
 ];
 
-static UI_DIR: Dir = include_dir!("ui");
+#[derive(Clone)]
+pub struct SharedState {
+    pub ui: Option<&'static Dir<'static>>,
+    pub cmd: CommandSender,
+    pub server: Arc<RwLock<Server>>,
+    pub settings: Arc<RwLock<Settings>>,
+}
 
-type AState = axum::extract::State<state::SharedState>;
+type AState = axum::extract::State<SharedState>;
 
 /// Start the web API server
-pub async fn web_main(state: state::SharedState, port: u16) {
+pub async fn web_main(state: SharedState, port: u16) {
     let api = Router::new()
         .route("/", get(ui_redirect))
         .route("/ui", get(ui_redirect))
@@ -67,23 +74,35 @@ async fn ui_redirect() -> impl IntoResponse {
 
 // UI
 
-async fn get_ui(axum::extract::Path(path): axum::extract::Path<String>) -> impl IntoResponse {
-    match UI_DIR.get_file(&path) {
-        Some(file) => {
-            // Serve included file
-            let content_type = guess_content_type(file.path());
-            let headers = [
-                (header::CONTENT_TYPE, content_type),
-                (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
-            ];
-            (StatusCode::OK, headers, file.contents()).into_response()
+async fn get_ui(
+    State(state): AState,
+    axum::extract::Path(path): axum::extract::Path<String>,
+) -> impl IntoResponse {
+    if let Some(ui) = state.ui {
+        match ui.get_file(&path) {
+            Some(file) => {
+                // Serve included file
+                let content_type = guess_content_type(file.path());
+                let headers = [
+                    (header::CONTENT_TYPE, content_type),
+                    (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+                ];
+                (StatusCode::OK, headers, file.contents()).into_response()
+            }
+            None => (
+                StatusCode::NOT_FOUND,
+                ([(header::CONTENT_TYPE, "text/html")]),
+                "<body><h1>404 Not Found</h1></body>",
+            )
+                .into_response(),
         }
-        None => (
+    } else {
+        (
             StatusCode::NOT_FOUND,
             ([(header::CONTENT_TYPE, "text/html")]),
-            "<body><h1>404 Not Found</h1></body>",
+            "<body><h1>There is no UI bundled with this version of the application.</h1></body>",
         )
-            .into_response(),
+            .into_response()
     }
 }
 
@@ -117,7 +136,7 @@ fn guess_content_type(path: &Path) -> &'static str {
 /// API endpoint to retrieve the current server state
 async fn get_game(State(state): AState) -> impl IntoResponse {
     tracing::debug!("State requested");
-    let server = state.server.read();
+    let server = state.server.read().unwrap();
     (
         StatusCode::OK,
         HEADERS,
@@ -155,7 +174,7 @@ async fn put_user(
 ) -> impl IntoResponse {
     tracing::debug!("Player updates sent: {:?}", &users);
 
-    let mut server = state.server.write();
+    let mut server = state.server.write().unwrap();
     for (k, v) in users.0 {
         // Insert record if it didn't exist
         if !server.has_player_record(k) {
@@ -199,7 +218,7 @@ struct Preferences {
 async fn get_prefs(State(state): AState) -> impl IntoResponse {
     tracing::debug!("Preferences requested.");
 
-    let settings = state.settings.read();
+    let settings = state.settings.read().unwrap();
     let prefs = Preferences {
         internal: Some(InternalPreferences {
             tf2_directory: Some(settings.get_tf2_directory().to_string_lossy().into()),
@@ -220,7 +239,7 @@ async fn get_prefs(State(state): AState) -> impl IntoResponse {
 async fn put_prefs(State(state): AState, prefs: Json<Preferences>) -> impl IntoResponse {
     tracing::debug!("Preferences updates sent.");
 
-    let mut settings = state.settings.write();
+    let mut settings = state.settings.write().unwrap();
     if let Some(internal) = prefs.0.internal {
         if let Some(tf2_dir) = internal.tf2_directory {
             settings.set_tf2_directory(tf2_dir.to_string().into());
@@ -236,6 +255,8 @@ async fn put_prefs(State(state): AState, prefs: Json<Preferences>) -> impl IntoR
     if let Some(external) = prefs.0.external {
         settings.update_external_preferences(external);
     }
+
+    settings.save_ok();
 
     (StatusCode::OK, HEADERS)
 }
@@ -283,8 +304,14 @@ async fn get_history(State(state): AState, page: Query<Pagination>) -> impl Into
     (
         StatusCode::OK,
         HEADERS,
-        serde_json::to_string(&state.server.read().get_history(page.0.from..page.0.to))
-            .expect("Serialize player history"),
+        serde_json::to_string(
+            &state
+                .server
+                .read()
+                .unwrap()
+                .get_history(page.0.from..page.0.to),
+        )
+        .expect("Serialize player history"),
     )
 }
 
@@ -294,7 +321,7 @@ async fn get_playerlist(State(state): AState) -> impl IntoResponse {
     (
         StatusCode::OK,
         HEADERS,
-        serde_json::to_string(&state.server.read().get_player_records())
+        serde_json::to_string(&state.server.read().unwrap().get_player_records())
             .expect("Serialize player records"),
     )
 }
@@ -302,7 +329,7 @@ async fn get_playerlist(State(state): AState) -> impl IntoResponse {
 
 #[derive(Deserialize, Debug)]
 struct RequestedCommands {
-    commands: Vec<Commands>,
+    commands: Vec<Command>,
 }
 
 async fn post_commands(
@@ -311,11 +338,9 @@ async fn post_commands(
 ) -> impl IntoResponse {
     tracing::debug!("Commands sent: {:?}", commands);
 
-    let command_issuer = &state.command_issuer;
+    let command_issuer = &state.cmd;
     for command in commands.0.commands {
-        command_issuer
-            .send(command)
-            .expect("Sending command from web API.");
+        command_issuer.run_command(command);
     }
 
     (StatusCode::OK, HEADERS)

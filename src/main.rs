@@ -1,9 +1,12 @@
+use include_dir::{include_dir, Dir};
 use player_records::PlayerRecords;
 use server::Server;
 use steamapi::SteamAPIManager;
 use tokio::select;
+use web::{web_main, SharedState};
 
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
 use clap::{ArgAction, Parser};
@@ -27,7 +30,9 @@ mod server;
 mod settings;
 mod state;
 mod steamapi;
-// mod web;
+mod web;
+
+static UI_DIR: Dir = include_dir!("ui");
 
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
@@ -133,9 +138,7 @@ fn main() {
         }
     }
 
-    // Just some settings we'll need later
     let port = settings.get_port();
-
     let playerlist = PlayerRecords::load_or_create(&args);
     playerlist.save_ok();
 
@@ -152,16 +155,6 @@ fn main() {
             let mut io =
                 IOManager::new(log_file_path, settings.get_rcon_password().to_string()).await;
             let cmd = io.get_command_requester();
-
-            // Spawn web server
-            /*
-            {
-                let state = state.clone();
-                tokio::spawn(async move {
-                    web::web_main(state, port).await;
-                });
-            }
-            */
 
             if args.autolaunch_ui || settings.get_autolaunch_ui() {
                 if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", port))) {
@@ -197,11 +190,26 @@ fn main() {
                 }
             }
 
+            // Setup web API server
+            let settings = Arc::new(RwLock::new(settings));
+            let server = Arc::new(RwLock::new(server));
+
+            let shared_state = SharedState {
+                ui: Some(&UI_DIR),
+                cmd: cmd.clone(),
+                server: server.clone(),
+                settings: settings.clone(),
+            };
+            tokio::task::spawn(async move {
+                web_main(shared_state, port).await;
+            });
+
             // Main loop
 
             let mut refresh_interval = tokio::time::interval(Duration::from_secs(3));
             refresh_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             let mut refresh_iteration: u64 = 0;
+
             let mut new_players = Vec::new();
 
             loop {
@@ -209,8 +217,8 @@ fn main() {
                     // IO output
                     io_output_iter = io.next_io_output() => {
                         for output in io_output_iter {
-                            let user = settings.get_steam_user();
-                            for new_player in server
+                            let user = settings.read().unwrap().get_steam_user();
+                            for new_player in server.write().unwrap()
                                 .handle_io_output(output, user)
                                 .into_iter()
                             {
@@ -221,13 +229,13 @@ fn main() {
 
                     // Steam API responses
                     (steamid, steaminfo) = steam_api.next_response() => {
-                        server.insert_steam_info(steamid, steaminfo);
+                        server.write().unwrap().insert_steam_info(steamid, steaminfo);
                     }
 
                     // Refresh
                     _ = refresh_interval.tick() => {
                         if refresh_iteration % 2 == 0 {
-                            server.refresh();
+                            server.write().unwrap().refresh();
                             cmd.run_command(Command::Status);
                         } else {
                             cmd.run_command(Command::G15);

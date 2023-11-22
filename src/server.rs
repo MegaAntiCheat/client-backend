@@ -67,12 +67,15 @@ impl Server {
     /// Handles any io output from running commands / reading the console log file.
     /// Returns:
     /// * Some<[SteamID]> of a player if they have been newly added to the server.
-    pub fn handle_io_output(&mut self, response: IOOutput, user: Option<SteamID>) -> NewPlayers {
+    pub fn handle_io_output(&mut self, response: IOOutput, user: Option<SteamID>) -> Vec<SteamID> {
         use IOOutput::*;
         match response {
             G15(players) => return self.handle_g15_parse(players, user).into(),
             Status(status) => {
-                return self.handle_status_line(status, user).into();
+                return self
+                    .handle_status_line(status, user)
+                    .map(|s| vec![s])
+                    .unwrap_or_default();
             }
             Chat(chat) => self.handle_chat(chat),
             Kill(kill) => self.handle_kill(kill),
@@ -91,7 +94,7 @@ impl Server {
             }
         }
 
-        NewPlayers::None
+        Vec::new()
     }
 
     /// Moves any old players from the server into history. Any console commands (status, g15_dumpplayer, etc)
@@ -317,72 +320,6 @@ impl Server {
     fn handle_kill(&mut self, kill: PlayerKill) {
         // TODO
         tracing::debug!("Kill: {:?}", kill);
-    }
-}
-
-pub enum NewPlayers {
-    Single(SteamID),
-    Multiple(Vec<SteamID>),
-    None,
-}
-
-impl From<Option<SteamID>> for NewPlayers {
-    fn from(value: Option<SteamID>) -> Self {
-        if let Some(steamid) = value {
-            NewPlayers::Single(steamid)
-        } else {
-            NewPlayers::None
-        }
-    }
-}
-
-impl From<Vec<SteamID>> for NewPlayers {
-    fn from(value: Vec<SteamID>) -> Self {
-        NewPlayers::Multiple(value)
-    }
-}
-
-pub struct NewPlayersIterator<'a> {
-    players: &'a NewPlayers,
-    index: usize,
-}
-
-impl Iterator for NewPlayersIterator<'_> {
-    type Item = SteamID;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        match &self.players {
-            NewPlayers::Single(s) => {
-                if self.index == 0 {
-                    self.index += 1;
-                    Some(*s)
-                } else {
-                    None
-                }
-            }
-            NewPlayers::Multiple(s) => {
-                self.index += 1;
-                if self.index <= s.len() {
-                    Some(s[self.index - 1])
-                } else {
-                    None
-                }
-            }
-            NewPlayers::None => None,
-        }
-    }
-}
-
-impl<'a> IntoIterator for &'a NewPlayers {
-    type Item = SteamID;
-
-    type IntoIter = NewPlayersIterator<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        NewPlayersIterator {
-            players: self,
-            index: 0,
-        }
     }
 }
 
