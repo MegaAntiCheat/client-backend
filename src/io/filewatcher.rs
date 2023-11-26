@@ -8,42 +8,8 @@ use tokio::{
     sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
 
-/// Asynchronously watch a file and read any updates made to it
-pub struct FileWatcher {
-    sender: UnboundedSender<PathBuf>,
-    receiver: UnboundedReceiver<String>,
-}
-
-impl FileWatcher {
-    /// Start watching a file for updates in a dedicated [tokio::task]
-    pub async fn new(path: PathBuf) -> FileWatcher {
-        let (req_tx, resp_rx) = FileWatcherInner::new(path).await;
-
-        FileWatcher {
-            sender: req_tx,
-            receiver: resp_rx,
-        }
-    }
-
-    /// Change the path of the file to watch
-    pub fn set_watched_file(&self, path: PathBuf) {
-        self.sender.send(path).expect("File watcher loop ded");
-    }
-
-    /// Attempts to receive the next line. Returns [None] if there is none ready
-    pub fn try_next_line(&mut self) -> Option<String> {
-        match self.receiver.try_recv() {
-            Ok(line) => Some(line),
-            Err(TryRecvError::Empty) => None,
-            Err(TryRecvError::Disconnected) => panic!("File watcher loop ded"),
-        }
-    }
-
-    /// Receives the next line. Since this just reading from a [UnboundedReceiver]
-    /// it is cancellation safe.
-    pub async fn next_line(&mut self) -> String {
-        self.receiver.recv().await.expect("File watcher loop ded")
-    }
+pub enum FileWatcherCommand {
+    SetWatchedFile(PathBuf),
 }
 
 struct OpenFile {
@@ -53,26 +19,28 @@ struct OpenFile {
     pub file: File,
 }
 
-struct FileWatcherInner {
+pub struct FileWatcher {
     /// Used to reopen the file for the next bulk read
     file_path: PathBuf,
     /// The file currently being watched
     open_file: Option<OpenFile>,
 
-    request_recv: UnboundedReceiver<PathBuf>,
+    request_recv: UnboundedReceiver<FileWatcherCommand>,
     response_send: UnboundedSender<String>,
 }
 
-impl FileWatcherInner {
-    async fn new(path: PathBuf) -> (UnboundedSender<PathBuf>, UnboundedReceiver<String>) {
-        let (req_tx, req_rx) = unbounded_channel();
+impl FileWatcher {
+    pub async fn new(
+        path: PathBuf,
+        recv: UnboundedReceiver<FileWatcherCommand>,
+    ) -> UnboundedReceiver<String> {
         let (resp_tx, resp_rx) = unbounded_channel();
 
-        let mut file_watcher = FileWatcherInner {
+        let mut file_watcher = FileWatcher {
             file_path: path,
             open_file: None,
 
-            request_recv: req_rx,
+            request_recv: recv,
             response_send: resp_tx,
         };
 
@@ -80,7 +48,7 @@ impl FileWatcherInner {
             file_watcher.file_watch_loop().await;
         });
 
-        (req_tx, resp_rx)
+        resp_rx
     }
 
     async fn file_watch_loop(&mut self) {
@@ -90,10 +58,17 @@ impl FileWatcherInner {
         }
 
         loop {
-            if let Ok(new_path) = self.request_recv.try_recv() {
-                self.file_path = new_path;
-                if let Err(e) = self.reopen_file().await {
-                    tracing::error!("Failed to open new file {:?}: {:?}", self.file_path, e);
+            match self.request_recv.try_recv() {
+                Ok(FileWatcherCommand::SetWatchedFile(new_path)) => {
+                    self.file_path = new_path;
+                    if let Err(e) = self.reopen_file().await {
+                        tracing::error!("Failed to open new file {:?}: {:?}", self.file_path, e);
+                    }
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    tracing::error!("Lost connection to main thread. Shutting down.");
+                    break;
                 }
             }
 

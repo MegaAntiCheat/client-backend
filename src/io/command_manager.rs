@@ -5,89 +5,18 @@ use rcon::Connection;
 
 use tokio::{
     net::TcpStream,
-    sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     time::timeout,
 };
 
 use super::Command;
 
-enum CommandManagerMessage {
+pub enum CommandManagerMessage {
     RunCommand(Command),
     SetRconPassword(String),
 }
 
-#[derive(Clone)]
-pub struct CommandSender {
-    sender: UnboundedSender<CommandManagerMessage>,
-}
-
-/// A thread-safe and cloneable [UnboundedSender] which can be used to run commands.
-impl CommandSender {
-    pub fn run_command(&self, command: Command) {
-        self.sender
-            .send(CommandManagerMessage::RunCommand(command))
-            .expect("Command loop ded");
-    }
-}
-
-/// [CommandManager] provides an interface to asynchronously request commands to be run in-game and
-/// receive the results of those commands.
 pub struct CommandManager {
-    sender: UnboundedSender<CommandManagerMessage>,
-    receiver: UnboundedReceiver<String>,
-}
-
-impl CommandManager {
-    /// Create a new [CommandManager] which will connect to `localhost` using the password `rcon_password`
-    /// in a dedicated [tokio::task].
-    pub async fn new(rcon_password: String) -> CommandManager {
-        let (req_tx, resp_rx) = CommandManagerInner::new(rcon_password).await;
-
-        CommandManager {
-            sender: req_tx,
-            receiver: resp_rx,
-        }
-    }
-
-    /// Get a copy of the [UnboundedSender] which can be used to run commands
-    pub fn get_command_sender(&self) -> CommandSender {
-        CommandSender {
-            sender: self.sender.clone(),
-        }
-    }
-
-    /// Request for a console command to be run in-game asynchronously. Eventually the result
-    /// of this command can be read with [Self::next_response] or [Self::try_next_response] if it was successful.
-    pub fn run_command(&self, command: Command) {
-        self.sender
-            .send(CommandManagerMessage::RunCommand(command))
-            .expect("Command loop ded");
-    }
-
-    /// Set the password used by rcon to connect to the game and send console commands.
-    pub fn set_rcon_password(&self, rcon_password: String) {
-        self.sender
-            .send(CommandManagerMessage::SetRconPassword(rcon_password))
-            .expect("Command loop ded");
-    }
-
-    /// Attempts to receive the next response. Returns [None] if there is none ready
-    pub fn try_next_response(&mut self) -> Option<String> {
-        match self.receiver.try_recv() {
-            Ok(response) => Some(response),
-            Err(TryRecvError::Empty) => None,
-            Err(TryRecvError::Disconnected) => panic!("Command loop ded"),
-        }
-    }
-
-    /// Receives the next response. Since this just reading from a [UnboundedReceiver]
-    /// it is cancellation safe.
-    pub async fn next_response(&mut self) -> String {
-        self.receiver.recv().await.expect("Command loop ded")
-    }
-}
-
-struct CommandManagerInner {
     rcon_password: String,
     rcon: Option<Connection<TcpStream>>,
 
@@ -96,20 +25,17 @@ struct CommandManagerInner {
 }
 
 #[allow(dead_code)]
-impl CommandManagerInner {
-    async fn new(
+impl CommandManager {
+    pub async fn new(
         rcon_password: String,
-    ) -> (
-        UnboundedSender<CommandManagerMessage>,
-        UnboundedReceiver<String>,
-    ) {
-        let (req_tx, req_rx) = unbounded_channel();
+        recv: UnboundedReceiver<CommandManagerMessage>,
+    ) -> UnboundedReceiver<String> {
         let (resp_tx, resp_rx) = unbounded_channel();
 
-        let mut inner = CommandManagerInner {
+        let mut inner = CommandManager {
             rcon_password,
             rcon: None,
-            request_recv: req_rx,
+            request_recv: recv,
             response_send: resp_tx,
         };
 
@@ -117,7 +43,7 @@ impl CommandManagerInner {
             inner.command_loop().await;
         });
 
-        (req_tx, resp_rx)
+        resp_rx
     }
 
     async fn command_loop(&mut self) {

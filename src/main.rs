@@ -5,6 +5,7 @@ use player_records::PlayerRecords;
 use server::Server;
 use steamapi::SteamAPIManager;
 use tokio::select;
+use tokio::sync::mpsc::unbounded_channel;
 use web::{web_main, SharedState};
 
 use std::path::{Path, PathBuf};
@@ -20,6 +21,8 @@ use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
 };
+
+use crate::io::IOManagerMessage;
 
 mod args;
 mod demo;
@@ -117,8 +120,13 @@ fn main() {
             let log_file_path: PathBuf =
                 PathBuf::from(settings.get_tf2_directory()).join("tf/console.log");
 
-            let mut io =
-                IOManager::new(log_file_path, settings.get_rcon_password().to_string()).await;
+            let (io_send, io_recv) = unbounded_channel();
+            let mut io_recv = IOManager::new(
+                log_file_path,
+                settings.get_rcon_password().to_string(),
+                io_recv,
+            )
+            .await;
 
             if args.autolaunch_ui || settings.get_autolaunch_ui() {
                 if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", port))) {
@@ -160,7 +168,7 @@ fn main() {
 
             let shared_state = SharedState {
                 ui: Some(&UI_DIR),
-                io: io.get_io_sender(),
+                io: io_send.clone(),
                 api: steam_api.get_api_sender(),
                 server: server.clone(),
                 settings: settings.clone(),
@@ -180,8 +188,8 @@ fn main() {
             loop {
                 select! {
                     // IO output
-                    io_output_iter = io.next_io_output() => {
-                        for output in io_output_iter {
+                    io_output_iter = io_recv.recv() => {
+                        for output in io_output_iter.unwrap() {
                             let user = settings.read().unwrap().get_steam_user();
                             for new_player in server.write().unwrap()
                                 .handle_io_output(output, user)
@@ -201,9 +209,9 @@ fn main() {
                     _ = refresh_interval.tick() => {
                         if refresh_iteration % 2 == 0 {
                             server.write().unwrap().refresh();
-                            io.run_command(Command::Status);
+                            io_send.send(IOManagerMessage::RunCommand(Command::Status)).unwrap();
                         } else {
-                            io.run_command(Command::G15);
+                            io_send.send(IOManagerMessage::RunCommand(Command::G15)).unwrap();
                         }
 
                         refresh_iteration += 1;

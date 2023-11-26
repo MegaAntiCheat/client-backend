@@ -17,11 +17,11 @@ use axum::{
 use include_dir::Dir;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
-use tokio::sync::mpsc::Sender;
+use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 use crate::{
-    io::{Command, IOSender},
+    io::{Command, IOManagerMessage},
     player_records::{PlayerRecord, Verdict},
     server::Server,
     settings::Settings,
@@ -36,7 +36,7 @@ const HEADERS: [(header::HeaderName, &str); 2] = [
 #[derive(Clone)]
 pub struct SharedState {
     pub ui: Option<&'static Dir<'static>>,
-    pub io: IOSender,
+    pub io: UnboundedSender<IOManagerMessage>,
     pub api: SteamAPISender,
     pub server: Arc<RwLock<Server>>,
     pub settings: Arc<RwLock<Settings>>,
@@ -245,11 +245,19 @@ async fn put_prefs(State(state): AState, prefs: Json<Preferences>) -> impl IntoR
     if let Some(internal) = prefs.0.internal {
         if let Some(tf2_dir) = internal.tf2_directory {
             let path: PathBuf = tf2_dir.to_string().into();
-            state.io.set_file_path(path.join("tf/console.log"));
+            state
+                .io
+                .send(IOManagerMessage::SetLogFilePath(
+                    path.join("tf/console.log"),
+                ))
+                .unwrap();
             settings.set_tf2_directory(path);
         }
         if let Some(rcon_pwd) = internal.rcon_password {
-            state.io.set_rcon_password(rcon_pwd.to_string());
+            state
+                .io
+                .send(IOManagerMessage::SetRconPassword(rcon_pwd.to_string()))
+                .unwrap();
             settings.set_rcon_password(rcon_pwd);
         }
         if let Some(steam_api_key) = internal.steam_api_key {
@@ -344,9 +352,11 @@ async fn post_commands(
 ) -> impl IntoResponse {
     tracing::debug!("Commands sent: {:?}", commands);
 
-    let command_issuer = &state.io.get_command_sender();
     for command in commands.0.commands {
-        command_issuer.run_command(command);
+        state
+            .io
+            .send(IOManagerMessage::RunCommand(command))
+            .unwrap();
     }
 
     (StatusCode::OK, HEADERS)
