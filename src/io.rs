@@ -3,6 +3,7 @@ use regex::Regex;
 use serde::Deserialize;
 use std::fmt::Display;
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
@@ -21,7 +22,7 @@ pub(crate) mod regexes;
 
 // Enums
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum IOOutput {
     Status(StatusLine),
     Chat(ChatMessage),
@@ -33,23 +34,23 @@ pub enum IOOutput {
     G15(Vec<G15Player>),
 }
 
-#[derive(Deserialize, Debug)]
+#[derive(Deserialize, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum Command {
     G15,
     Status,
-    Say(String),
-    SayTeam(String),
+    Say(Arc<str>),
+    SayTeam(Arc<str>),
     Kick {
         /// The uid of the player as returned by [Command::Status] or [Command::G15]
-        player: String,
+        player: Arc<str>,
         #[serde(default)]
         reason: KickReason,
     },
-    Custom(String),
+    Custom(Arc<str>),
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
 pub enum KickReason {
     None,
@@ -60,18 +61,21 @@ pub enum KickReason {
 
 // IOThread
 
+#[derive(Debug, Clone)]
 pub enum IOManagerMessage {
     SetLogFilePath(PathBuf),
-    SetRconPassword(String),
+    SetRconPassword(Arc<str>),
     RunCommand(Command),
 }
 
 pub struct IOManager {
+    command: Option<CommandManager>,
     command_send: UnboundedSender<CommandManagerMessage>,
-    command_recv: UnboundedReceiver<String>,
+    command_recv: UnboundedReceiver<Arc<str>>,
 
+    filewatcher: Option<FileWatcher>,
     filewatcher_send: UnboundedSender<FileWatcherCommand>,
-    filewatcher_recv: UnboundedReceiver<String>,
+    filewatcher_recv: UnboundedReceiver<Arc<str>>,
 
     message_recv: UnboundedReceiver<IOManagerMessage>,
     response_send: UnboundedSender<Vec<IOOutput>>,
@@ -87,23 +91,25 @@ pub struct IOManager {
 }
 
 impl IOManager {
-    pub async fn new(
+    pub fn new(
         log_file_path: PathBuf,
-        rcon_password: String,
+        rcon_password: Arc<str>,
         recv: UnboundedReceiver<IOManagerMessage>,
-    ) -> UnboundedReceiver<Vec<IOOutput>> {
+    ) -> (UnboundedReceiver<Vec<IOOutput>>, IOManager) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
         let (command_send, command_recv) = unbounded_channel();
-        let command_recv = CommandManager::new(rcon_password, command_recv).await;
+        let (command_recv, command_manager) = CommandManager::new(rcon_password, command_recv);
 
         let (filewatcher_send, filewatcher_recv) = unbounded_channel();
-        let filewatcher_recv = FileWatcher::new(log_file_path, filewatcher_recv).await;
+        let (filewatcher_recv, file_watcher) = FileWatcher::new(log_file_path, filewatcher_recv);
 
-        let mut inner = IOManager {
+        let inner = IOManager {
+            command: Some(command_manager),
             command_send,
             command_recv,
 
+            filewatcher: Some(file_watcher),
             filewatcher_send,
             filewatcher_recv,
 
@@ -120,14 +126,25 @@ impl IOManager {
             regex_playercount: Regex::new(REGEX_PLAYERCOUNT).expect("Compile static regex"),
         };
 
-        tokio::task::spawn(async move {
-            inner.io_loop().await;
-        });
-
-        resp_rx
+        (resp_rx, inner)
     }
 
-    async fn io_loop(&mut self) {
+    /// Start the IO manager loop. This will block until the channel is closed, so usually it should be spawned in a separate `tokio::task`
+    pub async fn io_loop(&mut self) {
+        // File watcher
+        let mut filewatcher = None;
+        std::mem::swap(&mut filewatcher, &mut self.filewatcher);
+        tokio::task::spawn(async move {
+            filewatcher.unwrap().file_watch_loop().await;
+        });
+
+        // Command manager
+        let mut command = None;
+        std::mem::swap(&mut command, &mut self.command);
+        tokio::task::spawn(async move {
+            command.unwrap().command_loop().await;
+        });
+
         loop {
             tokio::select! {
                 message = self.message_recv.recv() => {
@@ -165,7 +182,7 @@ impl IOManager {
         }
     }
 
-    fn read_command_response(&self, response: String) -> Vec<IOOutput> {
+    fn read_command_response(&self, response: Arc<str>) -> Vec<IOOutput> {
         let mut out = Vec::new();
 
         // Parse out anything from status

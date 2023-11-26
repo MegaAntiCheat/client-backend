@@ -21,7 +21,7 @@ use crate::player::PlayerState;
 */
 
 pub const REGEX_HOSTNAME: &str = r#"^hostname: (.*)$"#;
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Hostname(pub Arc<str>);
 impl Hostname {
     pub fn parse(caps: Captures) -> Hostname {
@@ -30,7 +30,7 @@ impl Hostname {
 }
 
 pub const REGEX_IP: &str = r#"^udp/ip  : (.*)$"#;
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ServerIP(pub Arc<str>);
 impl ServerIP {
     pub fn parse(caps: Captures) -> ServerIP {
@@ -39,7 +39,7 @@ impl ServerIP {
 }
 
 pub const REGEX_MAP: &str = r#"^map     : (.+) at: .*$"#;
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct Map(pub Arc<str>);
 impl Map {
     pub fn parse(caps: Captures) -> Map {
@@ -48,7 +48,7 @@ impl Map {
 }
 
 pub const REGEX_PLAYERCOUNT: &str = r#"^players : (\d+) humans, (\d+) bots \((\d+) max\)$"#;
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PlayerCount {
     pub players: u32,
     pub bots: u32,
@@ -74,7 +74,7 @@ impl PlayerCount {
 ///    2: Weapon
 ///    3: Crit?
 pub const REGEX_KILL: &str = r#"^(.*)\skilled\s(.*)\swith\s(.*)\.(\s\(crit\))?$"#;
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct PlayerKill {
     pub killer_name: Arc<str>,
     pub killer_steamid: Option<Arc<str>>,
@@ -103,19 +103,19 @@ impl PlayerKill {
 ///    1: Message
 pub const REGEX_CHAT: &str = r#"^(?:\*DEAD\*)?(?:\(TEAM\))?\s?(.*)\s:\s\s(.*)$"#;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ChatMessage {
-    pub player_name: String,
-    pub steamid: Option<String>,
-    pub message: String,
+    pub player_name: Arc<str>,
+    pub steamid: Option<Arc<str>>,
+    pub message: Arc<str>,
 }
 
 impl ChatMessage {
     pub fn parse(caps: Captures) -> ChatMessage {
         ChatMessage {
-            player_name: caps[1].to_string(),
+            player_name: caps[1].into(),
             steamid: None,
-            message: caps[2].to_string(),
+            message: caps[2].into(),
         }
     }
 }
@@ -126,10 +126,10 @@ impl ChatMessage {
 pub const REGEX_STATUS: &str =
     r#"^#\s*(\d+)\s"(.*)"\s+(\[U:\d:\d+\])\s+(\d*:?\d\d:\d\d)\s+(\d+)\s*(\d+)\s*(\w+).*$"#;
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct StatusLine {
-    pub userid: String,
-    pub name: String,
+    pub userid: Arc<str>,
+    pub name: Arc<str>,
     pub steamid: SteamID,
     pub time: u32,
     pub ping: u32,

@@ -206,7 +206,7 @@ impl Server {
         user: Option<SteamID>,
     ) -> Vec<SteamID> {
         let mut new_players = Vec::new();
-        let mut name_updates: Vec<(SteamID, String)> = Vec::new();
+        let mut name_updates: Vec<(SteamID, Arc<str>)> = Vec::new();
         for pl in players {
             if let Some(steamid) = pl.steamid {
                 // Update existing player

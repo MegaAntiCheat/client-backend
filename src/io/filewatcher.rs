@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use clap_lex::SeekFrom;
@@ -26,17 +26,17 @@ pub struct FileWatcher {
     open_file: Option<OpenFile>,
 
     request_recv: UnboundedReceiver<FileWatcherCommand>,
-    response_send: UnboundedSender<String>,
+    response_send: UnboundedSender<Arc<str>>,
 }
 
 impl FileWatcher {
-    pub async fn new(
+    pub fn new(
         path: PathBuf,
         recv: UnboundedReceiver<FileWatcherCommand>,
-    ) -> UnboundedReceiver<String> {
+    ) -> (UnboundedReceiver<Arc<str>>, FileWatcher) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
-        let mut file_watcher = FileWatcher {
+        let file_watcher = FileWatcher {
             file_path: path,
             open_file: None,
 
@@ -44,14 +44,11 @@ impl FileWatcher {
             response_send: resp_tx,
         };
 
-        tokio::task::spawn(async move {
-            file_watcher.file_watch_loop().await;
-        });
-
-        resp_rx
+        (resp_rx, file_watcher)
     }
 
-    async fn file_watch_loop(&mut self) {
+    /// Start the file watcher loop. This will block until the channel is closed, so usually it should be spawned in a separate `tokio::task`
+    pub async fn file_watch_loop(&mut self) {
         if let Err(e) = self.first_file_open().await {
             tracing::error!("Failed to open file {:?}: {:?}", &self.file_path, e);
             self.open_file = None;
@@ -164,9 +161,7 @@ impl FileWatcher {
             .lines()
             .filter(|x| !x.trim().is_empty())
             .for_each(|l| {
-                self.response_send
-                    .send(l.to_string())
-                    .expect("Main loop ded?");
+                self.response_send.send(l.into()).expect("Main loop ded?");
             });
 
         Ok(())

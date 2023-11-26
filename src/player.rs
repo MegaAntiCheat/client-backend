@@ -12,7 +12,7 @@ use crate::{
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Player {
-    pub name: String,
+    pub name: Arc<str>,
     #[serde(rename = "steamID64", serialize_with = "serialize_steamid_as_string")]
     pub steamid: SteamID,
     #[serde(rename = "isSelf")]
@@ -28,7 +28,7 @@ pub struct Player {
     pub local_verdict: Verdict,
     pub convicted: bool,
     #[serde(rename = "previousNames")]
-    pub previous_names: Vec<String>,
+    pub previous_names: Vec<Arc<str>>,
 }
 
 impl Player {
@@ -182,7 +182,7 @@ impl From<i32> for ProfileVisibility {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GameInfo {
-    pub userid: String,
+    pub userid: Arc<str>,
     pub team: Team,
     pub time: u32,
     pub ping: u32,

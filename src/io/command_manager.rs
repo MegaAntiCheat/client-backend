@@ -1,4 +1,4 @@
-use std::time::Duration;
+use std::{sync::Arc, time::Duration};
 
 use anyhow::{Context, Result};
 use rcon::Connection;
@@ -13,40 +13,37 @@ use super::Command;
 
 pub enum CommandManagerMessage {
     RunCommand(Command),
-    SetRconPassword(String),
+    SetRconPassword(Arc<str>),
 }
 
 pub struct CommandManager {
-    rcon_password: String,
+    rcon_password: Arc<str>,
     rcon: Option<Connection<TcpStream>>,
 
     request_recv: UnboundedReceiver<CommandManagerMessage>,
-    response_send: UnboundedSender<String>,
+    response_send: UnboundedSender<Arc<str>>,
 }
 
 #[allow(dead_code)]
 impl CommandManager {
-    pub async fn new(
-        rcon_password: String,
+    pub fn new(
+        rcon_password: Arc<str>,
         recv: UnboundedReceiver<CommandManagerMessage>,
-    ) -> UnboundedReceiver<String> {
+    ) -> (UnboundedReceiver<Arc<str>>, CommandManager) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
-        let mut inner = CommandManager {
+        let inner = CommandManager {
             rcon_password,
             rcon: None,
             request_recv: recv,
             response_send: resp_tx,
         };
 
-        tokio::task::spawn(async move {
-            inner.command_loop().await;
-        });
-
-        resp_rx
+        (resp_rx, inner)
     }
 
-    async fn command_loop(&mut self) {
+    /// Start the command manager loop. This will block until the channel is closed, so usually it should be spawned in a separate `tokio::task`
+    pub async fn command_loop(&mut self) {
         loop {
             match self.request_recv.recv().await.expect("IO loop ded") {
                 CommandManagerMessage::RunCommand(cmd) => {
@@ -82,7 +79,8 @@ impl CommandManager {
                 self.rcon = None;
                 e
             })
-            .context("Failed to run command")?;
+            .context("Failed to run command")?
+            .into();
 
         self.response_send
             .send(result)

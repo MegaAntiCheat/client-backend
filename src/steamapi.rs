@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use steamid_ng::SteamID;
@@ -11,7 +12,6 @@ use tappet::{
     Executor, SteamAPI,
 };
 
-use tokio::sync::mpsc::error::TryRecvError;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
@@ -22,150 +22,65 @@ use crate::player::{Friend, SteamInfo};
 const BATCH_INTERVAL: Duration = Duration::from_millis(500);
 const BATCH_SIZE: usize = 20; // adjust as needed
 
-enum SteamAPIRequest {
+#[derive(Clone, Debug)]
+pub enum SteamAPIMessage {
     Lookup(SteamID),
-    SetAPIKey(String),
+    SetAPIKey(Arc<str>),
 }
 
-/// A thread-safe and cloneable [UnboundedSender] which can be used to request Steam web API lookups of accounts.
-#[derive(Clone)]
-pub struct SteamAPISender {
-    sender: UnboundedSender<SteamAPIRequest>,
-}
-
-impl SteamAPISender {
-    pub fn request_lookup(&self, steamid: SteamID) {
-        self.sender
-            .send(SteamAPIRequest::Lookup(steamid))
-            .expect("API thread ded");
-    }
-
-    pub fn set_api_key(&self, api_key: String) {
-        self.sender
-            .send(SteamAPIRequest::SetAPIKey(api_key))
-            .expect("API thread ded");
-    }
-}
-
-/// [SteamAPIManager] provides an interface to asynchronously request lookups of steam accounts via the steam web API.
-/// Finished lookups can be received through [Self::next_response] and [Self::try_next_response].
 pub struct SteamAPIManager {
-    sender: UnboundedSender<SteamAPIRequest>,
-    receiver: UnboundedReceiver<(SteamID, SteamInfo)>,
-}
-
-impl SteamAPIManager {
-    /// Create a new [SteamAPIManager] which will handle Steam web API lookups using `api_key` in a
-    /// dedicated [tokio::task].
-    pub async fn new(api_key: String) -> SteamAPIManager {
-        let (req_tx, resp_rx) = SteamAPIManagerInner::new(api_key).await;
-
-        SteamAPIManager {
-            sender: req_tx,
-            receiver: resp_rx,
-        }
-    }
-
-    /// Get a copy of the [UnboundedSender] which can be used to request steam account lookups.
-    pub fn get_api_sender(&self) -> SteamAPISender {
-        SteamAPISender {
-            sender: self.sender.clone(),
-        }
-    }
-
-    /// Request that a particular steam account be looked up via the Steam web API. Eventually the result
-    /// of this lookup can be read with [Self::next_response] or [Self::try_next_response] if it was successful.
-    pub fn request_lookup(&self, steamid: SteamID) {
-        self.sender
-            .send(SteamAPIRequest::Lookup(steamid))
-            .expect("API thread ded");
-    }
-
-    /// Set the API key to be used for lookups
-    pub fn set_api_key(&self, api_key: String) {
-        self.sender
-            .send(SteamAPIRequest::SetAPIKey(api_key))
-            .expect("API thread ded");
-    }
-
-    /// Attempts to receive the next response. Returns [None] if there is none ready
-    pub fn try_next_response(&mut self) -> Option<(SteamID, SteamInfo)> {
-        match self.receiver.try_recv() {
-            Ok(response) => Some(response),
-            Err(TryRecvError::Empty) => None,
-            Err(TryRecvError::Disconnected) => panic!("Steam API loop ded"),
-        }
-    }
-
-    /// Receives the next response. Since this just reading from a [UnboundedReceiver]
-    /// it is cancellation safe.
-    pub async fn next_response(&mut self) -> (SteamID, SteamInfo) {
-        self.receiver.recv().await.expect("Steam API loop ded")
-    }
-}
-
-struct SteamAPIManagerInner {
     client: SteamAPI,
     batch_buffer: VecDeque<SteamID>,
-    batch_timer: tokio::time::Interval,
 
-    request_recv: UnboundedReceiver<SteamAPIRequest>,
+    request_recv: UnboundedReceiver<SteamAPIMessage>,
     response_send: UnboundedSender<(SteamID, SteamInfo)>,
 }
 
-impl SteamAPIManagerInner {
-    async fn new(
-        api_key: String,
-    ) -> (
-        UnboundedSender<SteamAPIRequest>,
-        UnboundedReceiver<(SteamID, SteamInfo)>,
-    ) {
-        let (req_tx, req_rx) = unbounded_channel();
+impl SteamAPIManager {
+    pub fn new(
+        api_key: Arc<str>,
+        recv: UnboundedReceiver<SteamAPIMessage>,
+    ) -> (UnboundedReceiver<(SteamID, SteamInfo)>, SteamAPIManager) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
-        let mut api_manager = SteamAPIManagerInner {
+        let api_manager = SteamAPIManager {
             client: SteamAPI::new(api_key),
             batch_buffer: VecDeque::with_capacity(BATCH_SIZE),
-            batch_timer: tokio::time::interval(BATCH_INTERVAL),
 
-            request_recv: req_rx,
+            request_recv: recv,
             response_send: resp_tx,
         };
-        api_manager
-            .batch_timer
-            .set_missed_tick_behavior(MissedTickBehavior::Delay);
 
-        tokio::task::spawn(async move {
-            api_manager.api_loop().await;
-        });
-
-        (req_tx, resp_rx)
+        (resp_rx, api_manager)
     }
 
-    fn set_api_key(&mut self, api_key: String) {
+    fn set_api_key(&mut self, api_key: Arc<str>) {
         self.client = SteamAPI::new(api_key);
     }
 
     /// Enter a loop to wait for steam lookup requests, make those requests from the Steam web API,
     /// and update the state to include that data. Intended to be run inside a new tokio::task
-    async fn api_loop(&mut self) {
+    pub async fn api_loop(&mut self) {
+        let mut batch_timer = tokio::time::interval(BATCH_INTERVAL);
+        batch_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
         loop {
             tokio::select! {
                 Some(request) = self.request_recv.recv() => {
                     match request {
-                        SteamAPIRequest::SetAPIKey(key) => {
+                        SteamAPIMessage::SetAPIKey(key) => {
                             self.set_api_key(key);
                         },
-                        SteamAPIRequest::Lookup(steamid) => {
+                        SteamAPIMessage::Lookup(steamid) => {
                             self.batch_buffer.push_back(steamid);
                             if self.batch_buffer.len() >= BATCH_SIZE {
                                 self.send_batch().await;
-                                self.batch_timer.reset();  // Reset the timer
+                                batch_timer.reset();  // Reset the timer
                             }
                         }
                     }
                 },
-                _ = self.batch_timer.tick() => {
+                _ = batch_timer.tick() => {
                     if !self.batch_buffer.is_empty() {
                         self.send_batch().await;
                     }

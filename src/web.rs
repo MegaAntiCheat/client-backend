@@ -25,7 +25,7 @@ use crate::{
     player_records::{PlayerRecord, Verdict},
     server::Server,
     settings::Settings,
-    steamapi::SteamAPISender,
+    steamapi::SteamAPIMessage,
 };
 
 const HEADERS: [(header::HeaderName, &str); 2] = [
@@ -37,7 +37,7 @@ const HEADERS: [(header::HeaderName, &str); 2] = [
 pub struct SharedState {
     pub ui: Option<&'static Dir<'static>>,
     pub io: UnboundedSender<IOManagerMessage>,
-    pub api: SteamAPISender,
+    pub api: UnboundedSender<SteamAPIMessage>,
     pub server: Arc<RwLock<Server>>,
     pub settings: Arc<RwLock<Settings>>,
 }
@@ -224,8 +224,8 @@ async fn get_prefs(State(state): AState) -> impl IntoResponse {
     let prefs = Preferences {
         internal: Some(InternalPreferences {
             tf2_directory: Some(settings.get_tf2_directory().to_string_lossy().into()),
-            rcon_password: Some(settings.get_rcon_password()),
-            steam_api_key: Some(settings.get_steam_api_key()),
+            rcon_password: Some(settings.get_rcon_password().into()),
+            steam_api_key: Some(settings.get_steam_api_key().into()),
         }),
         external: Some(settings.get_external_preferences().clone()),
     };
@@ -256,12 +256,15 @@ async fn put_prefs(State(state): AState, prefs: Json<Preferences>) -> impl IntoR
         if let Some(rcon_pwd) = internal.rcon_password {
             state
                 .io
-                .send(IOManagerMessage::SetRconPassword(rcon_pwd.to_string()))
+                .send(IOManagerMessage::SetRconPassword(rcon_pwd.clone()))
                 .unwrap();
             settings.set_rcon_password(rcon_pwd);
         }
         if let Some(steam_api_key) = internal.steam_api_key {
-            state.api.set_api_key(steam_api_key.to_string());
+            state
+                .api
+                .send(SteamAPIMessage::SetAPIKey(steam_api_key.clone()))
+                .unwrap();
             settings.set_steam_api_key(steam_api_key);
         }
     }

@@ -3,6 +3,7 @@ use std::{
     io::ErrorKind,
     ops::{Deref, DerefMut},
     path::PathBuf,
+    sync::Arc,
 };
 
 use anyhow::Context;
@@ -176,7 +177,7 @@ pub struct PlayerRecord {
     pub custom_data: serde_json::Value,
     pub verdict: Verdict,
     #[serde(default)]
-    pub previous_names: Vec<String>,
+    pub previous_names: Vec<Arc<str>>,
 }
 
 impl PlayerRecord {

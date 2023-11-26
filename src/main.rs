@@ -120,14 +120,16 @@ fn main() {
             let log_file_path: PathBuf =
                 PathBuf::from(settings.get_tf2_directory()).join("tf/console.log");
 
+            // IO Manager
             let (io_send, io_recv) = unbounded_channel();
-            let mut io_recv = IOManager::new(
-                log_file_path,
-                settings.get_rcon_password().to_string(),
-                io_recv,
-            )
-            .await;
+            let (mut io_recv, mut io_manager) =
+                IOManager::new(log_file_path, settings.get_rcon_password(), io_recv);
 
+            tokio::task::spawn(async move {
+                io_manager.io_loop().await;
+            });
+
+            // Autolaunch UI
             if args.autolaunch_ui || settings.get_autolaunch_ui() {
                 if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", port))) {
                     tracing::error!("Failed to open web browser: {:?}", e);
@@ -144,9 +146,14 @@ fn main() {
                 });
             }
 
+            // Steam API
             let mut server = Server::new(playerlist);
-            let mut steam_api =
-                SteamAPIManager::new(settings.get_steam_api_key().to_string()).await;
+            let (steam_api_send, steam_api_recv) = unbounded_channel();
+            let (mut steam_api_recv, mut steam_api) =
+                SteamAPIManager::new(settings.get_steam_api_key(), steam_api_recv);
+            tokio::task::spawn(async move {
+                steam_api.api_loop().await;
+            });
 
             // Request friends
             if let Some(user) = settings.get_steam_user() {
@@ -169,7 +176,7 @@ fn main() {
             let shared_state = SharedState {
                 ui: Some(&UI_DIR),
                 io: io_send.clone(),
-                api: steam_api.get_api_sender(),
+                api: steam_api_send.clone(),
                 server: server.clone(),
                 settings: settings.clone(),
             };
@@ -201,7 +208,7 @@ fn main() {
                     },
 
                     // Steam API responses
-                    (steamid, steaminfo) = steam_api.next_response() => {
+                    Some((steamid, steaminfo)) = steam_api_recv.recv() => {
                         server.write().unwrap().insert_steam_info(steamid, steaminfo);
                     }
 
@@ -220,7 +227,9 @@ fn main() {
 
                 // Request steam API stuff on new players and clear
                 for player in &new_players {
-                    steam_api.request_lookup(*player);
+                    steam_api_send
+                        .send(steamapi::SteamAPIMessage::Lookup(*player))
+                        .unwrap();
                 }
 
                 new_players.clear();

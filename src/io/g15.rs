@@ -1,6 +1,8 @@
 #![allow(non_upper_case_globals)]
 #![allow(unused_variables)]
 
+use std::sync::Arc;
+
 use anyhow::Result;
 use regex::{Captures, Regex};
 use steamid_ng::SteamID;
@@ -8,7 +10,7 @@ use thiserror::Error;
 
 use crate::player::Team;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum G15Error {
     /// Occurs when m_someArray\[X\] has some X greater than 33 (since these are static 34 element arrays)
     #[error("index provided from output of g15 command was invalid")]
@@ -52,7 +54,7 @@ pub(crate) fn parse_ammo(caps: Captures, players: &mut [G15Player]) -> Result<()
 pub(crate) const REGEX_SZ_NAME: &str = r#"^m_szName\[(\d+)\]\s+string\s+\((.+)\)$"#;
 pub(crate) fn parse_name(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
-    let name: String = caps[2].to_string();
+    let name = caps[2].into();
     let player_ref = players.get_mut(idx).ok_or(G15Error::IndexOutOfBounds)?;
     player_ref.name = Some(name);
     Ok(())
@@ -158,7 +160,7 @@ pub(crate) fn parse_valid(caps: Captures, players: &mut [G15Player]) -> Result<(
 pub(crate) const REGEX_I_USERID: &str = r#"^m_iUserID\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
 pub(crate) fn parse_userid(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
-    let userid = caps[2].to_string();
+    let userid = caps[2].into();
     let player_ref = players.get_mut(idx).ok_or(G15Error::IndexOutOfBounds)?;
     player_ref.userid = Some(userid);
     Ok(())
@@ -169,7 +171,7 @@ pub(crate) fn parse_userid(caps: Captures, players: &mut [G15Player]) -> Result<
 /// We still want the rest of the useful data though
 #[derive(Debug, Clone)]
 pub struct G15Player {
-    pub name: Option<String>,     // eg "Lilith"
+    pub name: Option<Arc<str>>,   // eg "Lilith"
     pub ping: Option<u32>,        // eg 21
     pub score: Option<u32>,       // eg 16
     pub deaths: Option<u32>,      // eg 5
@@ -180,7 +182,7 @@ pub struct G15Player {
     pub connected: Option<bool>,  // eg true
     pub valid: Option<bool>,      // eg true
     pub alive: Option<bool>,      // eg true
-    pub userid: Option<String>,   // eg "301"
+    pub userid: Option<Arc<str>>, // eg "301"
 }
 impl G15Player {
     fn new() -> G15Player {
