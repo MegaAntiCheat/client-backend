@@ -13,10 +13,10 @@ use tracing::Level;
 
 use crate::gamefinder::{locate_steam_launch_configs, TF2_GAME_ID};
 
-/// -condebug enables the console.log file to be written to by the game.
-/// -conclearlog clears the console.log file on launch of TF2
-/// -usercon allows local RCON to be used
-/// -g15 enables Logitech G15 keyboard support (used for the console command `g15_dumpplayer`)
+/// `-condebug` enables the console.log file to be written to by the game.
+/// `-conclearlog` clears the console.log file on launch of TF2
+/// `-usercon` allows local RCON to be used
+/// `-g15` enables Logitech G15 keyboard support (used for the console command `g15_dumpplayer`)
 pub const TF2_REQUIRED_OPTS: [&str; 4] = ["-condebug", "-conclearlog", "-usercon", "-g15"];
 
 /// Read the local steam library folders for data (stored in VDF/KeyValues format) on the configured launch options for the given app

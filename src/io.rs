@@ -18,7 +18,7 @@ use self::regexes::{
 pub mod command_manager;
 pub mod filewatcher;
 pub mod g15;
-pub mod regexes;
+pub(crate) mod regexes;
 
 // Enums
 
