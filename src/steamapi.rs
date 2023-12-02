@@ -135,9 +135,9 @@ async fn request_steam_info(
     Ok(steam_infos)
 }
 
-async fn request_player_summary(
+pub async fn request_player_summary(
     client: &mut SteamAPI,
-    players: &[SteamID],
+    players: &Vec<SteamID>,
 ) -> Result<Vec<PlayerSummary>> {
     let summaries = client
         .get()
