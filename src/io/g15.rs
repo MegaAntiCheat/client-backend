@@ -131,7 +131,7 @@ pub fn parse_health(caps: Captures, players: &mut [G15Player]) -> Result<()> {
 }
 
 /// `m_iAccountID[3] integer (1505713148)` --> capture groups: `(player idx)` `(variable component of a steamID3 ([U:1:1505713148]))`
-pub const REGEX_I_SID3: &str = r#"^m_iAccountID\[(\d+)\]\s+integer\s+\((\d\d\d\d+)\)$"#;
+pub const REGEX_I_SID3: &str = r#"^m_iAccountID\[(\d+)\]\s+integer\s+\((\d{4,})\)$"#;
 pub fn parse_sid3(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
     let sid3: u64 = caps[2].parse()?;
