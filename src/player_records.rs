@@ -1,5 +1,6 @@
 use std::{
     collections::{HashMap, VecDeque},
+    fmt::Display,
     io::ErrorKind,
     ops::{Deref, DerefMut},
     path::PathBuf,
@@ -225,6 +226,12 @@ pub enum Verdict {
     Suspicious,
     Cheater,
     Trusted,
+}
+
+impl Display for Verdict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 pub struct PlayerRecordLock<'a> {

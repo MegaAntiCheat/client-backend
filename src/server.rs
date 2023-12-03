@@ -156,6 +156,7 @@ impl Server {
         self.friends_list = friendslist;
     }
 
+    /// Retrieve the player history somewhere in the range 0..100
     pub fn get_player_history(&self, range: Range<usize>) -> Vec<&Player> {
         self.player_history
             .iter()
