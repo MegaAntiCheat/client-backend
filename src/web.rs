@@ -17,6 +17,7 @@ use axum::{
 use include_dir::{include_dir, Dir};
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
+use tappet::{response_types::PlayerSummary, SteamAPI};
 use tokio::sync::mpsc::Sender;
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
@@ -24,6 +25,7 @@ use crate::{
     io::Commands,
     player_records::{PlayerRecord, Verdict},
     state,
+    steamapi::request_player_summary,
 };
 
 const HEADERS: [(header::HeaderName, &str); 2] = [
@@ -133,11 +135,27 @@ struct UserRequest {
     users: Vec<u64>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct UserResponse {
+    users: Vec<PlayerSummary>,
+}
+
 /// Posts a list of SteamIDs to lookup, returns the players.
 async fn post_user(users: Json<UserRequest>) -> impl IntoResponse {
     tracing::debug!("Players requested: {:?}", users);
-    // TODO
-    (StatusCode::OK, HEADERS, "Not implemented".to_string())
+
+    let steam_ids: Vec<SteamID> = users.users.iter().map(|id| SteamID::from(*id)).collect();
+    let mut api: SteamAPI = SteamAPI::new("".to_string());
+
+    let player_summaries: Vec<PlayerSummary> =
+        match request_player_summary(&mut api, &steam_ids).await {
+            Ok(summaries) => summaries,
+            Err(e) => {
+                tracing::error!("Failed to get player summaries: {}", e);
+                return (StatusCode::INTERNAL_SERVER_ERROR, HEADERS, Json(vec![]));
+            }
+        };
+    return (StatusCode::OK, HEADERS, Json(player_summaries));
 }
 
 #[derive(Debug, Deserialize)]
@@ -294,10 +312,8 @@ async fn get_playerlist(State(state): AState) -> impl IntoResponse {
     (
         StatusCode::OK,
         HEADERS,
-        serde_json::to_string(
-            &state.server.read().get_player_records()
-        )
-        .expect("Serialize player records")
+        serde_json::to_string(&state.server.read().get_player_records())
+            .expect("Serialize player records"),
     )
 }
 // Commands
