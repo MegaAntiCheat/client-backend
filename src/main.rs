@@ -1,5 +1,6 @@
 use args::Args;
 use clap::Parser;
+use crate::player_records::Verdict;
 use include_dir::{include_dir, Dir};
 use player_records::PlayerRecords;
 use server::Server;
@@ -155,7 +156,7 @@ fn main() {
                 steam_api.api_loop().await;
             });
 
-            // Request friends
+            // Request friends of user
             if let Some(user) = settings.get_steam_user() {
                 let steam_api_key = settings.get_steam_api_key().to_string();
                 let mut client = SteamAPI::new(steam_api_key);
@@ -227,8 +228,13 @@ fn main() {
 
                 // Request steam API stuff on new players and clear
                 for player in &new_players {
+                    let verdict = server.read().unwrap()
+                        .get_player_record(*player)
+                        .map(|r| {
+                            r.verdict
+                        }).unwrap_or(Verdict::Player);
                     steam_api_send
-                        .send(steamapi::SteamAPIMessage::Lookup(*player))
+                        .send(steamapi::SteamAPIMessage::Lookup(*player, verdict))
                         .unwrap();
                 }
 

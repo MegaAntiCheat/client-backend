@@ -18,19 +18,20 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{Duration, MissedTickBehavior};
 
 use crate::player::{Friend, SteamInfo};
+use crate::player_records::Verdict;
 
 const BATCH_INTERVAL: Duration = Duration::from_millis(500);
 const BATCH_SIZE: usize = 20; // adjust as needed
 
 #[derive(Clone, Debug)]
 pub enum SteamAPIMessage {
-    Lookup(SteamID),
+    Lookup(SteamID, Verdict),
     SetAPIKey(Arc<str>),
 }
 
 pub struct SteamAPIManager {
     client: SteamAPI,
-    batch_buffer: VecDeque<SteamID>,
+    batch_buffer: VecDeque<(SteamID, Verdict)>,
 
     request_recv: UnboundedReceiver<SteamAPIMessage>,
     response_send: UnboundedSender<(SteamID, SteamInfo)>,
@@ -71,8 +72,8 @@ impl SteamAPIManager {
                         SteamAPIMessage::SetAPIKey(key) => {
                             self.set_api_key(key);
                         },
-                        SteamAPIMessage::Lookup(steamid) => {
-                            self.batch_buffer.push_back(steamid);
+                        SteamAPIMessage::Lookup(steamid, verdict) => {
+                            self.batch_buffer.push_back((steamid, verdict));
                             if self.batch_buffer.len() >= BATCH_SIZE {
                                 self.send_batch().await;
                                 batch_timer.reset();  // Reset the timer
@@ -108,26 +109,47 @@ impl SteamAPIManager {
 /// Make a request to the Steam web API for the chosen player and return the important steam info.
 async fn request_steam_info(
     client: &mut SteamAPI,
-    players: Vec<SteamID>,
+    players: Vec<(SteamID, Verdict)>,
 ) -> Result<Vec<(SteamID, SteamInfo)>> {
     tracing::debug!("Requesting steam accounts: {:?}", players);
 
-    let summaries = request_player_summary(client, &players).await?;
-    let bans = request_account_bans(client, &players).await?;
+    let playerids: Vec<SteamID> = players.iter().map(|p| {
+        p.0
+    }).collect();
 
-    // let friends = match request_account_friends(client, player).await {
-    //     Ok(friends) => friends,
-    //     Err(e) => {
-    //         if summary.communityvisibilitystate == 3 {
-    //             tracing::warn!(
-    //                 "Friends could not be retrieved from public profile {}: {:?}",
-    //                 u64::from(player),
-    //                 e
-    //             );
-    //         }
-    //         Vec::new()
-    //     }
-    // };
+    let summaries = request_player_summary(client, &playerids).await?;
+    let bans = request_account_bans(client, &playerids).await?;
+
+    let cheaters = players.iter()
+        .filter(|p| p.1 == Verdict::Cheater || p.1 == Verdict::Bot);
+    let non_cheaters = players.iter()
+        .filter(|p| p.1 != Verdict::Cheater && p.1 != Verdict::Bot);
+
+    // Get friends of cheaters
+    let mut checkall = false;
+    let mut friend_lists: Vec<(SteamID, Vec<Friend>)> = Vec::new();
+    for cheater in cheaters {
+        match request_account_friends(client, cheater.0).await {
+            Ok(friends) => {
+                friend_lists.push((cheater.0, friends));
+            }
+            Err(_) => {
+                checkall = true;
+            }
+        }
+    }
+    // A cheater's friend list is private, check all player's friends lists for cheaters.
+    if checkall {
+        for non_cheater in non_cheaters {
+            match request_account_friends(client, non_cheater.0).await {
+                Ok(friends) => {
+                    friend_lists.push((non_cheater.0, friends));
+                }
+                Err(_) => {}
+            }
+        }
+    }
+
     let id_to_summary: HashMap<_, _> = summaries
         .into_iter()
         .map(|summary| (summary.steamid.clone(), summary))
@@ -136,8 +158,11 @@ async fn request_steam_info(
         .into_iter()
         .map(|ban| (ban.steam_id.clone(), ban))
         .collect();
+    let id_to_friends: HashMap<_, _> = friend_lists
+        .into_iter()
+        .collect();
 
-    let steam_infos = players
+    let steam_infos = playerids
         .into_iter()
         .map(|player| {
             let id = format!("{}", u64::from(player));
@@ -147,7 +172,9 @@ async fn request_steam_info(
             let ban = id_to_ban
                 .get(&id)
                 .ok_or(anyhow!("Missing ban info for player {}", id))?;
-
+            let friends = id_to_friends
+                .get(&player)
+                .ok_or(anyhow!("Missing friend info for player {}", id))?;
             let steam_info = SteamInfo {
                 account_name: summary.personaname.clone().into(),
                 pfp_url: summary.avatarfull.clone().into(),
