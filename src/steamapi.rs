@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::collections::VecDeque;
+use std::sync::Arc;
 
 use anyhow::{anyhow, Context, Result};
 use steamid_ng::SteamID;
@@ -10,61 +11,96 @@ use tappet::{
     },
     Executor, SteamAPI,
 };
+
+use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{Duration, MissedTickBehavior};
 
-use crate::server::Server;
-use crate::state::Shared;
-use crate::{
-    player::{Friend, SteamInfo},
-    state::SharedState,
-};
+use crate::player::{Friend, SteamInfo};
 
 const BATCH_INTERVAL: Duration = Duration::from_millis(500);
 const BATCH_SIZE: usize = 20; // adjust as needed
 
-/// Enter a loop to wait for steam lookup requests, make those requests from the Steam web API,
-/// and update the state to include that data. Intended to be run inside a new tokio::task
-pub async fn steam_api_loop(state: SharedState, mut requests: UnboundedReceiver<SteamID>) {
-    tracing::debug!("Entering steam api request loop");
+#[derive(Clone, Debug)]
+pub enum SteamAPIMessage {
+    Lookup(SteamID),
+    SetAPIKey(Arc<str>),
+}
 
-    let mut client = SteamAPI::new(state.settings.read().get_steam_api_key());
-    let mut buffer: VecDeque<SteamID> = VecDeque::new();
-    let mut batch_timer = tokio::time::interval(BATCH_INTERVAL);
-    batch_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
+pub struct SteamAPIManager {
+    client: SteamAPI,
+    batch_buffer: VecDeque<SteamID>,
 
-    loop {
-        tokio::select! {
-            Some(request) = requests.recv() => {
-                buffer.push_back(request);
-                if buffer.len() >= BATCH_SIZE {
-                    send_batch(&state.server, &mut client, &mut buffer).await;
-                    batch_timer.reset();  // Reset the timer
-                }
-            },
-            _ = batch_timer.tick() => {
-                if !buffer.is_empty() {
-                    send_batch(&state.server, &mut client, &mut buffer).await;
+    request_recv: UnboundedReceiver<SteamAPIMessage>,
+    response_send: UnboundedSender<(SteamID, SteamInfo)>,
+}
+
+impl SteamAPIManager {
+    pub fn new(
+        api_key: Arc<str>,
+        recv: UnboundedReceiver<SteamAPIMessage>,
+    ) -> (UnboundedReceiver<(SteamID, SteamInfo)>, SteamAPIManager) {
+        let (resp_tx, resp_rx) = unbounded_channel();
+
+        let api_manager = SteamAPIManager {
+            client: SteamAPI::new(api_key),
+            batch_buffer: VecDeque::with_capacity(BATCH_SIZE),
+
+            request_recv: recv,
+            response_send: resp_tx,
+        };
+
+        (resp_rx, api_manager)
+    }
+
+    fn set_api_key(&mut self, api_key: Arc<str>) {
+        self.client = SteamAPI::new(api_key);
+    }
+
+    /// Enter a loop to wait for steam lookup requests, make those requests from the Steam web API,
+    /// and update the state to include that data. Intended to be run inside a new tokio::task
+    pub async fn api_loop(&mut self) {
+        let mut batch_timer = tokio::time::interval(BATCH_INTERVAL);
+        batch_timer.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
+        loop {
+            tokio::select! {
+                Some(request) = self.request_recv.recv() => {
+                    match request {
+                        SteamAPIMessage::SetAPIKey(key) => {
+                            self.set_api_key(key);
+                        },
+                        SteamAPIMessage::Lookup(steamid) => {
+                            self.batch_buffer.push_back(steamid);
+                            if self.batch_buffer.len() >= BATCH_SIZE {
+                                self.send_batch().await;
+                                batch_timer.reset();  // Reset the timer
+                            }
+                        }
+                    }
+                },
+                _ = batch_timer.tick() => {
+                    if !self.batch_buffer.is_empty() {
+                        self.send_batch().await;
+                    }
                 }
             }
         }
     }
-}
 
-async fn send_batch(
-    server: &Shared<Server>,
-    client: &mut SteamAPI,
-    buffer: &mut VecDeque<SteamID>,
-) {
-    match request_steam_info(client, buffer.drain(..).collect()).await {
-        Ok(steam_info_map) => {
-            let mut server = server.write();
-            for (id, steam_info) in steam_info_map {
-                server.insert_steam_info(id, steam_info);
+    async fn send_batch(&mut self) {
+        match request_steam_info(&mut self.client, self.batch_buffer.drain(..).collect()).await {
+            Ok(steam_info_map) => {
+                for response in steam_info_map {
+                    self.response_send
+                        .send(response)
+                        .expect("Lost connection to main thread.");
+                }
             }
-        }
-        Err(e) => {
-            tracing::error!("Failed to get player info from SteamAPI: {:?}", e);
+            Err(e) => {
+                tracing::error!("Failed to get player info from SteamAPI: {:?}", e);
+            }
         }
     }
 }

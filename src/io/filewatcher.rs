@@ -1,110 +1,169 @@
-#![allow(non_upper_case_globals)]
-#![allow(unused_variables)]
+use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use std::{
-    collections::VecDeque,
+use anyhow::{anyhow, Context, Result};
+use clap_lex::SeekFrom;
+use tokio::{
     fs::{File, OpenOptions},
-    io::{Read, Seek, SeekFrom},
-    path::PathBuf,
+    io::{AsyncReadExt, AsyncSeekExt},
+    sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
 
-use anyhow::{Context, Result};
+pub enum FileWatcherCommand {
+    SetWatchedFile(PathBuf),
+}
+
+struct OpenFile {
+    /// Size of the file (in bytes) when it was last read
+    pub last_size: u64,
+    /// The file being watched
+    pub file: File,
+}
 
 pub struct FileWatcher {
     /// Used to reopen the file for the next bulk read
     file_path: PathBuf,
-    /// Data from last file read, split on 0xA <u8> bytes
-    lines_buf: VecDeque<String>,
-    /// Size of the file (in bytes) when it was last read
-    last_size: usize,
-    /// The file being watched
-    file: File,
+    /// The file currently being watched
+    open_file: Option<OpenFile>,
+
+    request_recv: UnboundedReceiver<FileWatcherCommand>,
+    response_send: UnboundedSender<Arc<str>>,
 }
 
 impl FileWatcher {
-    pub fn new(path: PathBuf) -> Result<FileWatcher> {
-        let mut file = OpenOptions::new()
-            .read(true)
-            .write(false)
-            .open(&path)
-            .context("Failed to open file to watch.")?;
-        file.seek(SeekFrom::End(0))?;
-        let meta = file
-            .metadata()
-            .context("File didn't have metadata associated")?;
-        let last = meta.len();
-        Ok(FileWatcher {
+    pub fn new(
+        path: PathBuf,
+        recv: UnboundedReceiver<FileWatcherCommand>,
+    ) -> (UnboundedReceiver<Arc<str>>, FileWatcher) {
+        let (resp_tx, resp_rx) = unbounded_channel();
+
+        let file_watcher = FileWatcher {
             file_path: path,
-            lines_buf: VecDeque::new(),
-            last_size: last as usize,
-            file,
-        })
+            open_file: None,
+
+            request_recv: recv,
+            response_send: resp_tx,
+        };
+
+        (resp_rx, file_watcher)
     }
 
-    /// Attempts to read the new contents of the observed file and updates the internal state
-    /// with any new lines that have been appended since last call.
-    fn read_new_file_lines(&mut self) -> Result<()> {
-        let meta =
-            std::fs::metadata(&self.file_path).context("Failed to fetch metadata for log file.")?;
-
-        // No new data
-        if meta.len() as usize == self.last_size || meta.len() == 0 {
-            return Ok(());
+    /// Start the file watcher loop. This will block until the channel is closed, so usually it should be spawned in a separate `tokio::task`
+    pub async fn file_watch_loop(&mut self) {
+        if let Err(e) = self.first_file_open().await {
+            tracing::error!("Failed to open file {:?}: {:?}", &self.file_path, e);
+            self.open_file = None;
         }
 
-        // Reset if file has been remade (i.e. is shorter) and update state
-        if (meta.len() as usize) < self.last_size {
-            tracing::warn!("File has shortened, the file may have been replaced. Reopening.");
-            self.file = OpenOptions::new()
-                .read(true)
-                .write(false)
-                .open(&self.file_path)
-                .context("Failed to reopen file after it was shortened.")?;
-            self.last_size = 0;
+        loop {
+            match self.request_recv.try_recv() {
+                Ok(FileWatcherCommand::SetWatchedFile(new_path)) => {
+                    self.file_path = new_path;
+                    if let Err(e) = self.reopen_file().await {
+                        tracing::error!("Failed to open new file {:?}: {:?}", self.file_path, e);
+                    }
+                }
+                Err(TryRecvError::Empty) => {}
+                Err(TryRecvError::Disconnected) => {
+                    tracing::error!("Lost connection to main thread. Shutting down.");
+                    break;
+                }
+            }
+
+            match self.open_file {
+                Some(_) => {
+                    self.read_new_file_lines().await.ok();
+                }
+                None => {
+                    self.reopen_file().await.ok();
+                }
+            }
+
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
+    }
 
-        // Get new file contents
-        let mut buff: Vec<u8> = Vec::new();
-        let read_size = self
-            .file
-            .read_to_end(&mut buff)
-            .context("Failed to read file.")?;
-
-        self.last_size += read_size;
-
-        // If we expected there to be new data but we didn't read anything, reopen the file and try again.
-        if read_size == 0 {
-            tracing::warn!("Expected to read bytes but didn't get any, the file may have been replaced. Reopening.");
-            self.file = OpenOptions::new()
-                .read(true)
-                .write(false)
-                .open(&self.file_path)
-                .context("Failed to reopen file after not receiving any data.")?;
-            buff.clear();
-            self.last_size = self
-                .file
-                .read_to_end(&mut buff)
-                .context("Failed to read file.")?;
-        }
-
-        let data_str = String::from_utf8_lossy(&buff);
-        self.lines_buf.extend(
-            data_str
-                .lines()
-                .filter(|x| !x.trim().is_empty())
-                .map(str::to_string),
-        );
+    async fn first_file_open(&mut self) -> Result<()> {
+        let open_file = self.reopen_file().await?;
+        let meta = open_file.file.metadata().await?;
+        open_file.file.seek(SeekFrom::Start(meta.len())).await?;
+        open_file.last_size = meta.len();
 
         Ok(())
     }
 
-    /// Return the next
-    pub fn get_line(&mut self) -> Result<Option<String>> {
-        if self.lines_buf.is_empty() {
-            self.read_new_file_lines()
-                .context("Failed to read new file lines.")?
+    async fn reopen_file(&mut self) -> tokio::io::Result<&mut OpenFile> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(false)
+            .open(&self.file_path)
+            .await?;
+
+        self.open_file = Some(OpenFile { last_size: 0, file });
+
+        Ok(self.open_file.as_mut().unwrap())
+    }
+
+    /// Attempts to read the new contents of the observed file and updates the internal state
+    /// with any new lines that have been appended since last call.
+    async fn read_new_file_lines(&mut self) -> Result<()> {
+        if self.open_file.is_none() {
+            return Err(anyhow!(
+                "read_new_file_lines wasn't meant to be called when self.file is None"
+            ));
+        }
+        let mut file = self.open_file.as_mut().unwrap();
+
+        let meta =
+            std::fs::metadata(&self.file_path).context("Failed to fetch metadata for log file.")?;
+
+        // No new data
+        if meta.len() == file.last_size || meta.len() == 0 {
+            return Ok(());
         }
 
-        Ok(self.lines_buf.pop_front())
+        // Reset if file has been remade (i.e. is shorter) and update state
+        if meta.len() < file.last_size {
+            tracing::warn!("File has shortened, the file may have been replaced. Reopening.");
+            file = self
+                .reopen_file()
+                .await
+                .context("Failed to reopen file after it was shortened.")?;
+        }
+
+        // Get new file contents
+        let mut buff: Vec<u8> = Vec::new();
+        let read_size = file
+            .file
+            .read_to_end(&mut buff)
+            .await
+            .context("Failed to read file.")?;
+
+        file.last_size += read_size as u64;
+
+        // If we expected there to be new data but we didn't read anything, reopen the file and try again.
+        if read_size == 0 {
+            tracing::warn!("Expected to read bytes but didn't get any, the file may have been replaced. Reopening.");
+            file = self
+                .reopen_file()
+                .await
+                .context("Failed to reopen file after not receiving any data.")?;
+            buff.clear();
+            file.last_size = file
+                .file
+                .read_to_end(&mut buff)
+                .await
+                .context("Failed to read file.")? as u64;
+        }
+
+        // Send newly read lines over channel
+        let data_str = String::from_utf8_lossy(&buff);
+        data_str
+            .lines()
+            .filter(|x| !x.trim().is_empty())
+            .for_each(|l| {
+                self.response_send.send(l.into()).expect("Main loop ded?");
+            });
+
+        Ok(())
     }
 }

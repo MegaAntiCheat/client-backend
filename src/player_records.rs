@@ -1,7 +1,10 @@
 use std::{
     collections::{HashMap, VecDeque},
+    fmt::Display,
+    io::ErrorKind,
     ops::{Deref, DerefMut},
     path::PathBuf,
+    sync::Arc,
 };
 
 use anyhow::Context;
@@ -10,6 +13,7 @@ use serde_json::Map;
 use steamid_ng::SteamID;
 
 use crate::{
+    args::Args,
     player::Player,
     settings::{ConfigFilesError, Settings},
 };
@@ -24,7 +28,50 @@ pub struct PlayerRecords {
 }
 
 impl PlayerRecords {
-    /// Attempt to load the [Playerlist] from the provided file
+    /// Attempts to load the playerlist from the overriden (if provided in [Args]) or default location.
+    /// If it cannot be found, then a new one is created at the location.
+    ///
+    /// **Panics**:
+    /// This function can panic if the playerlist file was provided but could not be parsed, or another
+    /// unexpected error occurred to prevent data loss.
+    pub fn load_or_create(args: &Args) -> PlayerRecords {
+        // Playerlist
+        let playerlist_path: PathBuf = args
+        .playerlist
+        .as_ref()
+        .map(|i| Ok(i.into()))
+        .unwrap_or(PlayerRecords::locate_playerlist_file()).map_err(|e| {
+            tracing::error!("Could not find a suitable location for the playerlist: {} \nPlease specify a file path manually with --playerlist otherwise information may not be saved.", e); 
+        }).unwrap_or(PathBuf::from("playerlist.json"));
+
+        let playerlist = match PlayerRecords::load_from(playerlist_path) {
+            Ok(playerlist) => playerlist,
+            Err(ConfigFilesError::Json(path, e)) => {
+                tracing::error!("{} could not be loaded: {:?}", path, e);
+                tracing::error!(
+                    "Please resolve any issues or remove the file, otherwise data may be lost."
+                );
+                panic!("Failed to load playerlist")
+            }
+            Err(ConfigFilesError::IO(path, e)) if e.kind() == ErrorKind::NotFound => {
+                tracing::warn!("Could not locate {}, creating new playerlist.", &path);
+                let mut playerlist = PlayerRecords::default();
+                playerlist.set_path(path.into());
+                playerlist
+            }
+            Err(e) => {
+                tracing::error!("Could not load playerlist: {:?}", e);
+                tracing::error!(
+                    "Please resolve any issues or remove the file, otherwise data may be lost."
+                );
+                panic!("Failed to load playerlist")
+            }
+        };
+
+        playerlist
+    }
+
+    /// Attempt to load the [PlayerRecords] from the provided file
     pub fn load_from(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
         let contents = std::fs::read_to_string(&path)
             .map_err(|e| ConfigFilesError::IO(path.to_string_lossy().into(), e))?;
@@ -49,7 +96,7 @@ impl PlayerRecords {
         Ok(playerlist)
     }
 
-    /// Attempt to save the [Playerlist] to the file it was loaded from
+    /// Attempt to save the [PlayerRecords] to the file it was loaded from
     pub fn save(&self) -> Result<(), ConfigFilesError> {
         let contents = serde_json::to_string(self).context("Failed to serialize playerlist.")?;
         std::fs::write(&self.path, contents)
@@ -57,7 +104,7 @@ impl PlayerRecords {
         Ok(())
     }
 
-    /// Attempt to save the [Playerlist], log errors and ignore result
+    /// Attempt to save the [PlayerRecords], log errors and ignore result
     pub fn save_ok(&self) {
         if let Err(e) = self.save() {
             tracing::error!("Failed to save playerlist: {:?}", e);
@@ -131,7 +178,7 @@ pub struct PlayerRecord {
     pub custom_data: serde_json::Value,
     pub verdict: Verdict,
     #[serde(default)]
-    pub previous_names: Vec<String>,
+    pub previous_names: Vec<Arc<str>>,
 }
 
 impl PlayerRecord {
@@ -179,6 +226,12 @@ pub enum Verdict {
     Suspicious,
     Cheater,
     Trusted,
+}
+
+impl Display for Verdict {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
 }
 
 pub struct PlayerRecordLock<'a> {

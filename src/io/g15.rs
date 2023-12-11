@@ -1,6 +1,8 @@
 #![allow(non_upper_case_globals)]
 #![allow(unused_variables)]
 
+use std::sync::Arc;
+
 use anyhow::Result;
 use regex::{Captures, Regex};
 use steamid_ng::SteamID;
@@ -8,9 +10,9 @@ use thiserror::Error;
 
 use crate::player::Team;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Error, Clone)]
 pub enum G15Error {
-    /// Occurs when m_someArray[X] has some X greater than 33 (since these are static 34 element arrays)
+    /// Occurs when m_someArray\[X\] has some X greater than 33 (since these are static 34 element arrays)
     #[error("index provided from output of g15 command was invalid")]
     IndexOutOfBounds,
 }
@@ -23,7 +25,7 @@ const MAX_POSSIBLE_PLAYERS: u8 = 100;
 
 /// A RegMatch struct contains a Regex and the corresponding function to add the result to the G15Player vec
 /// if the regex results in a match.
-pub struct RegMatch(
+pub(crate) struct RegMatch(
     Regex,
     fn(caps: Captures, players: &mut [G15Player]) -> Result<()>,
 );
@@ -39,8 +41,8 @@ impl RegMatch {
 }
 
 /// `m_iAmmo[1] integer (32)` --> capture groups: `(player idx)` `(ammo count)`
-pub const REGEX_I_AMMO: &str = r#"^m_iAmmo\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
-pub fn parse_ammo(caps: Captures, players: &mut [G15Player]) -> Result<()> {
+pub(crate) const REGEX_I_AMMO: &str = r#"^m_iAmmo\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
+pub(crate) fn parse_ammo(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
     let ammo: u32 = caps[2].parse()?;
     let player_ref = players.get_mut(idx).ok_or(G15Error::IndexOutOfBounds)?;
@@ -49,18 +51,18 @@ pub fn parse_ammo(caps: Captures, players: &mut [G15Player]) -> Result<()> {
 }
 
 /// `m_szName[1] string (Lust)` --> capture groups: `(player idx)` `(string name)`
-pub const REGEX_SZ_NAME: &str = r#"^m_szName\[(\d+)\]\s+string\s+\((.+)\)$"#;
-pub fn parse_name(caps: Captures, players: &mut [G15Player]) -> Result<()> {
+pub(crate) const REGEX_SZ_NAME: &str = r#"^m_szName\[(\d+)\]\s+string\s+\((.+)\)$"#;
+pub(crate) fn parse_name(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
-    let name: String = caps[2].to_string();
+    let name = caps[2].into();
     let player_ref = players.get_mut(idx).ok_or(G15Error::IndexOutOfBounds)?;
     player_ref.name = Some(name);
     Ok(())
 }
 
 /// `m_iPing[2] integer (15)` --> capture groups: `(player idx)` `(ping in ms)`
-pub const REGEX_I_PING: &str = r#"^m_iPing\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
-pub fn parse_ping(caps: Captures, players: &mut [G15Player]) -> Result<()> {
+pub(crate) const REGEX_I_PING: &str = r#"^m_iPing\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
+pub(crate) fn parse_ping(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
     let ping: u32 = caps[2].parse()?;
     let player_ref = players.get_mut(idx).ok_or(G15Error::IndexOutOfBounds)?;
@@ -69,8 +71,8 @@ pub fn parse_ping(caps: Captures, players: &mut [G15Player]) -> Result<()> {
 }
 
 /// `m_iScore[4] integer (7)` --> capture groups: `(player idx)` `(score (num of kills))`
-pub const REGEX_I_SCORE: &str = r#"^m_iScore\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
-pub fn parse_score(caps: Captures, players: &mut [G15Player]) -> Result<()> {
+pub(crate) const REGEX_I_SCORE: &str = r#"^m_iScore\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
+pub(crate) fn parse_score(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
     let score: u32 = caps[2].parse()?;
     let player_ref = players.get_mut(idx).ok_or(G15Error::IndexOutOfBounds)?;
@@ -79,8 +81,8 @@ pub fn parse_score(caps: Captures, players: &mut [G15Player]) -> Result<()> {
 }
 
 /// `m_iDeaths[17] integer (4)` --> capture groups: `(player idx)` `(deaths)`
-pub const REGEX_I_DEATHS: &str = r#"^m_iDeaths\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
-pub fn parse_deaths(caps: Captures, players: &mut [G15Player]) -> Result<()> {
+pub(crate) const REGEX_I_DEATHS: &str = r#"^m_iDeaths\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
+pub(crate) fn parse_deaths(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
     let deaths: u32 = caps[2].parse()?;
     let player_ref = players.get_mut(idx).ok_or(G15Error::IndexOutOfBounds)?;
@@ -89,8 +91,8 @@ pub fn parse_deaths(caps: Captures, players: &mut [G15Player]) -> Result<()> {
 }
 
 /// `m_bConnected[0] bool (false)` --> capture groups:  `(player idx)` `(connected status (true/false))`
-pub const REGEX_B_CONNECTED: &str = r#"^m_bConnected\[(\d+)\]\s+bool\s+\((false|true)\)$"#;
-pub fn parse_connected(caps: Captures, players: &mut [G15Player]) -> Result<()> {
+pub(crate) const REGEX_B_CONNECTED: &str = r#"^m_bConnected\[(\d+)\]\s+bool\s+\((false|true)\)$"#;
+pub(crate) fn parse_connected(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
     let connected_str = &caps[2];
     let truth_value = matches!(connected_str, "true");
@@ -100,8 +102,8 @@ pub fn parse_connected(caps: Captures, players: &mut [G15Player]) -> Result<()> 
 }
 
 /// `m_iTeam[18] integer (3)` --> capture groups: `(player idx)` `(team (0=unconnected, 1=spectator, 2=blu, 3=red))`
-pub const REGEX_I_TEAM: &str = r#"^m_iTeam\[(\d+)\]\s+integer\s+\(([0-3])\)$"#;
-pub fn parse_team(caps: Captures, players: &mut [G15Player]) -> Result<()> {
+pub(crate) const REGEX_I_TEAM: &str = r#"^m_iTeam\[(\d+)\]\s+integer\s+\(([0-3])\)$"#;
+pub(crate) fn parse_team(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
     let team: u32 = caps[2].parse()?;
     let player_ref = players.get_mut(idx).ok_or(G15Error::IndexOutOfBounds)?;
@@ -110,8 +112,8 @@ pub fn parse_team(caps: Captures, players: &mut [G15Player]) -> Result<()> {
 }
 
 /// `m_bAlive[0] bool (false)` --> capture groups: `(player idx)` `(alive status (true/false))`
-pub const REGEX_B_ALIVE: &str = r#"^m_bAlive\[(\d+)\]\s+bool\s+\((false|true)\)$"#;
-pub fn parse_alive(caps: Captures, players: &mut [G15Player]) -> Result<()> {
+pub(crate) const REGEX_B_ALIVE: &str = r#"^m_bAlive\[(\d+)\]\s+bool\s+\((false|true)\)$"#;
+pub(crate) fn parse_alive(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
     let alive_str = &caps[2];
     let truth_value = matches!(alive_str, "true");
@@ -121,8 +123,8 @@ pub fn parse_alive(caps: Captures, players: &mut [G15Player]) -> Result<()> {
 }
 
 /// `m_iHealth[3] integer (125)` --> capture groups: `(player idx)` `(current health)`
-pub const REGEX_I_HEALTH: &str = r#"^m_iHealth\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
-pub fn parse_health(caps: Captures, players: &mut [G15Player]) -> Result<()> {
+pub(crate) const REGEX_I_HEALTH: &str = r#"^m_iHealth\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
+pub(crate) fn parse_health(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
     let health: u32 = caps[2].parse()?;
     let player_ref = players.get_mut(idx).ok_or(G15Error::IndexOutOfBounds)?;
@@ -131,8 +133,8 @@ pub fn parse_health(caps: Captures, players: &mut [G15Player]) -> Result<()> {
 }
 
 /// `m_iAccountID[3] integer (1505713148)` --> capture groups: `(player idx)` `(variable component of a steamID3 ([U:1:1505713148]))`
-pub const REGEX_I_SID3: &str = r#"^m_iAccountID\[(\d+)\]\s+integer\s+\((\d{4,})\)$"#;
-pub fn parse_sid3(caps: Captures, players: &mut [G15Player]) -> Result<()> {
+pub(crate) const REGEX_I_SID3: &str = r#"^m_iAccountID\[(\d+)\]\s+integer\s+\((\d{4,})\)$"#;
+pub(crate) fn parse_sid3(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
     let sid3: u64 = caps[2].parse()?;
     let steamid = SteamID::from_steam3(&format!("[U:1:{}]", sid3))?;
@@ -144,8 +146,8 @@ pub fn parse_sid3(caps: Captures, players: &mut [G15Player]) -> Result<()> {
 /// `m_bValid[24] bool (true)` --> capture groups: `(player idx)` `(valid status (true/false))`
 /// I'm not sure what valid means - perhaps to with whether this is a current/in-game player idx
 /// and to display this row in the scoreboard or not? Can someone look pls
-pub const REGEX_B_VALID: &str = r#"^m_bValid\[(\d+)\]\s+bool\s+\((false|true)\)$"#;
-pub fn parse_valid(caps: Captures, players: &mut [G15Player]) -> Result<()> {
+pub(crate) const REGEX_B_VALID: &str = r#"^m_bValid\[(\d+)\]\s+bool\s+\((false|true)\)$"#;
+pub(crate) fn parse_valid(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
     let valid_str: &str = &caps[2];
     let truth_value: bool = matches!(valid_str, "true");
@@ -155,21 +157,21 @@ pub fn parse_valid(caps: Captures, players: &mut [G15Player]) -> Result<()> {
 }
 
 /// `m_iUserID[2] integer (68)` --> capture groups: `(player idx)` `(server id (as it appears in status))`
-pub const REGEX_I_USERID: &str = r#"^m_iUserID\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
-pub fn parse_userid(caps: Captures, players: &mut [G15Player]) -> Result<()> {
+pub(crate) const REGEX_I_USERID: &str = r#"^m_iUserID\[(\d+)\]\s+integer\s+\((\d+)\)$"#;
+pub(crate) fn parse_userid(caps: Captures, players: &mut [G15Player]) -> Result<()> {
     let idx: usize = caps[1].parse()?;
-    let userid = caps[2].to_string();
+    let userid = caps[2].into();
     let player_ref = players.get_mut(idx).ok_or(G15Error::IndexOutOfBounds)?;
     player_ref.userid = Some(userid);
     Ok(())
 }
 
 /// The G15Player struct contains all the data per player searched.
-/// Each of the elements may be Null, as the parsing could fail on a particular line, leaving the value undefined.
+/// Each of the elements may be None, as the parsing could fail on a particular line, leaving the value undefined.
 /// We still want the rest of the useful data though
 #[derive(Debug, Clone)]
 pub struct G15Player {
-    pub name: Option<String>,     // eg "Lilith"
+    pub name: Option<Arc<str>>,   // eg "Lilith"
     pub ping: Option<u32>,        // eg 21
     pub score: Option<u32>,       // eg 16
     pub deaths: Option<u32>,      // eg 5
@@ -180,10 +182,10 @@ pub struct G15Player {
     pub connected: Option<bool>,  // eg true
     pub valid: Option<bool>,      // eg true
     pub alive: Option<bool>,      // eg true
-    pub userid: Option<String>,   // eg "301"
+    pub userid: Option<Arc<str>>, // eg "301"
 }
 impl G15Player {
-    pub fn new() -> G15Player {
+    fn new() -> G15Player {
         G15Player {
             name: None,
             ping: None,
@@ -209,7 +211,7 @@ impl Default for G15Player {
 /// The G15Parser struct contains a vector of compiled Regex automata to parse strings out of
 /// the g15_dumpplayer console output.
 /// It implements a `parse_g15` fn to use these to parse useful player data from the output.
-pub struct G15Parser {
+pub(crate) struct G15Parser {
     patterns: Vec<RegMatch>,
 }
 impl G15Parser {
