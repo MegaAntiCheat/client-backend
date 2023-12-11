@@ -15,22 +15,22 @@ use tf_demo_parser::demo::packet::message::MessagePacket;
 use tf_demo_parser::demo::packet::Packet;
 use tf_demo_parser::demo::parser::{DemoHandler, NullHandler, RawPacketStream};
 
-pub struct DemoManager<'a> {
-    previous_demos: Vec<OpenDemo<'a>>,
-    current_demo: Option<OpenDemo<'a>>,
+pub struct DemoManager {
+    previous_demos: Vec<OpenDemo>,
+    current_demo: Option<OpenDemo>,
 }
 
-pub struct OpenDemo<'a> {
+pub struct OpenDemo {
     pub file_path: PathBuf,
     pub header: Option<Header>,
-    pub handler: DemoHandler<'a, NullHandler>,
+    pub handler: DemoHandler<NullHandler>,
     pub bytes: Vec<u8>,
     pub offset: usize,
 }
 
-impl<'a> DemoManager<'a> {
+impl DemoManager {
     /// Create a new DemoManager
-    pub fn new() -> DemoManager<'a> {
+    pub fn new() -> DemoManager {
         DemoManager {
             previous_demos: Vec::new(),
             current_demo: None,
@@ -69,7 +69,7 @@ impl<'a> DemoManager<'a> {
     }
 }
 
-impl<'a> OpenDemo<'a> {
+impl OpenDemo {
     /// Append the provided bytes to the current demo being watched, and handle any packets
     pub fn read_next_bytes(&mut self) -> Result<()> {
         let current_metadata = metadata(&self.file_path).context("Couldn't read demo metadata")?;
@@ -131,7 +131,7 @@ impl<'a> OpenDemo<'a> {
                 Ok(Some(packet)) => {
                     // SAFETY: It's borrowing from the stream which is borrowing from self.bytes.
                     // self.bytes is never modified, only appended to so the data should still be valid.
-                    let packet: Packet<'static> = unsafe { std::mem::transmute(packet) };
+                    // let packet: Packet<'static> = unsafe { std::mem::transmute(packet) };
                     self.handle_packet(&packet);
                     self.handler.handle_packet(packet).unwrap();
                     self.offset = packets.pos();
