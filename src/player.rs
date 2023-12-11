@@ -29,6 +29,9 @@ pub struct Player {
     pub convicted: bool,
     #[serde(rename = "previousNames")]
     pub previous_names: Vec<Arc<str>>,
+    pub friends: Vec<Friend>,
+    #[serde(rename = "friendsIsPublic")]
+    pub friends_is_public: Option<bool>,
 }
 
 impl Player {
@@ -45,6 +48,8 @@ impl Player {
             local_verdict: Verdict::Player,
             convicted: false,
             previous_names: Vec::new(),
+            friends: Vec::new(),
+            friends_is_public: None,
         }
     }
 
@@ -64,6 +69,8 @@ impl Player {
             local_verdict: Verdict::Player,
             convicted: false,
             previous_names: Vec::new(),
+            friends: Vec::new(),
+            friends_is_public: None,
         })
     }
 
@@ -77,6 +84,25 @@ impl Player {
         self.custom_data = record.custom_data;
         self.local_verdict = record.verdict;
         self.previous_names = record.previous_names;
+    }
+
+    pub fn update_friends(&mut self, friends: Vec<Friend>, is_public: Option<bool>, userid: Option<SteamID>) {
+        self.friends = friends;
+        self.friends_is_public = is_public;
+        if userid.is_some() {
+            let userid = userid.unwrap();
+            let is_friends_with_user = self.friends.iter().any(|f| f.steamid == userid);
+            let has_friend_tag = self.tags.iter().any(|t| &*t.as_ref() == "Friend");
+            
+            if is_friends_with_user && !has_friend_tag {
+                self.tags.push(Arc::from("Friend"));
+            } else if !is_friends_with_user && has_friend_tag {
+                let i = self.tags.iter().position(|t| &*t.as_ref() == "Friend");
+                if i.is_some() {
+                    self.tags.remove(i.unwrap());
+                }
+            }
+        }
     }
 
     /// Create a record from the current player
@@ -145,7 +171,6 @@ pub struct SteamInfo {
     pub profile_visibility: ProfileVisibility,
     pub time_created: Option<i64>,
     pub country_code: Option<Arc<str>>,
-
     pub vac_bans: i64,
     pub game_bans: i64,
     pub days_since_last_ban: Option<i64>,
@@ -154,7 +179,7 @@ pub struct SteamInfo {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Friend {
-    #[serde(rename = "steamID64")]
+    #[serde(rename = "steamID64", serialize_with = "serialize_steamid_as_string")]
     pub steamid: SteamID,
     #[serde(rename = "friendSince")]
     pub friend_since: u64,
