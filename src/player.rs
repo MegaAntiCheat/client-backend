@@ -97,6 +97,7 @@ impl Player {
 pub enum PlayerState {
     Active,
     Spawning,
+    Disconnected,
 }
 
 // Team
@@ -190,8 +191,6 @@ pub struct GameInfo {
     pub state: PlayerState,
     pub kills: u32,
     pub deaths: u32,
-    pub disconnected: bool,
-
     #[serde(skip)]
     /// How many cycles has passed since the player has been seen
     last_seen: u32,
@@ -208,7 +207,6 @@ impl GameInfo {
             state: PlayerState::Active,
             kills: g15.score.unwrap_or(0),
             deaths: g15.deaths.unwrap_or(0),
-            disconnected: false,
             last_seen: 0,
         })
     }
@@ -223,8 +221,6 @@ impl GameInfo {
             state: status.state,
             kills: 0,
             deaths: 0,
-            disconnected: false,
-
             last_seen: 0,
         }
     }
@@ -234,13 +230,13 @@ impl GameInfo {
 
         self.last_seen += 1;
         if self.last_seen > DISCONNECTED_THRESHOLD {
-            self.disconnected = true;
+            self.state = PlayerState::Disconnected;
         }
     }
 
     pub(crate) fn acknowledge(&mut self) {
         self.last_seen = 0;
-        self.disconnected = false;
+        self.state = PlayerState::Active;
     }
 
     pub(crate) fn should_prune(&self) -> bool {
