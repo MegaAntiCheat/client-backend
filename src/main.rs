@@ -150,6 +150,7 @@ fn main() {
 
             // Steam API
             let mut server = Server::new(playerlist);
+            server.set_steam_user(&settings.get_steam_user());
             let (steam_api_send, steam_api_recv) = unbounded_channel();
             let (mut steam_api_recv, mut steam_api) =
                 SteamAPIManager::new(settings.get_steam_api_key(), steam_api_recv);

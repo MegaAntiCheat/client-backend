@@ -23,6 +23,7 @@ const MAX_HISTORY_LEN: usize = 100;
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Server {
+    user_id: Option<SteamID>,
     map: Option<Arc<str>>,
     ip: Option<Arc<str>>,
     hostname: Option<Arc<str>>,
@@ -52,6 +53,7 @@ pub struct Gamemode {
 impl Server {
     pub fn new(playerlist: PlayerRecords) -> Server {
         Server {
+            user_id: None,
             map: None,
             ip: None,
             hostname: None,
@@ -64,6 +66,10 @@ impl Server {
             friends_lists: HashMap::new(),
             friends_is_public: HashMap::new()
         }
+    }
+
+    pub fn set_steam_user(&mut self, user_id: &Option<SteamID>) {
+        self.user_id = user_id.clone();
     }
 
     /// Handles any io output from running commands / reading the console log file.
@@ -154,23 +160,23 @@ impl Server {
         found
     }
 
-    // Updates friends lists of a user
-    // Propagates to all other friends lists to ensure two-way lookup possible.
-    // Only call if friends list was obtained directly from Steam API (i.e. friends list is public)
+    /// Updates friends lists of a user
+    /// Propagates to all other friends lists to ensure two-way lookup possible.
+    /// Only call if friends list was obtained directly from Steam API (i.e. friends list is public)
     pub fn update_friends_list(&mut self, id: SteamID, friendslist: Vec<Friend>) {
         self.friends_is_public.insert(id, true);
 
-        let oldfriends = self.friends_lists.insert(id, friendslist);
+        let oldfriends = self.friends_lists.insert(id, friendslist.clone());
 
         // Propagate to all other hashmap entries
-        for friend in friendslist {
+        for friend in friendslist.clone() {
             match self.friends_lists.get_mut(&friend.steamid) {
                 // Friend's friendlist in memory
                 Some(friends_of_friend) => {
-                    match friends_of_friend.iter().find(|f| f.steamid == id) {
-                        Some(id_friend) => {
+                    match friends_of_friend.iter().position(|f| f.steamid == id) {
+                        Some(friend_index) => {
                             // player already in friend's friends list, update friend_since in case it changed.
-                            id_friend.friend_since = friend.friend_since;
+                            friends_of_friend[friend_index].friend_since = friend.friend_since;
                         },
                         None => {
                             friends_of_friend.push(Friend { steamid: id, friend_since: friend.friend_since });
@@ -202,10 +208,10 @@ impl Server {
         }
     }
 
-    // Mark a friends list as being private, trim all now-stale information.
-    pub fn private_friends_list (&self, steamid: &SteamID) {
+    /// Mark a friends list as being private, trim all now-stale information.
+    pub fn private_friends_list (&mut self, steamid: &SteamID) {
         let old_vis_state = self.friends_is_public.insert(*steamid, false);
-        let old_friendslist = self.friends_lists.get_mut(steamid);
+        let old_friendslist = self.friends_lists.get(steamid).cloned();
         
         match (old_vis_state, old_friendslist) {
             (Some(old_vis_state), Some(old_friendslist)) => {
@@ -219,9 +225,11 @@ impl Server {
                         (_, None) => {
                             continue;
                         }
-                        (is_public, Some(friends_of_friend)) => {
+                        (is_public, Some(_)) => {
                             // If friend's friendlist is public, that information isn't stale.
-                            if is_public.is_some_and(|p| *p) { continue; }
+                            if is_public.is_some_and(|p| *p) {
+                                continue;
+                            }
                             self.remove_from_friends_list(&friend.steamid, &steamid);
                         }
                     }
@@ -231,9 +239,9 @@ impl Server {
         }
     }
 
-    // Helper function to remove a friend from a player's friendlist.
-    fn remove_from_friends_list(&self, player: &SteamID, friend_to_remove: &SteamID) {
-        match self.friends_lists.get_mut(&friend_to_remove) {
+    /// Helper function to remove a friend from a player's friendlist.
+    fn remove_from_friends_list(&mut self, player: &SteamID, friend_to_remove: &SteamID) {
+        match self.friends_lists.get_mut(player) {
             Some(friends) => {
                 match friends.iter().position(|f| f.steamid == *friend_to_remove) {
                     Some(i) => {
@@ -246,7 +254,7 @@ impl Server {
         }
     }
 
-    // Return all known friends of a user, as well as their friend's list visibility as a bool.
+    /// Return all known friends of a user, as well as their friend's list visibility as a bool.
     pub fn get_friends_list(&self, steamid: &SteamID) -> (Option<&Vec<Friend>>, Option<&bool>) {
         let friends = self.friends_lists.get(steamid);
         let is_public = self.friends_is_public.get(steamid);
@@ -254,6 +262,18 @@ impl Server {
         return (friends, is_public);
     }
 
+    /// Check if an account is friends with the user.
+    /// Returns None if we don't have enough information to tell.
+    pub fn is_friends_with_user(&self, friend: &SteamID) -> Option<bool> {
+        if self.user_id.is_none() {
+            return None;
+        }
+        let user = self.user_id.unwrap();
+        return self.is_friends(friend, &user);
+    }
+
+    /// Check if two accounts are friends with each other.
+    /// Returns None if we don't have enough information to tell.
     pub fn is_friends(&self, friend1: &SteamID, friend2: &SteamID) -> Option<bool> {
         let ispublic_1 = self.friends_is_public.get(friend1);
         let ispublic_2 = self.friends_is_public.get(friend2);
@@ -367,7 +387,7 @@ impl Server {
                         player.update_from_record(record.clone());
                     }
 
-                    if self.get_friend(&steamid).is_some() {
+                    if self.is_friends_with_user(&steamid).is_some_and(|f| f) {
                         player.tags.push(Arc::from("Friend"));
                     }
 
@@ -427,7 +447,7 @@ impl Server {
                 player.update_from_record(record.clone());
             }
 
-            if self.get_friend(&status.steamid).is_some() {
+            if self.is_friends_with_user(&status.steamid).is_some_and(|f| f) {
                 player.tags.push(Arc::from("Friend"));
             }
 
