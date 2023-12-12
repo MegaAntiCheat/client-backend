@@ -145,7 +145,6 @@ pub struct SteamInfo {
     pub profile_visibility: ProfileVisibility,
     pub time_created: Option<i64>,
     pub country_code: Option<Arc<str>>,
-
     pub vac_bans: i64,
     pub game_bans: i64,
     pub days_since_last_ban: Option<i64>,

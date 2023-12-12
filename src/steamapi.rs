@@ -26,7 +26,13 @@ const BATCH_SIZE: usize = 20; // adjust as needed
 #[derive(Clone, Debug)]
 pub enum SteamAPIMessage {
     Lookup(SteamID, Verdict),
+    CheckFriends(Vec<SteamID>),
     SetAPIKey(Arc<str>),
+}
+
+pub enum SteamAPIResponse {
+    SteamInfo((SteamID, SteamInfo)),
+    FriendLists(Vec<(SteamID, Result<Vec<Friend>>)>)
 }
 
 pub struct SteamAPIManager {
@@ -34,14 +40,14 @@ pub struct SteamAPIManager {
     batch_buffer: VecDeque<(SteamID, Verdict)>,
 
     request_recv: UnboundedReceiver<SteamAPIMessage>,
-    response_send: UnboundedSender<(SteamID, SteamInfo)>,
+    response_send: UnboundedSender<SteamAPIResponse>,
 }
 
 impl SteamAPIManager {
     pub fn new(
         api_key: Arc<str>,
         recv: UnboundedReceiver<SteamAPIMessage>,
-    ) -> (UnboundedReceiver<(SteamID, SteamInfo)>, SteamAPIManager) {
+    ) -> (UnboundedReceiver<SteamAPIResponse>, SteamAPIManager) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
         let api_manager = SteamAPIManager {
@@ -78,6 +84,22 @@ impl SteamAPIManager {
                                 self.send_batch().await;
                                 batch_timer.reset();  // Reset the timer
                             }
+                        },
+                        SteamAPIMessage::CheckFriends(steamids) => {
+                            let mut friend_lists: Vec<(SteamID, Result<Vec<Friend>>)> = Vec::new();
+                            for id in steamids {
+                                match request_account_friends(&mut self.client, id).await {
+                                    Ok(friends) => {
+                                        friend_lists.push((id, Ok(friends)));
+                                    }
+                                    Err(err) => {
+                                        friend_lists.push((id, Err(err)));
+                                    }
+                                }
+                            }
+                            self.response_send
+                                .send(SteamAPIResponse::FriendLists(friend_lists))
+                                .expect("Lost connection to main thread.");
                         }
                     }
                 },
@@ -95,7 +117,7 @@ impl SteamAPIManager {
             Ok(steam_info_map) => {
                 for response in steam_info_map {
                     self.response_send
-                        .send(response)
+                        .send(SteamAPIResponse::SteamInfo(response))
                         .expect("Lost connection to main thread.");
                 }
             }
@@ -120,36 +142,6 @@ async fn request_steam_info(
     let summaries = request_player_summary(client, &playerids).await?;
     let bans = request_account_bans(client, &playerids).await?;
 
-    let cheaters = players.iter()
-        .filter(|p| p.1 == Verdict::Cheater || p.1 == Verdict::Bot);
-    let non_cheaters = players.iter()
-        .filter(|p| p.1 != Verdict::Cheater && p.1 != Verdict::Bot);
-
-    // Get friends of cheaters
-    let mut checkall = false;
-    let mut friend_lists: Vec<(SteamID, Vec<Friend>)> = Vec::new();
-    for cheater in cheaters {
-        match request_account_friends(client, cheater.0).await {
-            Ok(friends) => {
-                friend_lists.push((cheater.0, friends));
-            }
-            Err(_) => {
-                checkall = true;
-            }
-        }
-    }
-    // A cheater's friend list is private, check all player's friends lists for cheaters.
-    if checkall {
-        for non_cheater in non_cheaters {
-            match request_account_friends(client, non_cheater.0).await {
-                Ok(friends) => {
-                    friend_lists.push((non_cheater.0, friends));
-                }
-                Err(_) => {}
-            }
-        }
-    }
-
     let id_to_summary: HashMap<_, _> = summaries
         .into_iter()
         .map(|summary| (summary.steamid.clone(), summary))
@@ -157,9 +149,6 @@ async fn request_steam_info(
     let id_to_ban: HashMap<_, _> = bans
         .into_iter()
         .map(|ban| (ban.steam_id.clone(), ban))
-        .collect();
-    let id_to_friends: HashMap<_, _> = friend_lists
-        .into_iter()
         .collect();
 
     let steam_infos = playerids
@@ -172,9 +161,6 @@ async fn request_steam_info(
             let ban = id_to_ban
                 .get(&id)
                 .ok_or(anyhow!("Missing ban info for player {}", id))?;
-            let friends = id_to_friends
-                .get(&player)
-                .ok_or(anyhow!("Missing friend info for player {}", id))?;
             let steam_info = SteamInfo {
                 account_name: summary.personaname.clone().into(),
                 pfp_url: summary.avatarfull.clone().into(),

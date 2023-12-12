@@ -1,6 +1,7 @@
 use args::Args;
 use clap::Parser;
 use crate::player_records::Verdict;
+use crate::steamapi::SteamAPIResponse;
 use include_dir::{include_dir, Dir};
 use player_records::PlayerRecords;
 use server::Server;
@@ -162,7 +163,7 @@ fn main() {
                 let mut client = SteamAPI::new(steam_api_key);
                 match steamapi::request_account_friends(&mut client, user).await {
                     Ok(friends) => {
-                        server.update_friends_list(friends);
+                        server.update_friends_list(user, friends);
                     }
                     Err(e) => {
                         tracing::error!("Failed to retrieve friends: {:?}", e);
@@ -192,6 +193,7 @@ fn main() {
             let mut refresh_iteration: u64 = 0;
 
             let mut new_players = Vec::new();
+            let mut queued_friendlist_req = Vec::new();
 
             loop {
                 select! {
@@ -209,8 +211,35 @@ fn main() {
                     },
 
                     // Steam API responses
-                    Some((steamid, steaminfo)) = steam_api_recv.recv() => {
-                        server.write().unwrap().insert_steam_info(steamid, steaminfo);
+                    Some(response) = steam_api_recv.recv() => {
+                        match response {
+                            SteamAPIResponse::SteamInfo(info) => {
+                                server.write().unwrap().insert_steam_info(info.0, info.1);
+                            },
+                            SteamAPIResponse::FriendLists(lists) => {
+                                for list in lists {
+                                    match list.1 {
+                                        // Player has public friend list
+                                        Ok(list) => {
+                                            // TODO: Write into db
+                                        },
+                                        // Player has private friend list
+                                        Err(err) => {
+                                            // TODO: Clear from db
+                                            let verdict = server.read().unwrap()
+                                            .get_player_record(list.0)
+                                            .map(|r| {
+                                                r.verdict
+                                            }).unwrap_or(Verdict::Player);
+                                            // If cheater has private profile, check all players on server.
+                                            if verdict == Verdict::Cheater {
+                                                server.read().unwrap();
+                                            }
+                                        }
+                                    };
+                                }
+                            }
+                        }
                     }
 
                     // Refresh
@@ -226,7 +255,7 @@ fn main() {
                     }
                 }
 
-                // Request steam API stuff on new players and clear
+                // Request steam API stuff on new players
                 for player in &new_players {
                     let verdict = server.read().unwrap()
                         .get_player_record(*player)
@@ -238,7 +267,13 @@ fn main() {
                         .unwrap();
                 }
 
+                // Request friend lists of all/cheaters/none (depends on config)
+                steam_api_send
+                    .send(steamapi::SteamAPIMessage::CheckFriends(queued_friendlist_req.clone()))
+                    .unwrap();
+
                 new_players.clear();
+                queued_friendlist_req.clear();
             }
         });
 }
