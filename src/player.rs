@@ -236,7 +236,10 @@ impl GameInfo {
 
     pub(crate) fn acknowledge(&mut self) {
         self.last_seen = 0;
-        self.state = PlayerState::Active;
+
+        if self.state == PlayerState::Disconnected {
+            self.state = PlayerState::Spawning;
+        }
     }
 
     pub(crate) fn should_prune(&self) -> bool {
