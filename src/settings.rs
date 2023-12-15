@@ -29,9 +29,18 @@ pub enum ConfigFilesError {
     #[error("{0:?}")]
     Other(#[from] anyhow::Error),
 }
+#[derive(Debug, Serialize,Deserialize, PartialEq)]
+pub enum FriendsAPIUsage {
+    None,
+    CheatersOnly,
+    All
+}
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
+
+// TODO: Add setting for requesting friends for none/cheaters/all
+
 pub struct Settings {
     #[serde(skip)]
     config_path: Option<PathBuf>,
@@ -39,6 +48,7 @@ pub struct Settings {
     steam_user: Option<SteamID>,
     #[serde(skip)]
     tf2_directory: PathBuf,
+    friends_api_usage: FriendsAPIUsage,
     rcon_password: Arc<str>,
     steam_api_key: Arc<str>,
     port: u16,
@@ -309,6 +319,14 @@ impl Settings {
         self.config_path = Some(config);
     }
 
+    pub fn set_friends_api_usage(&mut self, friends_api_usage: FriendsAPIUsage) {
+        self.friends_api_usage = friends_api_usage;
+    }
+
+    pub fn get_friends_api_usage(&self) -> &FriendsAPIUsage {
+        &self.friends_api_usage
+    }
+
     /// Attempts to find (and create) a directory to be used for configuration files
     pub fn locate_config_directory() -> Result<PathBuf, ConfigFilesError> {
         let dirs = ProjectDirs::from("com.megascatterbomb", "MAC", "MACClient")
@@ -345,6 +363,7 @@ impl Default for Settings {
             tf2_directory: PathBuf::default(),
             rcon_password: "mac_rcon".into(),
             steam_api_key: "YOUR_API_KEY_HERE".into(),
+            friends_api_usage: FriendsAPIUsage::CheatersOnly,
             port: 3621,
             autolaunch_ui: false,
             override_tf2_dir: None,

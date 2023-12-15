@@ -1,5 +1,6 @@
 use args::Args;
 use clap::Parser;
+use steamid_ng::SteamID;
 use crate::player_records::Verdict;
 use crate::steamapi::SteamAPIResponse;
 use include_dir::{include_dir, Dir};
@@ -194,9 +195,14 @@ fn main() {
             let mut refresh_iteration: u64 = 0;
 
             let mut new_players = Vec::new();
-            let mut queued_friendlist_req = Vec::new();
+            let mut queued_friendlist_req: Vec<SteamID> = Vec::new();
+            let mut need_all_friends_lists = false;
 
             loop {
+
+                // This is set to true if a cheater has a private friends list.
+                // This means we need to check the friends lists of all users in the game.
+                
                 select! {
                     // IO output
                     io_output_iter = io_recv.recv() => {
@@ -217,25 +223,25 @@ fn main() {
                             SteamAPIResponse::SteamInfo(info) => {
                                 server.write().unwrap().insert_steam_info(info.0, info.1);
                             },
-                            SteamAPIResponse::FriendLists(lists) => {
-                                for list in lists {
-                                    match list.1 {
+                            SteamAPIResponse::FriendLists(friendlist_results) => {
+                                for result in friendlist_results {
+                                    match result.1 {
                                         // Player has public friend list
-                                        Ok(list) => {
-                                            // TODO: Write into db
+                                        Ok(friend_list) => {
+                                            server.write().unwrap().update_friends_list(result.0, friend_list);
                                         },
                                         // Player has private friend list
-                                        Err(err) => {
-                                            // TODO: Clear from db
-                                            let verdict = server.read().unwrap()
-                                            .get_player_record(list.0)
-                                            .map(|r| {
-                                                r.verdict
-                                            }).unwrap_or(Verdict::Player);
-                                            // If cheater has private profile, check all players on server.
-                                            if verdict == Verdict::Cheater {
-                                                server.read().unwrap();
-                                            }
+                                        Err(_) => {
+                                            server.write().unwrap().private_friends_list(&result.0);
+                                            match server.read().unwrap().get_player_record(result.0) {
+                                                Some(record) => {
+                                                    if  record.verdict == Verdict::Cheater ||
+                                                        record.verdict == Verdict::Bot {
+                                                        need_all_friends_lists = true;
+                                                    }
+                                                },
+                                                _ => {}
+                                            }; 
                                         }
                                     };
                                 }
@@ -266,12 +272,52 @@ fn main() {
                     steam_api_send
                         .send(steamapi::SteamAPIMessage::Lookup(*player, verdict))
                         .unwrap();
+                    
+                    match settings.read().unwrap().get_friends_api_usage() {
+                        settings::FriendsAPIUsage::All => {
+                            queued_friendlist_req.push(*player);
+                        },
+                        settings::FriendsAPIUsage::CheatersOnly => {
+                            if !need_all_friends_lists && (verdict == Verdict::Cheater ||  verdict == Verdict::Bot) {
+                                queued_friendlist_req.push(*player);
+                            }
+                        },
+                        settings::FriendsAPIUsage::None => {
+
+                        }
+                    }
                 }
 
-                // Request friend lists of all/cheaters/none (depends on config)
-                steam_api_send
-                    .send(steamapi::SteamAPIMessage::CheckFriends(queued_friendlist_req.clone()))
-                    .unwrap();
+                // Request friend lists of relevant players (depends on config)
+                if *settings.read().unwrap().get_friends_api_usage() != settings::FriendsAPIUsage::None {
+                    // If a cheater's friends list is private, we need everyone's friends list.
+                    if need_all_friends_lists {
+                        need_all_friends_lists = false;
+                        queued_friendlist_req = server.read().unwrap().get_player_records().get_records()
+                        .iter()
+                        .filter_map(|record| {
+                            // If friends list visibility is Some, we've looked up that user before.
+                            match server.read().unwrap().get_friends_list(record.0).1 {
+                                Some(true) => {
+                                    return None;
+                                }
+                                Some(false) => {
+                                    if record.1.verdict == Verdict::Cheater || record.1.verdict == Verdict::Bot {
+                                        need_all_friends_lists = true;
+                                    }
+                                    return Some(*record.0);
+                                }
+                                None => {
+                                    return Some(*record.0);
+                                }
+                            }      
+                        }).collect();
+                    }
+
+                    steam_api_send
+                        .send(steamapi::SteamAPIMessage::CheckFriends(queued_friendlist_req.clone()))
+                        .unwrap();
+                }
 
                 new_players.clear();
                 queued_friendlist_req.clear();
