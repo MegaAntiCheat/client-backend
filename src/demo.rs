@@ -13,7 +13,8 @@ use tf_demo_parser::demo::message::gameevent::GameEventMessage;
 use tf_demo_parser::demo::message::Message;
 use tf_demo_parser::demo::packet::message::MessagePacket;
 use tf_demo_parser::demo::packet::Packet;
-use tf_demo_parser::demo::parser::{DemoHandler, NullHandler, RawPacketStream};
+use tf_demo_parser::demo::parser::gamestateanalyser::GameStateAnalyser;
+use tf_demo_parser::demo::parser::{DemoHandler, RawPacketStream};
 
 pub struct DemoManager {
     previous_demos: Vec<OpenDemo>,
@@ -23,7 +24,7 @@ pub struct DemoManager {
 pub struct OpenDemo {
     pub file_path: PathBuf,
     pub header: Option<Header>,
-    pub handler: DemoHandler<NullHandler>,
+    pub handler: DemoHandler<GameStateAnalyser>,
     pub bytes: Vec<u8>,
     pub offset: usize,
 }
@@ -48,7 +49,7 @@ impl DemoManager {
         self.current_demo = Some(OpenDemo {
             file_path: path,
             header: None,
-            handler: DemoHandler::default(),
+            handler: DemoHandler::with_analyser(GameStateAnalyser::new()),
             bytes: Vec::new(),
             offset: 0,
         });
@@ -188,6 +189,18 @@ impl OpenDemo {
                         }
                         GameEvent::VoteChanged(e) => {
                             tracing::info!("Vote changed: {:?}", e);
+                        }
+                        GameEvent::PlayerConnect(e) => {
+                            tracing::info!("Player connect: {:?}", e);
+                        }
+                        GameEvent::PlayerConnectClient(e) => {
+                            tracing::info!("Player connect client: {:?}", e);
+                        }
+                        GameEvent::PlayerInfo(e) => {
+                            tracing::info!("Player info: {:?}", e);
+                        }
+                        GameEvent::Unknown(e) => {
+                            tracing::info!("Unknown: {:?}", e);
                         }
                         _ => {}
                     }
