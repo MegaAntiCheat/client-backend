@@ -225,7 +225,6 @@ fn main() {
                             },
                             SteamAPIResponse::FriendLists(friendlist_results) => {
                                 for result in friendlist_results {
-                                    println!("Response: {:?}", result.0);
                                     match result.1 {
                                         // Player has public friend list
                                         Ok(friend_list) => {
@@ -314,9 +313,6 @@ fn main() {
                             }      
                         }).collect();
                     }
-                    for user in &queued_friendlist_req {
-                        println!("Requesting: {:?}", user);
-                    }  
                     
                     steam_api_send
                         .send(steamapi::SteamAPIMessage::CheckFriends(queued_friendlist_req.clone()))
