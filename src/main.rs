@@ -225,6 +225,7 @@ fn main() {
                             },
                             SteamAPIResponse::FriendLists(friendlist_results) => {
                                 for result in friendlist_results {
+                                    println!("Response: {:?}", result.0);
                                     match result.1 {
                                         // Player has public friend list
                                         Ok(friend_list) => {
@@ -305,7 +306,7 @@ fn main() {
                                     if record.1.verdict == Verdict::Cheater || record.1.verdict == Verdict::Bot {
                                         need_all_friends_lists = true;
                                     }
-                                    return Some(*record.0);
+                                    return None;
                                 }
                                 None => {
                                     return Some(*record.0);
@@ -313,7 +314,10 @@ fn main() {
                             }      
                         }).collect();
                     }
-
+                    for user in &queued_friendlist_req {
+                        println!("Requesting: {:?}", user);
+                    }  
+                    
                     steam_api_send
                         .send(steamapi::SteamAPIMessage::CheckFriends(queued_friendlist_req.clone()))
                         .unwrap();
