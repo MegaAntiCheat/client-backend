@@ -38,7 +38,6 @@ pub enum FriendsAPIUsage {
 
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
-
 pub struct Settings {
     #[serde(skip)]
     config_path: Option<PathBuf>,
