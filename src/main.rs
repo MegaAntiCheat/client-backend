@@ -222,7 +222,6 @@ fn main() {
                                 server.write().unwrap().insert_steam_info(info.0, info.1);
                             },
                             SteamAPIResponse::FriendLists((steamid, result)) => {
-                                println!("Response: {:?}", u64::from(steamid));
                                 match result {
                                     // Player has public friend list
                                     Ok(friend_list) => {
@@ -318,9 +317,6 @@ fn main() {
                                 }
                             }      
                         }).collect();
-                    }
-                    if queued_friendlist_req.len() > 0 {
-                        println!("Request size: {}", queued_friendlist_req.len());
                     }
                     
                     steam_api_send
