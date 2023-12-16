@@ -18,14 +18,13 @@ use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{Duration, MissedTickBehavior};
 
 use crate::player::{Friend, SteamInfo};
-use crate::player_records::Verdict;
 
 const BATCH_INTERVAL: Duration = Duration::from_millis(500);
 const BATCH_SIZE: usize = 20; // adjust as needed
 
 #[derive(Clone, Debug)]
 pub enum SteamAPIMessage {
-    Lookup(SteamID, Verdict),
+    Lookup(SteamID),
     CheckFriends(Vec<SteamID>),
     SetAPIKey(Arc<str>),
 }
@@ -37,7 +36,7 @@ pub enum SteamAPIResponse {
 
 pub struct SteamAPIManager {
     client: SteamAPI,
-    batch_buffer: VecDeque<(SteamID, Verdict)>,
+    batch_buffer: VecDeque<SteamID>,
 
     request_recv: UnboundedReceiver<SteamAPIMessage>,
     response_send: UnboundedSender<SteamAPIResponse>,
@@ -78,8 +77,8 @@ impl SteamAPIManager {
                         SteamAPIMessage::SetAPIKey(key) => {
                             self.set_api_key(key);
                         },
-                        SteamAPIMessage::Lookup(steamid, verdict) => {
-                            self.batch_buffer.push_back((steamid, verdict));
+                        SteamAPIMessage::Lookup(steamid) => {
+                            self.batch_buffer.push_back(steamid);
                             if self.batch_buffer.len() >= BATCH_SIZE {
                                 self.send_batch().await;
                                 batch_timer.reset();  // Reset the timer
@@ -131,13 +130,9 @@ impl SteamAPIManager {
 /// Make a request to the Steam web API for the chosen player and return the important steam info.
 async fn request_steam_info(
     client: &mut SteamAPI,
-    players: Vec<(SteamID, Verdict)>,
+    playerids: Vec<SteamID>,
 ) -> Result<Vec<(SteamID, SteamInfo)>> {
-    tracing::debug!("Requesting steam accounts: {:?}", players);
-
-    let playerids: Vec<SteamID> = players.iter().map(|p| {
-        p.0
-    }).collect();
+    tracing::debug!("Requesting steam accounts: {:?}", playerids);
 
     let summaries = request_player_summary(client, &playerids).await?;
     let bans = request_account_bans(client, &playerids).await?;

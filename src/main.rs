@@ -268,7 +268,7 @@ fn main() {
                             r.verdict
                         }).unwrap_or(Verdict::Player);
                     steam_api_send
-                        .send(steamapi::SteamAPIMessage::Lookup(*player, verdict))
+                        .send(steamapi::SteamAPIMessage::Lookup(*player))
                         .unwrap();
                     
                     match settings.read().unwrap().get_friends_api_usage() {
