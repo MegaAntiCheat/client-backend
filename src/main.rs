@@ -196,6 +196,7 @@ fn main() {
 
             let mut new_players = Vec::new();
             let mut queued_friendlist_req: Vec<SteamID> = Vec::new();
+            let mut inprogress_friendlist_req: Vec<SteamID> = Vec::new();
             let mut need_all_friends_lists = false;
 
             loop {
@@ -222,7 +223,7 @@ fn main() {
                             },
                             SteamAPIResponse::FriendLists(friendlist_results) => {
                                 for (steamid, result) in friendlist_results {
-                                    //println!("Response: {:?}", u64::from(result.0));
+                                    println!("Response: {:?}", u64::from(steamid));
                                     match result {
                                         // Player has public friend list
                                         Ok(friend_list) => {
@@ -295,6 +296,9 @@ fn main() {
                         queued_friendlist_req = server_read.get_players()
                         .iter()
                         .filter_map(|(steamid, _)| {
+                            if inprogress_friendlist_req.contains(steamid) {
+                                return None;
+                            }
                             // If friends list visibility is Some, we've looked up that user before.
                             match server_read.get_friends_list(steamid).1 {
                                 Some(true) => {
@@ -316,14 +320,14 @@ fn main() {
                             }      
                         }).collect();
                     }
-                    // if queued_friendlist_req.len() > 0 {
-                    //     println!("Request size: {}", queued_friendlist_req.len());
-                    // }
+                    if queued_friendlist_req.len() > 0 {
+                        println!("Request size: {}", queued_friendlist_req.len());
+                    }
                     
                     steam_api_send
-                        .send(steamapi::SteamAPIMessage::CheckFriends(queued_friendlist_req))
+                        .send(steamapi::SteamAPIMessage::CheckFriends(queued_friendlist_req.clone()))
                         .unwrap();
-                    queued_friendlist_req = Vec::new();
+                    inprogress_friendlist_req.append(&mut queued_friendlist_req);
                 }
 
                 new_players.clear();
