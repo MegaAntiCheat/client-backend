@@ -199,9 +199,6 @@ fn main() {
             let mut need_all_friends_lists = false;
 
             loop {
-
-                // This is set to true if a cheater has a private friends list.
-                // This means we need to check the friends lists of all users in the game.
                 
                 select! {
                     // IO output
@@ -225,6 +222,7 @@ fn main() {
                             },
                             SteamAPIResponse::FriendLists(friendlist_results) => {
                                 for result in friendlist_results {
+                                    //println!("Response: {:?}", u64::from(result.0));
                                     match result.1 {
                                         // Player has public friend list
                                         Ok(friend_list) => {
@@ -293,26 +291,34 @@ fn main() {
                     // If a cheater's friends list is private, we need everyone's friends list.
                     if need_all_friends_lists {
                         need_all_friends_lists = false;
-                        queued_friendlist_req = server.read().unwrap().get_player_records().get_records()
+                        let server_read: std::sync::RwLockReadGuard<'_, Server> = server.read().unwrap();
+                        queued_friendlist_req = server_read.get_players()
                         .iter()
-                        .filter_map(|record| {
+                        .filter_map(|player| {
                             // If friends list visibility is Some, we've looked up that user before.
-                            match server.read().unwrap().get_friends_list(record.0).1 {
+                            match server_read.get_friends_list(player.0).1 {
                                 Some(true) => {
                                     return None;
                                 }
                                 Some(false) => {
-                                    if record.1.verdict == Verdict::Cheater || record.1.verdict == Verdict::Bot {
+                                    let record = server_read.get_player_record(*player.0);
+                                    if record.is_some_and(|r | {
+                                        r.verdict == Verdict::Cheater ||
+                                        r.verdict == Verdict::Bot
+                                     }) {
                                         need_all_friends_lists = true;
                                     }
                                     return None;
                                 }
                                 None => {
-                                    return Some(*record.0);
+                                    return Some(*player.0);
                                 }
                             }      
                         }).collect();
                     }
+                    // if queued_friendlist_req.len() > 0 {
+                    //     println!("Request size: {}", queued_friendlist_req.len());
+                    // }
                     
                     steam_api_send
                         .send(steamapi::SteamAPIMessage::CheckFriends(queued_friendlist_req.clone()))
