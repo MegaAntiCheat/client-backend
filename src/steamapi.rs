@@ -31,7 +31,7 @@ pub enum SteamAPIMessage {
 
 pub enum SteamAPIResponse {
     SteamInfo((SteamID, SteamInfo)),
-    FriendLists(Vec<(SteamID, Result<Vec<Friend>>)>)
+    FriendLists((SteamID, Result<Vec<Friend>>))
 }
 
 pub struct SteamAPIManager {
@@ -85,20 +85,21 @@ impl SteamAPIManager {
                             }
                         },
                         SteamAPIMessage::CheckFriends(steamids) => {
-                            let mut friend_lists: Vec<(SteamID, Result<Vec<Friend>>)> = Vec::new();
                             for id in steamids {
                                 match request_account_friends(&mut self.client, id).await {
                                     Ok(friends) => {
-                                        friend_lists.push((id, Ok(friends)));
+                                        self.response_send
+                                            .send(SteamAPIResponse::FriendLists((id, Ok(friends))))
+                                            .expect("Lost connection to main thread.");
                                     }
                                     Err(err) => {
-                                        friend_lists.push((id, Err(err)));
+                                        self.response_send
+                                            .send(SteamAPIResponse::FriendLists((id, Err(err))))
+                                            .expect("Lost connection to main thread.");
                                     }
                                 }
                             }
-                            self.response_send
-                                .send(SteamAPIResponse::FriendLists(friend_lists))
-                                .expect("Lost connection to main thread.");
+                            
                         }
                     }
                 },
