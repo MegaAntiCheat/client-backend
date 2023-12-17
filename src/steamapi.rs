@@ -25,7 +25,13 @@ const BATCH_SIZE: usize = 20; // adjust as needed
 #[derive(Clone, Debug)]
 pub enum SteamAPIMessage {
     Lookup(SteamID),
+    CheckFriends(Vec<SteamID>),
     SetAPIKey(Arc<str>),
+}
+
+pub enum SteamAPIResponse {
+    SteamInfo((SteamID, SteamInfo)),
+    FriendLists((SteamID, Result<Vec<Friend>>))
 }
 
 pub struct SteamAPIManager {
@@ -33,14 +39,14 @@ pub struct SteamAPIManager {
     batch_buffer: VecDeque<SteamID>,
 
     request_recv: UnboundedReceiver<SteamAPIMessage>,
-    response_send: UnboundedSender<(SteamID, SteamInfo)>,
+    response_send: UnboundedSender<SteamAPIResponse>,
 }
 
 impl SteamAPIManager {
     pub fn new(
         api_key: Arc<str>,
         recv: UnboundedReceiver<SteamAPIMessage>,
-    ) -> (UnboundedReceiver<(SteamID, SteamInfo)>, SteamAPIManager) {
+    ) -> (UnboundedReceiver<SteamAPIResponse>, SteamAPIManager) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
         let api_manager = SteamAPIManager {
@@ -77,6 +83,23 @@ impl SteamAPIManager {
                                 self.send_batch().await;
                                 batch_timer.reset();  // Reset the timer
                             }
+                        },
+                        SteamAPIMessage::CheckFriends(steamids) => {
+                            for id in steamids {
+                                match request_account_friends(&mut self.client, id).await {
+                                    Ok(friends) => {
+                                        self.response_send
+                                            .send(SteamAPIResponse::FriendLists((id, Ok(friends))))
+                                            .expect("Lost connection to main thread.");
+                                    }
+                                    Err(err) => {
+                                        self.response_send
+                                            .send(SteamAPIResponse::FriendLists((id, Err(err))))
+                                            .expect("Lost connection to main thread.");
+                                    }
+                                }
+                            }
+                            
                         }
                     }
                 },
@@ -94,7 +117,7 @@ impl SteamAPIManager {
             Ok(steam_info_map) => {
                 for response in steam_info_map {
                     self.response_send
-                        .send(response)
+                        .send(SteamAPIResponse::SteamInfo(response))
                         .expect("Lost connection to main thread.");
                 }
             }
@@ -108,26 +131,13 @@ impl SteamAPIManager {
 /// Make a request to the Steam web API for the chosen player and return the important steam info.
 async fn request_steam_info(
     client: &mut SteamAPI,
-    players: Vec<SteamID>,
+    playerids: Vec<SteamID>,
 ) -> Result<Vec<(SteamID, SteamInfo)>> {
-    tracing::debug!("Requesting steam accounts: {:?}", players);
+    tracing::debug!("Requesting steam accounts: {:?}", playerids);
 
-    let summaries = request_player_summary(client, &players).await?;
-    let bans = request_account_bans(client, &players).await?;
+    let summaries = request_player_summary(client, &playerids).await?;
+    let bans = request_account_bans(client, &playerids).await?;
 
-    // let friends = match request_account_friends(client, player).await {
-    //     Ok(friends) => friends,
-    //     Err(e) => {
-    //         if summary.communityvisibilitystate == 3 {
-    //             tracing::warn!(
-    //                 "Friends could not be retrieved from public profile {}: {:?}",
-    //                 u64::from(player),
-    //                 e
-    //             );
-    //         }
-    //         Vec::new()
-    //     }
-    // };
     let id_to_summary: HashMap<_, _> = summaries
         .into_iter()
         .map(|summary| (summary.steamid.clone(), summary))
@@ -137,7 +147,7 @@ async fn request_steam_info(
         .map(|ban| (ban.steam_id.clone(), ban))
         .collect();
 
-    let steam_infos = players
+    let steam_infos = playerids
         .into_iter()
         .map(|player| {
             let id = format!("{}", u64::from(player));
@@ -147,7 +157,6 @@ async fn request_steam_info(
             let ban = id_to_ban
                 .get(&id)
                 .ok_or(anyhow!("Missing ban info for player {}", id))?;
-
             let steam_info = SteamInfo {
                 account_name: summary.personaname.clone().into(),
                 pfp_url: summary.avatarfull.clone().into(),
