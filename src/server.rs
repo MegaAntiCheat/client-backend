@@ -202,7 +202,7 @@ impl Server {
                     friendslist.iter().find(|f| f.steamid == *fid).is_none()
                 });
                 for oldfriend_id in oldfriends_ids {
-                    self.remove_from_friends_list(&oldfriend_id, &steamid)
+                    self.remove_from_friends_list(&oldfriend_id, &steamid);
                 }
             },
             None => {}
@@ -243,12 +243,13 @@ impl Server {
     }
 
     /// Helper function to remove a friend from a player's friendlist.
-    fn remove_from_friends_list(&mut self, player: &SteamID, friend_to_remove: &SteamID) {
-        match self.friends_lists.get_mut(player) {
+    fn remove_from_friends_list(&mut self, steamid: &SteamID, friend_to_remove: &SteamID) {
+        match self.friends_lists.get_mut(steamid) {
             Some(friends) => {
                 match friends.iter().position(|f| f.steamid == *friend_to_remove) {
                     Some(i) => {
                         friends.remove(i);
+                        self.update_friends_playerobj(&steamid);
                     },
                     None => {}
                 }
