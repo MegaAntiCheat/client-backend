@@ -39,6 +39,7 @@ pub struct Server {
     player_records: PlayerRecords,
     #[serde(skip)]
     friends_lists: HashMap<SteamID, Vec<Friend>>,
+    #[serde(skip)]
     friends_is_public: HashMap<SteamID, bool>, // True if public, False if private, no entry if we haven't checked yet.
 }
 
@@ -163,30 +164,30 @@ impl Server {
     /// Updates friends lists of a user
     /// Propagates to all other friends lists to ensure two-way lookup possible.
     /// Only call if friends list was obtained directly from Steam API (i.e. friends list is public)
-    pub fn update_friends_list(&mut self, id: SteamID, friendslist: Vec<Friend>) {
-        self.friends_is_public.insert(id, true);
+    pub fn update_friends_list(&mut self, steamid: SteamID, friendslist: Vec<Friend>) {
+        self.friends_is_public.insert(steamid, true);
 
-        let oldfriends = self.friends_lists.insert(id, friendslist.clone());
+        let oldfriends = self.friends_lists.insert(steamid, friendslist.clone());
 
         // Propagate to all other hashmap entries
         for friend in friendslist.clone() {
             match self.friends_lists.get_mut(&friend.steamid) {
                 // Friend's friendlist in memory
                 Some(friends_of_friend) => {
-                    match friends_of_friend.iter().position(|f| f.steamid == id) {
+                    match friends_of_friend.iter().position(|f| f.steamid == steamid) {
                         Some(friend_index) => {
                             // player already in friend's friends list, update friend_since in case it changed.
                             friends_of_friend[friend_index].friend_since = friend.friend_since;
                         },
                         None => {
-                            friends_of_friend.push(Friend { steamid: id, friend_since: friend.friend_since });
+                            friends_of_friend.push(Friend { steamid, friend_since: friend.friend_since });
                         }
                     }
                 }
                 // Friend's friendlist isn't in memory yet; create a new vector with player.
                 None => {
                     let mut friends_of_friend = Vec::new();
-                    friends_of_friend.push(Friend { steamid: id, friend_since: friend.friend_since });
+                    friends_of_friend.push(Friend { steamid, friend_since: friend.friend_since });
                     self.friends_lists.insert(friend.steamid, friends_of_friend);
                 }
             }
@@ -201,11 +202,12 @@ impl Server {
                     friendslist.iter().find(|f| f.steamid == *fid).is_none()
                 });
                 for oldfriend_id in oldfriends_ids {
-                    self.remove_from_friends_list(&oldfriend_id, &id)
+                    self.remove_from_friends_list(&oldfriend_id, &steamid)
                 }
             },
             None => {}
         }
+        self.update_friends_playerobj(&steamid);
     }
 
     /// Mark a friends list as being private, trim all now-stale information.
@@ -237,6 +239,7 @@ impl Server {
             }
             _ => {}
         }
+        self.update_friends_playerobj(steamid);
     }
 
     /// Helper function to remove a friend from a player's friendlist.
@@ -251,6 +254,18 @@ impl Server {
                 }
             }
             None => {}
+        }
+    }
+
+    /// Helper function to update the player object with the friends information we have on them.
+    fn update_friends_playerobj(&mut self, steamid: &SteamID) {
+        let friends = self.friends_lists.get(steamid);
+        let friends_is_public = self.friends_is_public.get(steamid);
+        match (self.players.get_mut(&steamid), friends) {
+            (Some(player), Some(friends)) => {
+                player.update_friends(friends.to_vec(), friends_is_public.copied());
+            },
+            _ => {}
         }
     }
 

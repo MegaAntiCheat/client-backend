@@ -29,6 +29,9 @@ pub struct Player {
     pub convicted: bool,
     #[serde(rename = "previousNames")]
     pub previous_names: Vec<Arc<str>>,
+    pub friends: Vec<Friend>,
+    #[serde(rename = "friendsIsPublic")]
+    pub friends_is_public: Option<bool>,
 }
 
 impl Player {
@@ -45,6 +48,8 @@ impl Player {
             local_verdict: Verdict::Player,
             convicted: false,
             previous_names: Vec::new(),
+            friends: Vec::new(),
+            friends_is_public: None,
         }
     }
 
@@ -64,6 +69,8 @@ impl Player {
             local_verdict: Verdict::Player,
             convicted: false,
             previous_names: Vec::new(),
+            friends: Vec::new(),
+            friends_is_public: None,
         })
     }
 
@@ -77,6 +84,11 @@ impl Player {
         self.custom_data = record.custom_data;
         self.local_verdict = record.verdict;
         self.previous_names = record.previous_names;
+    }
+
+    pub fn update_friends(&mut self, friends: Vec<Friend>, is_public: Option<bool>) {
+        self.friends = friends;
+        self.friends_is_public = is_public;
     }
 
     /// Create a record from the current player
