@@ -165,7 +165,7 @@ pub struct SteamInfo {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Friend {
-    #[serde(rename = "steamID64")]
+    #[serde(rename = "steamID64", serialize_with = "serialize_steamid_as_string")]
     pub steamid: SteamID,
     #[serde(rename = "friendSince")]
     pub friend_since: u64,
