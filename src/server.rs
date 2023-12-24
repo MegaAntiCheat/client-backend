@@ -207,7 +207,7 @@ impl Server {
             },
             None => {}
         }
-        self.update_friends_playerobj(&steamid);
+        self.update_friends_playerobj(&steamid, None);
     }
 
     /// Mark a friends list as being private, trim all now-stale information.
@@ -239,7 +239,7 @@ impl Server {
             }
             _ => {}
         }
-        self.update_friends_playerobj(steamid);
+        self.update_friends_playerobj(steamid, None);
     }
 
     /// Helper function to remove a friend from a player's friendlist.
@@ -249,7 +249,7 @@ impl Server {
                 match friends.iter().position(|f| f.steamid == *friend_to_remove) {
                     Some(i) => {
                         friends.remove(i);
-                        self.update_friends_playerobj(&steamid);
+                        self.update_friends_playerobj(&steamid, None);
                     },
                     None => {}
                 }
@@ -259,14 +259,18 @@ impl Server {
     }
 
     /// Helper function to update the player object with the friends information we have on them.
-    fn update_friends_playerobj(&mut self, steamid: &SteamID) {
+    fn update_friends_playerobj(&mut self, steamid: &SteamID, existing_player: Option<&mut Player>) {
         let friends = self.friends_lists.get(steamid);
         let friends_is_public = self.friends_is_public.get(steamid);
-        match (self.players.get_mut(&steamid), friends) {
-            (Some(player), Some(friends)) => {
-                player.update_friends(friends.to_vec(), friends_is_public.copied());
-            },
-            _ => {}
+
+        let mut player = self.players.get_mut(&steamid);
+
+        if existing_player.is_some() {
+            player = existing_player;
+        }
+
+        if player.is_some() && friends.is_some() {
+            player.unwrap().update_friends(friends.unwrap().to_vec(), friends_is_public.copied());
         }
     }
 
@@ -407,6 +411,8 @@ impl Server {
                         player.tags.push(Arc::from("Friend"));
                     }
 
+                    self.update_friends_playerobj(&steamid, Some(&mut player));
+
                     self.players.insert(steamid, player);
                     new_players.push(steamid);
                 }
@@ -466,6 +472,8 @@ impl Server {
             if self.is_friends_with_user(&status.steamid).is_some_and(|f| f) {
                 player.tags.push(Arc::from("Friend"));
             }
+
+            self.update_friends_playerobj(&status.steamid, Some(&mut player));
 
             self.players.insert(status.steamid, player);
             Some(status.steamid)
