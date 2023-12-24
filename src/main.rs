@@ -19,7 +19,6 @@ use demo::demo_loop;
 use io::{Command, IOManager};
 use launchoptions::LaunchOptions;
 use settings::Settings;
-use tappet::SteamAPI;
 use tracing_appender::non_blocking::WorkerGuard;
 use tracing_subscriber::{
     fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
@@ -259,8 +258,13 @@ fn main() {
                     steam_api_send
                         .send(steamapi::SteamAPIMessage::Lookup(*player))
                         .unwrap();
-                    
-                    match settings.read().unwrap().get_friends_api_usage() {
+                    let settings_read = settings.read().unwrap();
+                    let user = settings_read.get_steam_user();
+                    if user.is_some_and(|u| u == *player) {
+                        queued_friendlist_req.push(*player);
+                        continue;
+                    }
+                    match settings_read.get_friends_api_usage() {
                         settings::FriendsAPIUsage::All => {
                             queued_friendlist_req.push(*player);
                         },
@@ -270,11 +274,7 @@ fn main() {
                             }
                         },
                         settings::FriendsAPIUsage::None => {
-                            let user = settings.read().unwrap().get_steam_user();
-                            if user.is_some_and(|u| u == *player) {
-                                println!("requsted user friendlist");
-                                queued_friendlist_req.push(*player);
-                            }
+
                         }
                     }
                 }
