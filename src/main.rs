@@ -159,19 +159,6 @@ fn main() {
                 steam_api.api_loop().await;
             });
 
-            // Request friends of user
-            if let Some(user) = settings.get_steam_user() {
-                let steam_api_key = settings.get_steam_api_key().to_string();
-                let mut client = SteamAPI::new(steam_api_key);
-                match steamapi::request_account_friends(&mut client, user).await {
-                    Ok(friends) => {
-                        server.update_friends_list(user, friends);
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to retrieve friends: {:?}", e);
-                    }
-                }
-            }
 
             // Setup web API server
             let settings = Arc::new(RwLock::new(settings));
@@ -241,7 +228,10 @@ fn main() {
                                         }; 
                                     }
                                 };
-                            
+                                let i = inprogress_friendlist_req.iter().position(|id| *id == steamid);
+                                if i.is_some() {
+                                    inprogress_friendlist_req.remove(i.unwrap());
+                                }
                             }
                         }
                     }
@@ -280,13 +270,17 @@ fn main() {
                             }
                         },
                         settings::FriendsAPIUsage::None => {
-
+                            let user = settings.read().unwrap().get_steam_user();
+                            if user.is_some_and(|u| u == *player) {
+                                println!("requsted user friendlist");
+                                queued_friendlist_req.push(*player);
+                            }
                         }
                     }
                 }
 
                 // Request friend lists of relevant players (depends on config)
-                if *settings.read().unwrap().get_friends_api_usage() != settings::FriendsAPIUsage::None {
+                if need_all_friends_lists || queued_friendlist_req.len() > 0 {
                     // If a cheater's friends list is private, we need everyone's friends list.
                     if need_all_friends_lists {
                         need_all_friends_lists = false;
