@@ -191,6 +191,7 @@ impl Server {
                     self.friends_lists.insert(friend.steamid, friends_of_friend);
                 }
             }
+            self.update_friends_playerobj(&friend.steamid, None);
         }
 
         // If a player's friend has been unfriended, remove player from friend's hashmap
@@ -270,7 +271,7 @@ impl Server {
         }
 
         if player.is_some() && friends.is_some() {
-            player.unwrap().update_friends(friends.unwrap().to_vec(), friends_is_public.copied());
+            player.unwrap().update_friends(friends.unwrap().to_vec(), friends_is_public.copied(), self.user_id);
         }
     }
 

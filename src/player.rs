@@ -86,9 +86,23 @@ impl Player {
         self.previous_names = record.previous_names;
     }
 
-    pub fn update_friends(&mut self, friends: Vec<Friend>, is_public: Option<bool>) {
+    pub fn update_friends(&mut self, friends: Vec<Friend>, is_public: Option<bool>, userid: Option<SteamID>) {
         self.friends = friends;
         self.friends_is_public = is_public;
+        if userid.is_some() {
+            let userid = userid.unwrap();
+            let is_friends_with_user = self.friends.iter().any(|f| f.steamid == userid);
+            let has_friend_tag = self.tags.iter().any(|t| &*t.as_ref() == "Friend");
+            
+            if is_friends_with_user && !has_friend_tag {
+                self.tags.push(Arc::from("Friend"));
+            } else if !is_friends_with_user && has_friend_tag {
+                let i = self.tags.iter().position(|t| &*t.as_ref() == "Friend");
+                if i.is_some() {
+                    self.tags.remove(i.unwrap());
+                }
+            }
+        }
     }
 
     /// Create a record from the current player
