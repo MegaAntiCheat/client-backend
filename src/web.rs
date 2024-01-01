@@ -22,6 +22,7 @@ use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 use crate::{
     io::{Command, IOManagerMessage},
+    player::Player,
     player_records::{PlayerRecord, Verdict},
     server::Server,
     settings::{Settings, FriendsAPIUsage},
@@ -323,17 +324,20 @@ impl Default for Pagination {
 /// been on servers with.
 async fn get_history(State(state): AState, page: Query<Pagination>) -> impl IntoResponse {
     tracing::debug!("History requested");
+
+    let server = state.server.read().unwrap();
+    let history: Vec<&Player> = server.players().history().collect();
+    let history: Vec<&Player> = history
+        .into_iter()
+        .rev()
+        .skip(page.0.from)
+        .take(page.0.to - page.0.from)
+        .collect();
+
     (
         StatusCode::OK,
         HEADERS,
-        serde_json::to_string(
-            &state
-                .server
-                .read()
-                .unwrap()
-                .get_player_history(page.0.from..page.0.to),
-        )
-        .expect("Serialize player history"),
+        serde_json::to_string(&history).expect("Serialize player history"),
     )
 }
 

@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     fmt::Display,
     io::ErrorKind,
     ops::{Deref, DerefMut},
@@ -135,13 +135,11 @@ impl PlayerRecords {
         &'a mut self,
         steamid: SteamID,
         players: &'a mut HashMap<SteamID, Player>,
-        history: &'a mut VecDeque<Player>,
     ) -> Option<PlayerRecordLock> {
         if self.records.contains_key(&steamid) {
             Some(PlayerRecordLock {
                 steamid,
                 players,
-                history,
                 playerlist: self,
             })
         } else {
@@ -237,7 +235,6 @@ impl Display for Verdict {
 pub struct PlayerRecordLock<'a> {
     playerlist: &'a mut PlayerRecords,
     players: &'a mut HashMap<SteamID, Player>,
-    history: &'a mut VecDeque<Player>,
     steamid: SteamID,
 }
 
@@ -272,10 +269,6 @@ impl Drop for PlayerRecordLock<'_> {
 
         // Update server players and history
         if let Some(p) = self.players.get_mut(&self.steamid) {
-            p.update_from_record(record.clone());
-        }
-
-        if let Some(p) = self.history.iter_mut().find(|p| p.steamid == self.steamid) {
             p.update_from_record(record.clone());
         }
 
