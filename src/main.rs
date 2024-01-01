@@ -215,7 +215,7 @@ fn main() {
                                     // Player has private friend list
                                     Err(_) => {
                                         server.write().unwrap().private_friends_list(&steamid);
-                                        match server.read().unwrap().get_player_record(steamid) {
+                                        match server.read().unwrap().players().record(&steamid) {
                                             Some(record) => {
                                                 if  record.verdict == Verdict::Cheater ||
                                                     record.verdict == Verdict::Bot {
@@ -250,7 +250,8 @@ fn main() {
                 // Request steam API stuff on new players
                 for player in &new_players {
                     let verdict = server.read().unwrap()
-                        .get_player_record(*player)
+                        .players()
+                        .record(player)
                         .map(|r| {
                             r.verdict
                         }).unwrap_or(Verdict::Player);
@@ -296,7 +297,7 @@ fn main() {
                                         return None;
                                     }
                                     Some(false) => {
-                                        let record = server_read.get_player_record(*steamid);
+                                        let record = server_read.players().record(steamid);
                                         if record.is_some_and(|r | {
                                             r.verdict == Verdict::Cheater ||
                                             r.verdict == Verdict::Bot

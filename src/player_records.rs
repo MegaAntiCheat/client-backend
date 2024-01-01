@@ -127,18 +127,18 @@ impl PlayerRecords {
     }
 
     #[allow(dead_code)]
-    pub fn get_record(&self, steamid: SteamID) -> Option<&PlayerRecord> {
-        self.records.get(&steamid)
+    pub fn get_record(&self, steamid: &SteamID) -> Option<&PlayerRecord> {
+        self.records.get(steamid)
     }
 
     pub fn get_record_mut<'a>(
         &'a mut self,
-        steamid: SteamID,
+        steamid: &SteamID,
         players: &'a mut HashMap<SteamID, Player>,
     ) -> Option<PlayerRecordLock> {
         if self.records.contains_key(&steamid) {
             Some(PlayerRecordLock {
-                steamid,
+                steamid: *steamid,
                 players,
                 playerlist: self,
             })

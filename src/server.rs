@@ -33,8 +33,6 @@ pub struct Server {
     gamemode: Option<Gamemode>,
 
     #[serde(skip)]
-    player_records: PlayerRecords,
-    #[serde(skip)]
     friends_lists: HashMap<SteamID, Vec<Friend>>,
     #[serde(skip)]
     friends_is_public: HashMap<SteamID, bool>, // True if public, False if private, no entry if we haven't checked yet.
@@ -44,15 +42,17 @@ pub struct Players {
     all: HashMap<SteamID, Player>,
     connected: Vec<SteamID>,
     history: VecDeque<SteamID>,
+    records: PlayerRecords,
 }
 
 #[allow(dead_code)]
 impl Players {
-    fn new() -> Players {
+    fn new(records: PlayerRecords) -> Players {
         Players {
             all: HashMap::new(),
             connected: Vec::new(),
             history: VecDeque::with_capacity(MAX_HISTORY_LEN),
+            records,
         }
     }
 
@@ -81,6 +81,26 @@ impl Players {
 
     pub fn history(&self) -> impl Iterator<Item = &Player> {
         self.history.iter().flat_map(|s| self.all.get(s))
+    }
+
+    pub fn has_record(&self, steamid: &SteamID) -> bool {
+        self.records.get_records().contains_key(&steamid)
+    }
+
+    pub fn insert_record(&mut self, record: PlayerRecord) {
+        self.records.insert_record(record);
+    }
+
+    pub fn records(&self) -> &PlayerRecords {
+        &self.records
+    }
+
+    pub fn record(&self, steamid: &SteamID) -> Option<&PlayerRecord> {
+        self.records.get_record(steamid)
+    }
+
+    pub fn record_mut(&mut self, steamid: &SteamID) -> Option<PlayerRecordLock> {
+        self.records.get_record_mut(steamid, &mut self.all)
     }
 }
 
@@ -112,10 +132,9 @@ impl Server {
             hostname: None,
             max_players: None,
             num_players: None,
-            players: Players::new(),
+            players: Players::new(playerlist),
 
             gamemode: None,
-            player_records: playerlist,
             friends_lists: HashMap::new(),
             friends_is_public: HashMap::new(),
         }
@@ -153,6 +172,10 @@ impl Server {
 
     pub fn players(&self) -> &Players {
         &self.players
+    }
+
+    pub fn players_mut(&mut self) -> &mut Players {
+        &mut self.players
     }
 
     pub fn gamemode(&self) -> Option<&Gamemode> {
@@ -384,29 +407,6 @@ impl Server {
         return Some(false);
     }
 
-    // Player records
-
-    pub fn has_player_record(&self, steamid: SteamID) -> bool {
-        self.player_records.get_records().contains_key(&steamid)
-    }
-
-    pub fn get_player_records(&self) -> &PlayerRecords {
-        &self.player_records
-    }
-
-    pub fn insert_player_record(&mut self, record: PlayerRecord) {
-        self.player_records.insert_record(record);
-    }
-
-    pub fn get_player_record(&self, steamid: SteamID) -> Option<&PlayerRecord> {
-        self.player_records.get_record(steamid)
-    }
-
-    pub fn get_player_record_mut(&mut self, steamid: SteamID) -> Option<PlayerRecordLock> {
-        self.player_records
-            .get_record_mut(steamid, &mut self.players.all)
-    }
-
     // **** Message handling ****
 
     /// Handles any io output from running commands / reading the console log file.
@@ -464,7 +464,7 @@ impl Server {
                 if let Some(name) = g15.name {
                     player.name = name;
 
-                    if self.player_records.get_records().contains_key(&steamid)
+                    if !player.get_record().is_empty()
                         && !player.previous_names.contains(&player.name)
                     {
                         name_updates.push((steamid, player.name.clone()));
@@ -494,7 +494,7 @@ impl Server {
             } else {
                 // Create player data if they don't exist yet
                 if let Some(mut player) = Player::new_from_g15(&g15, self.user) {
-                    if let Some(mut record) = self.get_player_record_mut(steamid) {
+                    if let Some(mut record) = self.players.record_mut(&steamid) {
                         if !record.previous_names.contains(&player.name) {
                             record.previous_names.push(player.name.clone());
                         }
@@ -515,7 +515,7 @@ impl Server {
 
         // Update any recorded names
         for (steamid, name) in name_updates {
-            if let Some(mut record) = self.get_player_record_mut(steamid) {
+            if let Some(mut record) = self.players.record_mut(&steamid) {
                 record.previous_names.push(name);
             }
         }
@@ -548,14 +548,9 @@ impl Server {
             game_info.acknowledge();
 
             // Update previous names
-            if self
-                .player_records
-                .get_records()
-                .contains_key(&status.steamid)
-                && !player.previous_names.contains(&player.name)
-            {
+            if !player.get_record().is_empty() && !player.previous_names.contains(&player.name) {
                 let new_name = player.name.clone();
-                if let Some(mut record) = self.get_player_record_mut(status.steamid) {
+                if let Some(mut record) = self.players.record_mut(&status.steamid) {
                     record.previous_names.push(new_name);
                 }
             }
@@ -565,7 +560,7 @@ impl Server {
             // Create and insert new player
             let mut player = Player::new_from_status(&status, self.user);
 
-            if let Some(mut record) = self.get_player_record_mut(status.steamid) {
+            if let Some(mut record) = self.players.record_mut(&status.steamid) {
                 if !record.previous_names.contains(&player.name) {
                     record.previous_names.push(player.name.clone());
                 }

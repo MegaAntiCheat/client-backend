@@ -180,13 +180,14 @@ async fn put_user(
     let mut server = state.server.write().unwrap();
     for (k, v) in users.0 {
         // Insert record if it didn't exist
-        if !server.has_player_record(k) {
-            server.insert_player_record(PlayerRecord::new(k));
+        if !server.players().has_record(&k) {
+            server.players_mut().insert_record(PlayerRecord::new(k));
         }
 
         // Update record
         let mut record = server
-            .get_player_record_mut(k)
+            .players_mut()
+            .record_mut(&k)
             .expect("Mutating player record that was just inserted.");
 
         if let Some(custom_data) = v.custom_data {
@@ -347,7 +348,7 @@ async fn get_playerlist(State(state): AState) -> impl IntoResponse {
     (
         StatusCode::OK,
         HEADERS,
-        serde_json::to_string(&state.server.read().unwrap().get_player_records())
+        serde_json::to_string(&state.server.read().unwrap().players().records())
             .expect("Serialize player records"),
     )
 }
