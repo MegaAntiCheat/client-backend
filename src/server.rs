@@ -11,7 +11,7 @@ use crate::{
         regexes::{self, ChatMessage, PlayerKill, StatusLine},
         IOOutput,
     },
-    player::{Friend, Player, SteamInfo},
+    player::{Friend, GameInfo, Player, SteamInfo},
     player_records::{PlayerRecord, PlayerRecordLock, PlayerRecords},
 };
 
@@ -168,7 +168,7 @@ impl Server {
         let unaccounted_players: Vec<SteamID> = self
             .players
             .connected()
-            .filter(|p| p.game_info.should_prune())
+            .filter(|p| p.game_info.is_some() && p.game_info.as_ref().unwrap().should_prune())
             .map(|p| p.steamid)
             .collect();
 
@@ -193,9 +193,10 @@ impl Server {
 
         // Mark all remaining players as unaccounted, they will be marked as accounted again
         // when they show up in status or another console command.
-        for p in self.players.all.values_mut() {
-            p.game_info.next_cycle();
-        }
+        self.players
+            .connected_mut()
+            .flat_map(|p| p.game_info.as_mut())
+            .for_each(GameInfo::next_cycle);
     }
 
     /// Add the provided SteamInfo to the given player. Returns true if that player was
@@ -456,10 +457,10 @@ impl Server {
             }
 
             if let Some(player) = self.players.get_mut(&steamid) {
-                // Update existing player
-                if let Some(scr) = g15.score {
-                    player.game_info.kills = scr;
+                if player.game_info.is_none() {
+                    player.game_info = GameInfo::new_from_g15(&g15);
                 }
+
                 if let Some(name) = g15.name {
                     player.name = name;
 
@@ -469,20 +470,27 @@ impl Server {
                         name_updates.push((steamid, player.name.clone()));
                     }
                 }
-                if let Some(dth) = g15.deaths {
-                    player.game_info.deaths = dth;
-                }
-                if let Some(png) = g15.ping {
-                    player.game_info.ping = png;
-                }
-                if let Some(tm) = g15.team {
-                    player.game_info.team = tm;
-                }
-                if let Some(uid) = g15.userid {
-                    player.game_info.userid = uid;
-                }
 
-                player.game_info.acknowledge();
+                if let Some(game_info) = &mut player.game_info {
+                    // Update existing player
+                    if let Some(scr) = g15.score {
+                        game_info.kills = scr;
+                    }
+                    if let Some(dth) = g15.deaths {
+                        game_info.deaths = dth;
+                    }
+                    if let Some(png) = g15.ping {
+                        game_info.ping = png;
+                    }
+                    if let Some(tm) = g15.team {
+                        game_info.team = tm;
+                    }
+                    if let Some(uid) = g15.userid {
+                        game_info.userid = uid;
+                    }
+
+                    game_info.acknowledge();
+                }
             } else {
                 // Create player data if they don't exist yet
                 if let Some(mut player) = Player::new_from_g15(&g15, self.user) {
@@ -526,13 +534,18 @@ impl Server {
         // Update existing player or insert new player
         if let Some(player) = self.players.get_mut(&status.steamid) {
             // Update existing player
+            if player.game_info.is_none() {
+                player.game_info = Some(GameInfo::new_from_status(&status));
+            }
+
+            let game_info = player.game_info.as_mut().unwrap();
             player.name = status.name;
-            player.game_info.userid = status.userid;
-            player.game_info.ping = status.ping;
-            player.game_info.loss = status.loss;
-            player.game_info.state = status.state;
-            player.game_info.time = status.time;
-            player.game_info.acknowledge();
+            game_info.userid = status.userid;
+            game_info.ping = status.ping;
+            game_info.loss = status.loss;
+            game_info.state = status.state;
+            game_info.time = status.time;
+            game_info.acknowledge();
 
             // Update previous names
             if self

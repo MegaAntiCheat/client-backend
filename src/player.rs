@@ -18,7 +18,7 @@ pub struct Player {
     #[serde(rename = "isSelf")]
     pub is_self: bool,
     #[serde(rename = "gameInfo")]
-    pub game_info: GameInfo,
+    pub game_info: Option<GameInfo>,
     #[serde(rename = "steamInfo")]
     pub steam_info: Option<SteamInfo>,
     #[serde(rename = "customData")]
@@ -41,7 +41,7 @@ impl Player {
             name: status.name.clone(),
             steamid: status.steamid,
             is_self,
-            game_info: GameInfo::new_from_status(status),
+            game_info: Some(GameInfo::new_from_status(status)),
             steam_info: None,
             custom_data: serde_json::Value::Object(Map::new()),
             tags: Vec::new(),
@@ -55,7 +55,7 @@ impl Player {
 
     pub(crate) fn new_from_g15(g15: &G15Player, user: Option<SteamID>) -> Option<Player> {
         let steamid = g15.steamid?;
-        let game_info = GameInfo::new_from_g15(g15)?;
+        let game_info = GameInfo::new_from_g15(g15);
         let is_self = user.map(|user| user == steamid).unwrap_or(false);
 
         Some(Player {
