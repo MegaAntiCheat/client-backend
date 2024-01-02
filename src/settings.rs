@@ -29,7 +29,7 @@ pub enum ConfigFilesError {
     #[error("{0:?}")]
     Other(#[from] anyhow::Error),
 }
-#[derive(Debug, Serialize,Deserialize, PartialEq)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
 pub enum FriendsAPIUsage {
     None,
     CheatersOnly,

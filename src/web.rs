@@ -24,7 +24,7 @@ use crate::{
     io::{Command, IOManagerMessage},
     player_records::{PlayerRecord, Verdict},
     server::Server,
-    settings::Settings,
+    settings::{Settings, FriendsAPIUsage},
     steamapi::SteamAPIMessage,
 };
 
@@ -205,6 +205,7 @@ async fn put_user(
 #[derive(Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct InternalPreferences {
+    pub friends_api_usage: Option<FriendsAPIUsage>,
     pub tf2_directory: Option<Arc<str>>,
     pub rcon_password: Option<Arc<str>>,
     pub steam_api_key: Option<Arc<str>>,
@@ -223,6 +224,7 @@ async fn get_prefs(State(state): AState) -> impl IntoResponse {
     let settings = state.settings.read().unwrap();
     let prefs = Preferences {
         internal: Some(InternalPreferences {
+            friends_api_usage: Some(*settings.get_friends_api_usage()),
             tf2_directory: Some(settings.get_tf2_directory().to_string_lossy().into()),
             rcon_password: Some(settings.get_rcon_password().into()),
             steam_api_key: Some(settings.get_steam_api_key().into()),
@@ -266,6 +268,9 @@ async fn put_prefs(State(state): AState, prefs: Json<Preferences>) -> impl IntoR
                 .send(SteamAPIMessage::SetAPIKey(steam_api_key.clone()))
                 .unwrap();
             settings.set_steam_api_key(steam_api_key);
+        }
+        if let Some(friends_api_usage) = internal.friends_api_usage {
+            settings.set_friends_api_usage(friends_api_usage);
         }
     }
 
