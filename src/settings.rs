@@ -360,7 +360,7 @@ impl Default for Settings {
             tf2_directory: PathBuf::default(),
             rcon_password: "mac_rcon".into(),
             steam_api_key: "YOUR_API_KEY_HERE".into(),
-            friends_api_usage: FriendsAPIUsage::None, // TODO: Change to CheatersOnly once frontend impl complete.
+            friends_api_usage: FriendsAPIUsage::CheatersOnly,
             port: 3621,
             autolaunch_ui: false,
             override_tf2_dir: None,
