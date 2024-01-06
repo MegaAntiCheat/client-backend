@@ -18,6 +18,9 @@ pub struct Args {
     /// Override the configured/default rcon password
     #[arg(short, long)]
     pub rcon_pword: Option<String>,
+    /// Override the RCON port for connecting to the game
+    #[arg(long)]
+    pub rcon_port: Option<u16>,
     /// Override the configured Steam API key,
     #[arg(short, long)]
     pub api_key: Option<String>,
