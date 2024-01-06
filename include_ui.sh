@@ -2,6 +2,60 @@
 
 UPDATE_FLAG=0
 
+echo "Checking for required dependencies"
+
+if ! command -v npm &> /dev/null
+then
+    
+    if ! command -v node &> /dev/null
+    then
+        echo "" 
+        echo "" 
+        echo "We couldn't find npm and NodeJS, however they are required for the ui"
+        echo "Install NodeJS with a package manager, or try using nvm (Node Version Manager)"
+        echo ""
+        echo "(should be at least version 20)"
+        exit
+    fi
+
+    NODE_VERSION=$( node --version )
+
+    echo ""
+    echo "" 
+    echo "We couldn't find npm, but we found NodeJS ($NODE_VERSION)"
+    echo "Try looking for npm in your package manager"
+    echo ""
+    exit
+fi
+
+NODE_VERSION=$( node --version )
+MAJOR_NODE_VERSION=$(echo "$NODE_VERSION" | cut -c "2-" | cut -c "-2")
+
+if [ "$MAJOR_NODE_VERSION" -lt "20" ]; then
+    echo ""
+    echo ""
+    echo "Warning: NodeJS version lower than 20 (it is $NODE_VERSION)"
+    echo "This might cause errors during the build process"
+    echo ""
+    echo ""
+fi
+
+if ! command -v pnpm &> /dev/null
+then
+    echo ""
+    echo "pnpm could not be found, install it? (Y/n)"
+    
+    # Read without -r will mangle backslashes
+    read -r install_pnpm
+
+    if [[ $install_pnpm =~ ^([yY](es)?)?$ ]]
+    then
+        sudo npm i -g pnpm
+    else
+        exit
+    fi
+fi
+
 echo "Checking for UI repository"
 
 if [ -e "ui/last_commit_hash.txt" ]; then
@@ -32,21 +86,6 @@ if [ "$UPDATE_FLAG" -eq 0 ]; then
     echo "Saving last commit hash"
     cd ui_temp || exit
     git rev-parse HEAD > ../ui/last_commit_hash.txt
-
-    if ! command -v pnpm &> /dev/null
-    then
-        echo ""
-        echo "pnpm could not be found, install it? (Y/n)"
-        read install_pnpm
-
-        if [[ $install_pnpm =~ ^([yY](es)?)?$ ]]
-        then
-        sudo npm i -g pnpm
-        else
-        exit
-        fi
-    fi
-
 
     npm exec pnpm i
     npm exec pnpm run build
