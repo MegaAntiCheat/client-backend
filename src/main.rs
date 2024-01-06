@@ -1,12 +1,12 @@
-use args::Args;
-use clap::Parser;
-use steamid_ng::SteamID;
 use crate::player_records::Verdict;
 use crate::steamapi::SteamAPIResponse;
+use args::Args;
+use clap::Parser;
 use include_dir::{include_dir, Dir};
 use player_records::PlayerRecords;
 use server::Server;
 use steamapi::SteamAPIManager;
+use steamid_ng::SteamID;
 use tokio::select;
 use tokio::sync::mpsc::unbounded_channel;
 use web::{web_main, SharedState};
@@ -108,7 +108,8 @@ fn main() {
         }
     }
 
-    let port = settings.get_port();
+    let webui_port = settings.get_webui_port();
+    let rcon_port = settings.get_rcon_port();
     let playerlist = PlayerRecords::load_or_create(&args);
     playerlist.save_ok();
 
@@ -125,7 +126,7 @@ fn main() {
             // IO Manager
             let (io_send, io_recv) = unbounded_channel();
             let (mut io_recv, mut io_manager) =
-                IOManager::new(log_file_path, settings.get_rcon_password(), io_recv);
+                IOManager::new(log_file_path, settings.get_rcon_password(), rcon_port, io_recv);
 
             tokio::task::spawn(async move {
                 io_manager.io_loop().await;
@@ -133,7 +134,7 @@ fn main() {
 
             // Autolaunch UI
             if args.autolaunch_ui || settings.get_autolaunch_ui() {
-                if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", port))) {
+                if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", webui_port))) {
                     tracing::error!("Failed to open web browser: {:?}", e);
                 }
             }
@@ -171,7 +172,7 @@ fn main() {
                 settings: settings.clone(),
             };
             tokio::task::spawn(async move {
-                web_main(shared_state, port).await;
+                web_main(shared_state, webui_port).await;
             });
 
             // Main loop
@@ -186,7 +187,7 @@ fn main() {
             let mut need_all_friends_lists = false;
 
             loop {
-                
+
                 select! {
                     // IO output
                     io_output_iter = io_recv.recv() => {
@@ -309,7 +310,7 @@ fn main() {
                                 }      
                             }).collect();
                     }
-                    
+
                     steam_api_send
                         .send(steamapi::SteamAPIMessage::CheckFriends(queued_friendlist_req.clone()))
                         .unwrap();

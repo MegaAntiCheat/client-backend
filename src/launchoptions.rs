@@ -81,8 +81,9 @@ impl LaunchOptions {
             }
         }
 
-        let launch_options_regex = Regex::new(r#"\t{6}"LaunchOptions"\t{2}"([(\-\w\%\!\@\^\&)\s]*)""#)
-            .expect("Constructing LaunchOptions regex");
+        let launch_options_regex =
+            Regex::new(r#"\t{6}"LaunchOptions"\t{2}"([(\-\w\%\!\@\^\&)\s]*)""#)
+                .expect("Constructing LaunchOptions regex");
 
         Ok(LaunchOptions {
             local_config: config_path,

@@ -65,6 +65,7 @@ pub enum KickReason {
 pub enum IOManagerMessage {
     SetLogFilePath(PathBuf),
     SetRconPassword(Arc<str>),
+    SetRconPort(u16),
     RunCommand(Command),
 }
 
@@ -94,12 +95,14 @@ impl IOManager {
     pub fn new(
         log_file_path: PathBuf,
         rcon_password: Arc<str>,
+        rcon_port: u16,
         recv: UnboundedReceiver<IOManagerMessage>,
     ) -> (UnboundedReceiver<Vec<IOOutput>>, IOManager) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
         let (command_send, command_recv) = unbounded_channel();
-        let (command_recv, command_manager) = CommandManager::new(rcon_password, command_recv);
+        let (command_recv, command_manager) =
+            CommandManager::new(rcon_password, rcon_port, command_recv);
 
         let (filewatcher_send, filewatcher_recv) = unbounded_channel();
         let (filewatcher_recv, file_watcher) = FileWatcher::new(log_file_path, filewatcher_recv);
@@ -174,6 +177,10 @@ impl IOManager {
             IOManagerMessage::SetRconPassword(password) => self
                 .command_send
                 .send(CommandManagerMessage::SetRconPassword(password))
+                .unwrap(),
+            IOManagerMessage::SetRconPort(port) => self
+                .command_send
+                .send(CommandManagerMessage::SetRconPort(port))
                 .unwrap(),
             IOManagerMessage::RunCommand(cmd) => self
                 .command_send
