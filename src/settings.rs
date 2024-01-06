@@ -51,6 +51,7 @@ pub struct Settings {
     webui_port: u16,
     autolaunch_ui: bool,
     external: serde_json::Value,
+    rcon_port: u16,
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
     #[serde(skip)]
@@ -61,7 +62,8 @@ pub struct Settings {
     override_webui_port: Option<u16>,
     #[serde(skip)]
     override_steam_user: Option<SteamID>,
-    rcon_port: u16,
+    #[serde(skip)]
+    override_rcon_port: Option<u16>,
 }
 
 #[allow(dead_code)]
@@ -231,6 +233,15 @@ impl Settings {
             );
             Arc::from(val.clone())
         });
+        // Override (and log if) the RCON port (default 27015)
+        self.override_rcon_port = args.rcon_port.map(|val| {
+            tracing::info!(
+                "Overrode configured RCON port value {:?}->{:?}",
+                self.webui_port,
+                val
+            );
+            val
+        });
     }
 
     /// Attempt to save the settings back to the loaded configuration file
@@ -330,7 +341,7 @@ impl Settings {
     }
 
     pub fn get_rcon_port(&self) -> u16 {
-        self.rcon_port
+        self.override_rcon_port.unwrap_or(self.rcon_port)
     }
 
     pub fn set_rcon_port(&mut self, port: u16) {
@@ -376,13 +387,14 @@ impl Default for Settings {
             friends_api_usage: FriendsAPIUsage::CheatersOnly,
             webui_port: 3621,
             autolaunch_ui: false,
+            rcon_port: 27015,
             override_tf2_dir: None,
             override_rcon_password: None,
             override_steam_api_key: None,
             override_webui_port: None,
             override_steam_user: None,
+            override_rcon_port: None,
             external: serde_json::Value::Object(Map::new()),
-            rcon_port: 27015,
         }
     }
 }
