@@ -124,7 +124,7 @@ impl ChatMessage {
 // Includes players on server, player name, state, steamid, time connected
 // If no player exists on the server with a steamid from here, it creates a new player and adds it to the list
 pub const REGEX_STATUS: &str =
-    r#"^#\s*(\d+)\s"(.*)"\s+(\[U:\d:\d+\])\s+(\d*:?\d\d:\d\d)\s+(\d+)\s*(\d+)\s*(\w+).*$"#;
+    r#"^#\s*(\d+)\s"(.*)"\s+(\[U:\d:\d+\])\s+((?:[\ds]+:?)+)\s+(\d+)\s*(\d+)\s*(\w+).*$"#;
 
 #[derive(Debug, Clone)]
 pub struct StatusLine {
