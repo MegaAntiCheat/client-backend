@@ -14,11 +14,13 @@ use super::Command;
 pub enum CommandManagerMessage {
     RunCommand(Command),
     SetRconPassword(Arc<str>),
+    SetRconPort(u16),
 }
 
 pub struct CommandManager {
     rcon_password: Arc<str>,
     rcon: Option<Connection<TcpStream>>,
+    rcon_port: u16,
 
     request_recv: UnboundedReceiver<CommandManagerMessage>,
     response_send: UnboundedSender<Arc<str>>,
@@ -28,6 +30,7 @@ pub struct CommandManager {
 impl CommandManager {
     pub fn new(
         rcon_password: Arc<str>,
+        rcon_port: u16,
         recv: UnboundedReceiver<CommandManagerMessage>,
     ) -> (UnboundedReceiver<Arc<str>>, CommandManager) {
         let (resp_tx, resp_rx) = unbounded_channel();
@@ -35,6 +38,7 @@ impl CommandManager {
         let inner = CommandManager {
             rcon_password,
             rcon: None,
+            rcon_port,
             request_recv: recv,
             response_send: resp_tx,
         };
@@ -54,6 +58,12 @@ impl CommandManager {
                 }
                 CommandManagerMessage::SetRconPassword(password) => {
                     self.rcon_password = password;
+                    if let Err(e) = self.try_reconnect().await {
+                        tracing::error!("Failed to reconnect to rcon: {:?}", e);
+                    }
+                }
+                CommandManagerMessage::SetRconPort(port) => {
+                    self.rcon_port = port;
                     if let Err(e) = self.try_reconnect().await {
                         tracing::error!("Failed to reconnect to rcon: {:?}", e);
                     }
@@ -93,7 +103,10 @@ impl CommandManager {
         tracing::debug!("Attempting to reconnect to RCon");
         match timeout(
             Duration::from_secs(2),
-            Connection::connect("127.0.0.1:27015", &self.rcon_password),
+            Connection::connect(
+                format!("127.0.0.1:{}", &self.rcon_port),
+                &self.rcon_password,
+            ),
         )
         .await
         {

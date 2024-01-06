@@ -31,7 +31,7 @@ pub enum SteamAPIMessage {
 
 pub enum SteamAPIResponse {
     SteamInfo((SteamID, SteamInfo)),
-    FriendLists((SteamID, Result<Vec<Friend>>))
+    FriendLists((SteamID, Result<Vec<Friend>>)),
 }
 
 pub struct SteamAPIManager {
@@ -99,7 +99,7 @@ impl SteamAPIManager {
                                     }
                                 }
                             }
-                            
+
                         }
                     }
                 },

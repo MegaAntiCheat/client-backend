@@ -65,7 +65,7 @@ impl Server {
             gamemode: None,
             player_records: playerlist,
             friends_lists: HashMap::new(),
-            friends_is_public: HashMap::new()
+            friends_is_public: HashMap::new(),
         }
     }
 
@@ -178,16 +178,22 @@ impl Server {
                         Some(friend_index) => {
                             // player already in friend's friends list, update friend_since in case it changed.
                             friends_of_friend[friend_index].friend_since = friend.friend_since;
-                        },
+                        }
                         None => {
-                            friends_of_friend.push(Friend { steamid, friend_since: friend.friend_since });
+                            friends_of_friend.push(Friend {
+                                steamid,
+                                friend_since: friend.friend_since,
+                            });
                         }
                     }
                 }
                 // Friend's friendlist isn't in memory yet; create a new vector with player.
                 None => {
                     let mut friends_of_friend = Vec::new();
-                    friends_of_friend.push(Friend { steamid, friend_since: friend.friend_since });
+                    friends_of_friend.push(Friend {
+                        steamid,
+                        friend_since: friend.friend_since,
+                    });
                     self.friends_lists.insert(friend.steamid, friends_of_friend);
                 }
             }
@@ -197,33 +203,37 @@ impl Server {
         // If a player's friend has been unfriended, remove player from friend's hashmap
         match oldfriends {
             Some(oldfriends) => {
-                let oldfriends_ids = oldfriends.iter().map(|f| {
-                    f.steamid
-                }).filter(|fid| {
-                    friendslist.iter().find(|f| f.steamid == *fid).is_none()
-                });
+                let oldfriends_ids = oldfriends
+                    .iter()
+                    .map(|f| f.steamid)
+                    .filter(|fid| friendslist.iter().find(|f| f.steamid == *fid).is_none());
                 for oldfriend_id in oldfriends_ids {
                     self.remove_from_friends_list(&oldfriend_id, &steamid);
                 }
-            },
+            }
             None => {}
         }
         self.update_friends_playerobj(&steamid, None);
     }
 
     /// Mark a friends list as being private, trim all now-stale information.
-    pub fn private_friends_list (&mut self, steamid: &SteamID) {
+    pub fn private_friends_list(&mut self, steamid: &SteamID) {
         let old_vis_state = self.friends_is_public.insert(*steamid, false);
         let old_friendslist = self.friends_lists.get(steamid).cloned();
-        
+
         match (old_vis_state, old_friendslist) {
             (Some(old_vis_state), Some(old_friendslist)) => {
                 // Already processed, this function is the only one that sets friends lists to private.
-                if old_vis_state == false { return; } 
+                if old_vis_state == false {
+                    return;
+                }
 
                 for friend in old_friendslist {
                     let friends_of_friend = self.friends_lists.get(&friend.steamid);
-                    match (self.friends_is_public.get(&friend.steamid), friends_of_friend){
+                    match (
+                        self.friends_is_public.get(&friend.steamid),
+                        friends_of_friend,
+                    ) {
                         // If friend doesn't have any friends on record, nothing to remove.
                         (_, None) => {
                             continue;
@@ -246,21 +256,23 @@ impl Server {
     /// Helper function to remove a friend from a player's friendlist.
     fn remove_from_friends_list(&mut self, steamid: &SteamID, friend_to_remove: &SteamID) {
         match self.friends_lists.get_mut(steamid) {
-            Some(friends) => {
-                match friends.iter().position(|f| f.steamid == *friend_to_remove) {
-                    Some(i) => {
-                        friends.remove(i);
-                        self.update_friends_playerobj(&steamid, None);
-                    },
-                    None => {}
+            Some(friends) => match friends.iter().position(|f| f.steamid == *friend_to_remove) {
+                Some(i) => {
+                    friends.remove(i);
+                    self.update_friends_playerobj(&steamid, None);
                 }
-            }
+                None => {}
+            },
             None => {}
         }
     }
 
     /// Helper function to update the player object with the friends information we have on them.
-    fn update_friends_playerobj(&mut self, steamid: &SteamID, existing_player: Option<&mut Player>) {
+    fn update_friends_playerobj(
+        &mut self,
+        steamid: &SteamID,
+        existing_player: Option<&mut Player>,
+    ) {
         let friends = self.friends_lists.get(steamid);
         let friends_is_public = self.friends_is_public.get(steamid);
 
@@ -271,7 +283,11 @@ impl Server {
         }
 
         if player.is_some() && friends.is_some() {
-            player.unwrap().update_friends(friends.unwrap().to_vec(), friends_is_public.copied(), self.user_id);
+            player.unwrap().update_friends(
+                friends.unwrap().to_vec(),
+                friends_is_public.copied(),
+                self.user_id,
+            );
         }
     }
 
@@ -303,20 +319,16 @@ impl Server {
         if !ispublic_1.is_some_and(|p| *p) && !ispublic_2.is_some_and(|p| *p) {
             return None;
         }
-        
+
         let friends_list_1 = self.friends_lists.get(friend1);
         let friends_list_2 = self.friends_lists.get(friend2);
 
         match (friends_list_1, friends_list_2) {
             (Some(friends_list_1), _) => {
-                return Some(friends_list_1.iter().any(|f| {
-                    f.steamid == *friend2
-                }));
+                return Some(friends_list_1.iter().any(|f| f.steamid == *friend2));
             }
             (_, Some(friends_list_2)) => {
-                return Some(friends_list_2.iter().any(|f| {
-                    f.steamid == *friend1
-                }));
+                return Some(friends_list_2.iter().any(|f| f.steamid == *friend1));
             }
             _ => {}
         }
@@ -470,7 +482,10 @@ impl Server {
                 player.update_from_record(record.clone());
             }
 
-            if self.is_friends_with_user(&status.steamid).is_some_and(|f| f) {
+            if self
+                .is_friends_with_user(&status.steamid)
+                .is_some_and(|f| f)
+            {
                 player.tags.push(Arc::from("Friend"));
             }
 

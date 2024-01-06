@@ -1,4 +1,4 @@
-/* 
+/*
 use std::fs;
 #[path = "../src/io/g15.rs"]
 pub mod g15;
