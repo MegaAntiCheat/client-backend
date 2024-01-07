@@ -33,7 +33,7 @@ pub enum ConfigFilesError {
 pub enum FriendsAPIUsage {
     None,
     CheatersOnly,
-    All
+    All,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -48,9 +48,10 @@ pub struct Settings {
     friends_api_usage: FriendsAPIUsage,
     rcon_password: Arc<str>,
     steam_api_key: Arc<str>,
-    port: u16,
+    webui_port: u16,
     autolaunch_ui: bool,
     external: serde_json::Value,
+    rcon_port: u16,
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
     #[serde(skip)]
@@ -58,9 +59,11 @@ pub struct Settings {
     #[serde(skip)]
     override_steam_api_key: Option<Arc<str>>,
     #[serde(skip)]
-    override_port: Option<u16>,
+    override_webui_port: Option<u16>,
     #[serde(skip)]
     override_steam_user: Option<SteamID>,
+    #[serde(skip)]
+    override_rcon_port: Option<u16>,
 }
 
 #[allow(dead_code)]
@@ -195,8 +198,12 @@ impl Settings {
     /// make sure to add tracing for any values overridden!
     pub fn set_overrides(&mut self, args: &Args) {
         // Override (and log if) the Port used to host the middleware API (default 3621)
-        self.override_port = args.port.map(|val| {
-            tracing::info!("Overrode configured port value {:?}->{:?}", self.port, val);
+        self.override_webui_port = args.port.map(|val| {
+            tracing::info!(
+                "Overrode configured port value {:?}->{:?}",
+                self.webui_port,
+                val
+            );
             val
         });
         // Override (and log if) the RCON password. (default mac_rcon)
@@ -225,6 +232,15 @@ impl Settings {
                 val
             );
             Arc::from(val.clone())
+        });
+        // Override (and log if) the RCON port (default 27015)
+        self.override_rcon_port = args.rcon_port.map(|val| {
+            tracing::info!(
+                "Overrode configured RCON port value {:?}->{:?}",
+                self.webui_port,
+                val
+            );
+            val
         });
     }
 
@@ -278,8 +294,8 @@ impl Settings {
             .unwrap_or(&self.rcon_password)
             .clone()
     }
-    pub fn get_port(&self) -> u16 {
-        self.override_port.unwrap_or(self.port)
+    pub fn get_webui_port(&self) -> u16 {
+        self.override_webui_port.unwrap_or(self.webui_port)
     }
     pub fn get_steam_api_key(&self) -> Arc<str> {
         self.override_steam_api_key
@@ -296,8 +312,8 @@ impl Settings {
     pub fn set_rcon_password(&mut self, pwd: Arc<str>) {
         self.rcon_password = pwd;
     }
-    pub fn set_port(&mut self, port: u16) {
-        self.port = port;
+    pub fn set_webui_port(&mut self, port: u16) {
+        self.webui_port = port;
     }
 
     pub fn get_autolaunch_ui(&self) -> bool {
@@ -322,6 +338,14 @@ impl Settings {
 
     pub fn get_friends_api_usage(&self) -> &FriendsAPIUsage {
         &self.friends_api_usage
+    }
+
+    pub fn get_rcon_port(&self) -> u16 {
+        self.override_rcon_port.unwrap_or(self.rcon_port)
+    }
+
+    pub fn set_rcon_port(&mut self, port: u16) {
+        self.rcon_port = port;
     }
 
     /// Attempts to find (and create) a directory to be used for configuration files
@@ -361,13 +385,15 @@ impl Default for Settings {
             rcon_password: "mac_rcon".into(),
             steam_api_key: "YOUR_API_KEY_HERE".into(),
             friends_api_usage: FriendsAPIUsage::CheatersOnly,
-            port: 3621,
+            webui_port: 3621,
             autolaunch_ui: false,
+            rcon_port: 27015,
             override_tf2_dir: None,
             override_rcon_password: None,
             override_steam_api_key: None,
-            override_port: None,
+            override_webui_port: None,
             override_steam_user: None,
+            override_rcon_port: None,
             external: serde_json::Value::Object(Map::new()),
         }
     }

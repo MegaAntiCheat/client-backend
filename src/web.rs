@@ -209,6 +209,7 @@ struct InternalPreferences {
     pub tf2_directory: Option<Arc<str>>,
     pub rcon_password: Option<Arc<str>>,
     pub steam_api_key: Option<Arc<str>>,
+    pub rcon_port: Option<u16>,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -228,6 +229,7 @@ async fn get_prefs(State(state): AState) -> impl IntoResponse {
             tf2_directory: Some(settings.get_tf2_directory().to_string_lossy().into()),
             rcon_password: Some(settings.get_rcon_password().into()),
             steam_api_key: Some(settings.get_steam_api_key().into()),
+            rcon_port: Some(settings.get_rcon_port()),
         }),
         external: Some(settings.get_external_preferences().clone()),
     };
@@ -261,6 +263,13 @@ async fn put_prefs(State(state): AState, prefs: Json<Preferences>) -> impl IntoR
                 .send(IOManagerMessage::SetRconPassword(rcon_pwd.clone()))
                 .unwrap();
             settings.set_rcon_password(rcon_pwd);
+        }
+        if let Some(rcon_port) = internal.rcon_port {
+            state
+                .io
+                .send(IOManagerMessage::SetRconPort(rcon_port.clone()))
+                .unwrap();
+            settings.set_rcon_port(rcon_port);
         }
         if let Some(steam_api_key) = internal.steam_api_key {
             state
