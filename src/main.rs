@@ -144,8 +144,10 @@ fn main() {
                 let demo_path = settings.get_tf2_directory().join("tf/demos");
                 tracing::info!("Demo path: {:?}", demo_path);
 
-                tokio::task::spawn(async move {
-                    let _ = demo_loop(demo_path).await;
+                std::thread::spawn(move || {
+                    if let Err(e) = demo_loop(demo_path) {
+                        tracing::error!("Failed to start demo watcher: {:?}", e);
+                    }
                 });
             }
 
@@ -325,7 +327,7 @@ fn main() {
 
 fn init_tracing() -> Option<WorkerGuard> {
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info,hyper::proto=warn");
+        std::env::set_var("RUST_LOG", "info,hyper::proto=warn,tf_demo_parser=warn");
     }
 
     let subscriber = tracing_subscriber::registry().with(
