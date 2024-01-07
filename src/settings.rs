@@ -225,13 +225,13 @@ impl Settings {
             Arc::from(val.clone())
         });
         // Override (and log if) the TF2 game directory. (Can be configured, but by default we search via steam library for it)
-        self.override_steam_api_key = args.tf2_dir.as_ref().map(|val| {
+        self.override_tf2_dir = args.tf2_dir.as_ref().map(|val| {
             tracing::info!(
                 "Overrode configured TF2 directory {:?}->{:?}",
                 self.tf2_directory,
                 val
             );
-            Arc::from(val.clone())
+            PathBuf::from(val.clone())
         });
         // Override (and log if) the RCON port (default 27015)
         self.override_rcon_port = args.rcon_port.map(|val| {
