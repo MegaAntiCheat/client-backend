@@ -49,7 +49,11 @@ impl CommandManager {
                 CommandManagerMessage::RunCommand(cmd) => {
                     let cmd = format!("{}", cmd);
                     if let Err(e) = self.run_command(&cmd).await {
-                        tracing::error!("Failed to run command {}: {:?}", cmd, e);
+                        if e.root_cause().to_string() == "deadline has elapsed" {
+                            tracing::warn!("Expected if TF2 is not running: Failed to run command {}.  {:?}", cmd, e);
+                        } else {
+                            tracing::error!("Failed to run command {}: {:?}", cmd, e);
+                        }
                     }
                 }
                 CommandManagerMessage::SetRconPassword(password) => {
