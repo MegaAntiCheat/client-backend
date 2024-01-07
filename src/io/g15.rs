@@ -248,7 +248,7 @@ impl G15Parser {
                 if let Some(pat_caps) = pat_caps {
                     // Call the corresponding function to store the capture groups, as we have found a match
                     match pat.1(pat_caps, &mut players) {
-                        Err(why) => println!("Parse error - {} at line {}", why, line),
+                        Err(why) => tracing::error!("Parse error - {} at line {}", why, line),
                         Ok(value) => (),
                     }
                 }

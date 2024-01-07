@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::HashMap,
     fmt::Display,
     io::ErrorKind,
     ops::{Deref, DerefMut},
@@ -14,7 +14,6 @@ use steamid_ng::SteamID;
 
 use crate::{
     args::Args,
-    player::Player,
     settings::{ConfigFilesError, Settings},
 };
 
@@ -24,7 +23,7 @@ use crate::{
 pub struct PlayerRecords {
     #[serde(skip)]
     path: PathBuf,
-    records: HashMap<SteamID, PlayerRecord>,
+    pub records: HashMap<SteamID, PlayerRecord>,
 }
 
 impl PlayerRecords {
@@ -82,9 +81,7 @@ impl PlayerRecords {
         // Map all of the steamids to the records. They were not included when
         // serializing/deserializing the records to prevent duplication in the
         // resulting file.
-        for (steamid, record) in &mut playerlist.records {
-            record.steamid = *steamid;
-
+        for record in &mut playerlist.records.values_mut() {
             // Some old versions had the custom_data set to `null` by default, but an empty object is preferable
             // so I'm using this to fix it lol. It's really not necessary but at the time the UI wasn't
             // a fan of nulls in the custom_data and this fixes it so whatever. :3
@@ -118,39 +115,16 @@ impl PlayerRecords {
         self.path = path;
     }
 
-    pub fn insert_record(&mut self, record: PlayerRecord) {
-        self.records.insert(record.steamid, record);
-    }
-
-    pub fn get_records(&self) -> &HashMap<SteamID, PlayerRecord> {
-        &self.records
-    }
-
-    #[allow(dead_code)]
-    pub fn get_record(&self, steamid: SteamID) -> Option<&PlayerRecord> {
-        self.records.get(&steamid)
-    }
-
-    pub fn get_record_mut<'a>(
-        &'a mut self,
-        steamid: SteamID,
-        players: &'a mut HashMap<SteamID, Player>,
-        history: &'a mut VecDeque<Player>,
-    ) -> Option<PlayerRecordLock> {
-        if self.records.contains_key(&steamid) {
-            Some(PlayerRecordLock {
-                steamid,
-                players,
-                history,
-                playerlist: self,
-            })
-        } else {
-            None
-        }
-    }
-
     pub fn locate_playerlist_file() -> Result<PathBuf, ConfigFilesError> {
         Settings::locate_config_directory().map(|dir| dir.join("playerlist.json"))
+    }
+
+    pub fn update_name(&mut self, steamid: &SteamID, name: Arc<str>) {
+        if let Some(record) = self.records.get_mut(steamid) {
+            if !record.previous_names.contains(&name) {
+                record.previous_names.push(name);
+            }
+        }
     }
 }
 
@@ -167,13 +141,25 @@ impl Default for PlayerRecords {
     }
 }
 
+impl Deref for PlayerRecords {
+    type Target = HashMap<SteamID, PlayerRecord>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.records
+    }
+}
+
+impl DerefMut for PlayerRecords {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.records
+    }
+}
+
 // PlayerRecord
 
 /// A Record of a player stored in the persistent personal playerlist
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PlayerRecord {
-    #[serde(skip)]
-    pub steamid: SteamID,
     #[serde(default = "default_custom_data")]
     pub custom_data: serde_json::Value,
     pub verdict: Verdict,
@@ -182,9 +168,8 @@ pub struct PlayerRecord {
 }
 
 impl PlayerRecord {
-    pub fn new(steamid: SteamID) -> PlayerRecord {
+    pub fn new() -> PlayerRecord {
         PlayerRecord {
-            steamid,
             custom_data: serde_json::Value::Object(serde_json::Map::new()),
             verdict: Verdict::Player,
             previous_names: Vec::new(),
@@ -214,7 +199,13 @@ impl PlayerRecord {
     }
 }
 
-fn default_custom_data() -> serde_json::Value {
+impl Default for PlayerRecord {
+    fn default() -> Self {
+        PlayerRecord::new()
+    }
+}
+
+pub fn default_custom_data() -> serde_json::Value {
     serde_json::Value::Object(Map::new())
 }
 
@@ -231,61 +222,5 @@ pub enum Verdict {
 impl Display for Verdict {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
-    }
-}
-
-pub struct PlayerRecordLock<'a> {
-    playerlist: &'a mut PlayerRecords,
-    players: &'a mut HashMap<SteamID, Player>,
-    history: &'a mut VecDeque<Player>,
-    steamid: SteamID,
-}
-
-impl Deref for PlayerRecordLock<'_> {
-    type Target = PlayerRecord;
-
-    fn deref(&self) -> &Self::Target {
-        self.playerlist
-            .records
-            .get(&self.steamid)
-            .expect("Mutating player record.")
-    }
-}
-
-impl DerefMut for PlayerRecordLock<'_> {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        self.playerlist
-            .records
-            .get_mut(&self.steamid)
-            .expect("Reading player record.")
-    }
-}
-
-// Update all players the server has with the updated record
-impl Drop for PlayerRecordLock<'_> {
-    fn drop(&mut self) {
-        let record = self
-            .playerlist
-            .records
-            .get(&self.steamid)
-            .expect("Reading player record");
-
-        // Update server players and history
-        if let Some(p) = self.players.get_mut(&self.steamid) {
-            p.update_from_record(record.clone());
-        }
-
-        if let Some(p) = self.history.iter_mut().find(|p| p.steamid == self.steamid) {
-            p.update_from_record(record.clone());
-        }
-
-        // Update playerlist
-        if record.is_empty() {
-            self.playerlist.records.remove(&self.steamid);
-        }
-
-        if let Err(e) = self.playerlist.save() {
-            tracing::error!("Failed to save playerlist: {:?}", e);
-        }
     }
 }

@@ -1,131 +1,301 @@
 use serde::{Serialize, Serializer};
-use serde_json::Map;
-use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet, VecDeque},
+    ops::{Deref, DerefMut},
+    sync::Arc,
+};
 use steamid_ng::SteamID;
 
 use crate::{
     io::{g15::G15Player, regexes::StatusLine},
-    player_records::{PlayerRecord, Verdict},
+    player_records::{default_custom_data, PlayerRecords, Verdict},
 };
 
-// Player
-
-#[derive(Debug, Clone, Serialize)]
-pub struct Player {
-    pub name: Arc<str>,
-    #[serde(rename = "steamID64", serialize_with = "serialize_steamid_as_string")]
-    pub steamid: SteamID,
-    #[serde(rename = "isSelf")]
-    pub is_self: bool,
-    #[serde(rename = "gameInfo")]
-    pub game_info: GameInfo,
-    #[serde(rename = "steamInfo")]
-    pub steam_info: Option<SteamInfo>,
-    #[serde(rename = "customData")]
-    pub custom_data: serde_json::Value,
-    pub tags: Vec<Arc<str>>,
-    #[serde(rename = "localVerdict")]
-    pub local_verdict: Verdict,
-    pub convicted: bool,
-    #[serde(rename = "previousNames")]
-    pub previous_names: Vec<Arc<str>>,
-    pub friends: Vec<Friend>,
-    #[serde(rename = "friendsIsPublic")]
-    pub friends_is_public: Option<bool>,
+pub mod tags {
+    pub const FRIEND: &str = "Friend";
 }
 
-impl Player {
-    pub(crate) fn new_from_status(status: &StatusLine, user: Option<SteamID>) -> Player {
-        let is_self = user.map(|user| user == status.steamid).unwrap_or(false);
-        Player {
-            name: status.name.clone(),
-            steamid: status.steamid,
-            is_self,
-            game_info: GameInfo::new_from_status(status),
-            steam_info: None,
-            custom_data: serde_json::Value::Object(Map::new()),
-            tags: Vec::new(),
-            local_verdict: Verdict::Player,
-            convicted: false,
-            previous_names: Vec::new(),
-            friends: Vec::new(),
-            friends_is_public: None,
+const MAX_HISTORY_LEN: usize = 100;
+
+pub struct Players {
+    pub game_info: HashMap<SteamID, GameInfo>,
+    pub steam_info: HashMap<SteamID, SteamInfo>,
+    pub friend_info: HashMap<SteamID, FriendInfo>,
+    pub records: PlayerRecords,
+    pub tags: HashMap<SteamID, HashSet<Arc<str>>>,
+
+    pub connected: Vec<SteamID>,
+    pub history: VecDeque<SteamID>,
+
+    pub user: Option<SteamID>,
+}
+
+#[allow(dead_code)]
+impl Players {
+    pub(crate) fn new(records: PlayerRecords) -> Players {
+        Players {
+            game_info: HashMap::new(),
+            steam_info: HashMap::new(),
+            friend_info: HashMap::new(),
+            tags: HashMap::new(),
+            records,
+
+            connected: Vec::new(),
+            history: VecDeque::with_capacity(MAX_HISTORY_LEN),
+            user: None,
         }
     }
 
-    pub(crate) fn new_from_g15(g15: &G15Player, user: Option<SteamID>) -> Option<Player> {
-        let steamid = g15.steamid?;
-        let game_info = GameInfo::new_from_g15(g15)?;
-        let is_self = user.map(|user| user == steamid).unwrap_or(false);
-
-        Some(Player {
-            name: g15.name.clone()?,
-            steamid,
-            is_self,
-            game_info,
-            steam_info: None,
-            custom_data: serde_json::Value::Object(Map::new()),
-            tags: Vec::new(),
-            local_verdict: Verdict::Player,
-            convicted: false,
-            previous_names: Vec::new(),
-            friends: Vec::new(),
-            friends_is_public: None,
-        })
+    /// Check if a player has a particular tag set
+    pub fn has_tag(&self, steamid: SteamID, tag: &str) -> bool {
+        self.tags
+            .get(&steamid)
+            .map(|t| t.contains(tag))
+            .unwrap_or(false)
     }
 
-    /// Given a record, update this player with the included data.
-    pub fn update_from_record(&mut self, record: PlayerRecord) {
-        if record.steamid != self.steamid {
-            tracing::error!("Updating player with wrong record.");
-            return;
-        }
-
-        self.custom_data = record.custom_data;
-        self.local_verdict = record.verdict;
-        self.previous_names = record.previous_names;
+    /// Set a particular tag on a player
+    pub fn set_tag(&mut self, steamid: SteamID, tag: Arc<str>) {
+        self.tags.entry(steamid).or_default().insert(tag);
     }
 
-    pub fn update_friends(&mut self, friends: Vec<Friend>, is_public: Option<bool>, userid: Option<SteamID>) {
-        self.friends = friends;
-        self.friends_is_public = is_public;
-        if userid.is_some() {
-            let userid = userid.unwrap();
-            let is_friends_with_user = self.friends.iter().any(|f| f.steamid == userid);
-            let has_friend_tag = self.tags.iter().any(|t| &*t.as_ref() == "Friend");
-            
-            if is_friends_with_user && !has_friend_tag {
-                self.tags.push(Arc::from("Friend"));
-            } else if !is_friends_with_user && has_friend_tag {
-                let i = self.tags.iter().position(|t| &*t.as_ref() == "Friend");
-                if i.is_some() {
-                    self.tags.remove(i.unwrap());
-                }
+    /// Clear a particular tag on a player
+    pub fn clear_tag(&mut self, steamid: SteamID, tag: &str) {
+        if let Some(tags) = self.tags.get_mut(&steamid) {
+            tags.remove(tag);
+            if tags.len() == 0 {
+                self.tags.remove(&steamid);
             }
         }
     }
 
-    /// Create a record from the current player
-    #[allow(dead_code)]
-    pub fn get_record(&self) -> PlayerRecord {
-        PlayerRecord {
-            steamid: self.steamid,
-            custom_data: self.custom_data.clone(),
-            verdict: self.local_verdict,
-            previous_names: self.previous_names.clone(),
+    /// Updates friends lists of a user
+    /// Propagates to all other friends lists to ensure two-way lookup possible.
+    /// Only call if friends list was obtained directly from Steam API (i.e. friends list is public)
+    pub fn update_friends_list(&mut self, steamid: SteamID, friendslist: Vec<Friend>) {
+        // Propagate to all other hashmap entries
+
+        for friend in friendslist.iter() {
+            if let Some(other_friend) = self.friend_info.get_mut(&friend.steamid) {
+                other_friend.push(Friend {
+                    steamid,
+                    friend_since: friend.friend_since,
+                });
+            }
         }
+
+        let oldfriends = self.set_friends(steamid, friendslist);
+
+        // If a player's friend has been unfriended, remove player from friend's hashmap
+        for oldfriend in oldfriends {
+            self.remove_from_friends_list(&oldfriend, &steamid);
+        }
+    }
+
+    /// Sets the friends list and friends list visibility, returning any old friends that have been removed
+    fn set_friends(&mut self, steamid: SteamID, friends: Vec<Friend>) -> Vec<SteamID> {
+        let friend_info = self.friend_info.entry(steamid).or_default();
+
+        friend_info.public = Some(true);
+
+        let mut removed_friends = friends;
+        friend_info.retain(|f1| !removed_friends.iter().any(|f2| f1.steamid == f2.steamid));
+        std::mem::swap(&mut removed_friends, &mut friend_info.friends);
+
+        // Update friend tag
+        if let Some(user) = self.user {
+            let is_friends_with_user = friend_info.iter().any(|f| f.steamid == user);
+
+            if is_friends_with_user {
+                self.set_tag(steamid, tags::FRIEND.into());
+            } else {
+                self.clear_tag(steamid, tags::FRIEND);
+            }
+        }
+
+        removed_friends.into_iter().map(|f| f.steamid).collect()
+    }
+
+    /// Helper function to remove a friend from a player's friendlist.
+    fn remove_from_friends_list(&mut self, steamid: &SteamID, friend_to_remove: &SteamID) {
+        if let Some(friends) = self.friend_info.get_mut(steamid) {
+            friends.retain(|f| f.steamid != *friend_to_remove);
+            if friends.len() == 0 && friends.public.is_none() {
+                self.friend_info.remove(steamid);
+            }
+        }
+
+        if let Some(friends) = self.friend_info.get_mut(friend_to_remove) {
+            friends.retain(|f| f.steamid != *steamid);
+            if friends.len() == 0 && friends.public.is_none() {
+                self.friend_info.remove(friend_to_remove);
+            }
+        }
+    }
+
+    /// Mark a friends list as being private, trim all now-stale information.
+    pub fn mark_friends_list_private(&mut self, steamid: &SteamID) {
+        let friends = self.friend_info.entry(*steamid).or_default();
+        let old_vis_state = friends.public;
+        if old_vis_state.is_some_and(|public| !public) {
+            return;
+        }
+
+        friends.public = Some(false);
+
+        let old_friendslist = friends.clone();
+
+        for friend in old_friendslist {
+            if let Some(friends_of_friend) = self.friend_info.get(&friend.steamid) {
+                // If friend's friendlist is public, that information isn't stale.
+                if friends_of_friend.public.is_some_and(|p| p) {
+                    continue;
+                }
+
+                self.remove_from_friends_list(&friend.steamid, &steamid);
+            }
+        }
+    }
+
+    /// Check if an account is friends with the user.
+    /// Returns None if we don't have enough information to tell.
+    pub fn is_friends_with_user(&self, friend: &SteamID) -> Option<bool> {
+        if let Some(user) = self.user {
+            self.are_friends(friend, &user)
+        } else {
+            None
+        }
+    }
+
+    /// Check if two accounts are friends with each other.
+    /// Returns None if we don't have enough information to tell.
+    pub fn are_friends(&self, friend1: &SteamID, friend2: &SteamID) -> Option<bool> {
+        if let Some(friends) = self.friend_info.get(friend1) {
+            if friends.iter().any(|f| f.steamid == *friend2) {
+                return Some(true);
+            }
+
+            // Friends list is public, so we should be able to see the other party regardless
+            if friends.public.is_some_and(|p| p) {
+                return Some(false);
+            }
+        }
+
+        // Other friends list is public, so 2-way lookup should have been possible
+        if self
+            .friend_info
+            .get(friend2)
+            .is_some_and(|f| f.public.is_some_and(|p| p))
+        {
+            return Some(false);
+        }
+
+        // Both are private :(
+        None
+    }
+
+    /// Moves any old players from the server into history. Any console commands (status, g15_dumpplayer, etc)
+    /// should be run before calling this function again to prevent removing all players from the player list.
+    pub fn refresh(&mut self) {
+        // Get old players
+        let unaccounted_players: Vec<SteamID> = self
+            .connected
+            .iter()
+            .filter(|&s| {
+                self.game_info
+                    .get(s)
+                    .map(|gi| gi.should_prune())
+                    .unwrap_or(true)
+            })
+            .cloned()
+            .collect();
+
+        self.connected.retain(|s| !unaccounted_players.contains(s));
+
+        // Remove any of them from the history as they will be added more recently
+        self.history
+            .retain(|p| !unaccounted_players.iter().any(|up| up == p));
+
+        // Shrink to not go past max number of players
+        let num_players = self.history.len() + unaccounted_players.len();
+        for _ in MAX_HISTORY_LEN..num_players {
+            self.history.pop_front();
+        }
+
+        for p in unaccounted_players {
+            self.history.push_back(p);
+        }
+
+        // Mark all remaining players as unaccounted, they will be marked as accounted again
+        // when they show up in status or another console command.
+        self.game_info.values_mut().for_each(GameInfo::next_cycle);
+    }
+
+    /// Gets a struct containing all the relevant data on a player in a serializable format
+    pub fn get_serializable_player(&self, steamid: &SteamID) -> Option<Player> {
+        let game_info = self.game_info.get(steamid)?;
+        let tags: Vec<&str> = self
+            .tags
+            .get(steamid)
+            .map(|tags| tags.iter().map(|t| t.as_ref()).collect())
+            .unwrap_or_default();
+
+        let record = self.records.get(steamid);
+        let previous_names = record
+            .as_ref()
+            .map(|r| r.previous_names.iter().map(|n| n.as_ref()).collect())
+            .unwrap_or_default();
+
+        let friend_info = self.friend_info.get(steamid);
+        let friends: Vec<&Friend> = friend_info
+            .as_ref()
+            .map(|fi| fi.friends.iter().collect())
+            .unwrap_or_default();
+
+        let local_verdict = record
+            .as_ref()
+            .map(|r| r.verdict)
+            .unwrap_or(Verdict::Player);
+
+        Some(Player {
+            isSelf: self.user.is_some_and(|user| user == *steamid),
+            name: game_info.name.as_ref(),
+            steamID64: *steamid,
+            localVerdict: local_verdict,
+            steamInfo: self.steam_info.get(steamid),
+            gameInfo: Some(game_info),
+            customData: record
+                .as_ref()
+                .map(|r| r.custom_data.clone())
+                .unwrap_or_else(|| default_custom_data()),
+            convicted: false,
+            tags,
+            previous_names,
+            friends,
+            friendsIsPublic: friend_info.and_then(|fi| fi.public),
+        })
     }
 }
 
-// PlayerState
+impl Serialize for Players {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let players: Vec<Player> = self
+            .connected
+            .iter()
+            .flat_map(|s| self.get_serializable_player(s))
+            .collect();
+        players.serialize(serializer)
+    }
+}
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
 pub enum PlayerState {
     Active,
     Spawning,
 }
-
-// Team
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
 pub enum Team {
@@ -157,8 +327,6 @@ impl Serialize for Team {
     }
 }
 
-// SteamInfo
-
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SteamInfo {
@@ -174,15 +342,6 @@ pub struct SteamInfo {
     pub vac_bans: i64,
     pub game_bans: i64,
     pub days_since_last_ban: Option<i64>,
-    // pub friends: Vec<Friend>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-pub struct Friend {
-    #[serde(rename = "steamID64", serialize_with = "serialize_steamid_as_string")]
-    pub steamid: SteamID,
-    #[serde(rename = "friendSince")]
-    pub friend_since: u64,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -207,6 +366,7 @@ impl From<i32> for ProfileVisibility {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GameInfo {
+    pub name: Arc<str>,
     pub userid: Arc<str>,
     pub team: Team,
     pub time: u32,
@@ -222,36 +382,77 @@ pub struct GameInfo {
     last_seen: u32,
 }
 
-impl GameInfo {
-    pub(crate) fn new_from_g15(g15: &G15Player) -> Option<GameInfo> {
-        Some(GameInfo {
-            userid: g15.userid.clone()?,
-            team: g15.team.unwrap_or(Team::Unassigned),
-            time: 0,
-            ping: g15.ping.unwrap_or(0),
-            loss: 0,
-            state: PlayerState::Active,
-            kills: g15.score.unwrap_or(0),
-            deaths: g15.deaths.unwrap_or(0),
-            disconnected: false,
-            last_seen: 0,
-        })
-    }
-
-    pub(crate) fn new_from_status(status: &StatusLine) -> GameInfo {
+impl Default for GameInfo {
+    fn default() -> Self {
         GameInfo {
-            userid: status.userid.clone(),
+            name: "".into(),
+            userid: "".into(),
             team: Team::Unassigned,
-            time: status.time,
-            ping: status.ping,
-            loss: status.loss,
-            state: status.state,
+            time: 0,
+            ping: 0,
+            loss: 0,
+            state: PlayerState::Spawning,
             kills: 0,
             deaths: 0,
             disconnected: false,
-
             last_seen: 0,
         }
+    }
+}
+
+impl GameInfo {
+    pub(crate) fn new() -> GameInfo {
+        Default::default()
+    }
+
+    pub(crate) fn new_from_g15(g15: G15Player) -> Option<GameInfo> {
+        if g15.userid.is_none() {
+            return None;
+        }
+
+        let mut game_info = GameInfo::new();
+        game_info.update_from_g15(g15);
+        Some(game_info)
+    }
+
+    pub(crate) fn new_from_status(status: StatusLine) -> GameInfo {
+        let mut game_info = GameInfo::new();
+        game_info.update_from_status(status);
+        game_info
+    }
+
+    pub(crate) fn update_from_g15(&mut self, g15: G15Player) {
+        if let Some(name) = g15.name {
+            self.name = name;
+        }
+        if let Some(userid) = g15.userid {
+            self.userid = userid;
+        }
+        if let Some(team) = g15.team {
+            self.team = team;
+        }
+        if let Some(ping) = g15.ping {
+            self.ping = ping;
+        }
+        if let Some(kills) = g15.score {
+            self.kills = kills;
+        }
+        if let Some(deaths) = g15.deaths {
+            self.deaths = deaths;
+        }
+
+        self.acknowledge();
+    }
+
+    pub(crate) fn update_from_status(&mut self, status: StatusLine) {
+        self.name = status.name;
+        self.userid = status.userid;
+        self.time = status.time;
+        self.ping = status.ping;
+        self.loss = status.loss;
+        self.state = status.state;
+
+        self.acknowledge();
     }
 
     pub(crate) fn next_cycle(&mut self) {
@@ -263,14 +464,51 @@ impl GameInfo {
         }
     }
 
-    pub(crate) fn acknowledge(&mut self) {
-        self.last_seen = 0;
-        self.disconnected = false;
-    }
-
     pub(crate) fn should_prune(&self) -> bool {
         const CYCLE_LIMIT: u32 = 5;
         self.last_seen > CYCLE_LIMIT
+    }
+
+    fn acknowledge(&mut self) {
+        self.last_seen = 0;
+        self.disconnected = false;
+    }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct Friend {
+    #[serde(rename = "steamID64", serialize_with = "serialize_steamid_as_string")]
+    pub steamid: SteamID,
+    #[serde(rename = "friendSince")]
+    pub friend_since: u64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct FriendInfo {
+    pub public: Option<bool>,
+    friends: Vec<Friend>,
+}
+
+impl Default for FriendInfo {
+    fn default() -> Self {
+        FriendInfo {
+            public: None,
+            friends: Vec::new(),
+        }
+    }
+}
+
+impl Deref for FriendInfo {
+    type Target = Vec<Friend>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.friends
+    }
+}
+
+impl DerefMut for FriendInfo {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.friends
     }
 }
 
@@ -278,4 +516,24 @@ impl GameInfo {
 
 fn serialize_steamid_as_string<S: Serializer>(steamid: &SteamID, s: S) -> Result<S::Ok, S::Error> {
     format!("{}", u64::from(*steamid)).serialize(s)
+}
+
+#[allow(non_snake_case)]
+#[derive(Debug, Serialize)]
+pub struct Player<'a> {
+    pub isSelf: bool,
+    pub name: &'a str,
+    #[serde(serialize_with = "serialize_steamid_as_string")]
+    pub steamID64: SteamID,
+
+    pub steamInfo: Option<&'a SteamInfo>,
+    pub gameInfo: Option<&'a GameInfo>,
+    pub customData: serde_json::Value,
+    pub localVerdict: Verdict,
+    pub convicted: bool,
+    pub tags: Vec<&'a str>,
+    pub previous_names: Vec<&'a str>,
+
+    pub friends: Vec<&'a Friend>,
+    pub friendsIsPublic: Option<bool>,
 }

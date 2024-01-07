@@ -150,7 +150,7 @@ fn main() {
 
             // Steam API
             let mut server = Server::new(playerlist);
-            server.set_steam_user(&settings.get_steam_user());
+            server.players_mut().user = settings.get_steam_user();
             let (steam_api_send, steam_api_recv) = unbounded_channel();
             let (mut steam_api_recv, mut steam_api) =
                 SteamAPIManager::new(settings.get_steam_api_key(), steam_api_recv);
@@ -191,9 +191,8 @@ fn main() {
                     // IO output
                     io_output_iter = io_recv.recv() => {
                         for output in io_output_iter.unwrap() {
-                            let user = settings.read().unwrap().get_steam_user();
                             for new_player in server.write().unwrap()
-                                .handle_io_output(output, user)
+                                .handle_io_output(output)
                                 .into_iter()
                             {
                                 new_players.push(new_player);
@@ -205,26 +204,24 @@ fn main() {
                     Some(response) = steam_api_recv.recv() => {
                         match response {
                             SteamAPIResponse::SteamInfo(info) => {
-                                server.write().unwrap().insert_steam_info(info.0, info.1);
+                                server.write().unwrap().players_mut().steam_info.insert(info.0, info.1);
                             },
                             SteamAPIResponse::FriendLists((steamid, result)) => {
                                 match result {
                                     // Player has public friend list
                                     Ok(friend_list) => {
-                                        server.write().unwrap().update_friends_list(steamid, friend_list);
+                                        server.write().unwrap().players_mut().update_friends_list(steamid, friend_list);
                                     },
                                     // Player has private friend list
                                     Err(_) => {
-                                        server.write().unwrap().private_friends_list(&steamid);
-                                        match server.read().unwrap().get_player_record(steamid) {
-                                            Some(record) => {
-                                                if  record.verdict == Verdict::Cheater ||
-                                                    record.verdict == Verdict::Bot {
-                                                    need_all_friends_lists = true;
-                                                }
-                                            },
-                                            _ => {}
-                                        }; 
+                                        let mut server = server.write().unwrap();
+                                        server.players_mut().mark_friends_list_private(&steamid);
+                                        if let Some(record) = server.players_mut().records.get(&steamid) {
+                                            if  record.verdict == Verdict::Cheater ||
+                                                record.verdict == Verdict::Bot {
+                                                need_all_friends_lists = true;
+                                            }
+                                        }
                                     }
                                 };
                                 let i = inprogress_friendlist_req.iter().position(|id| *id == steamid);
@@ -238,7 +235,7 @@ fn main() {
                     // Refresh
                     _ = refresh_interval.tick() => {
                         if refresh_iteration % 2 == 0 {
-                            server.write().unwrap().refresh();
+                            server.write().unwrap().players_mut().refresh();
                             io_send.send(IOManagerMessage::RunCommand(Command::Status)).unwrap();
                         } else {
                             io_send.send(IOManagerMessage::RunCommand(Command::G15)).unwrap();
@@ -251,7 +248,8 @@ fn main() {
                 // Request steam API stuff on new players
                 for player in &new_players {
                     let verdict = server.read().unwrap()
-                        .get_player_record(*player)
+                        .players()
+                        .records.get(player)
                         .map(|r| {
                             r.verdict
                         }).unwrap_or(Verdict::Player);
@@ -285,32 +283,31 @@ fn main() {
                     if need_all_friends_lists {
                         need_all_friends_lists = false;
                         let server_read: std::sync::RwLockReadGuard<'_, Server> = server.read().unwrap();
-                        queued_friendlist_req = server_read.get_players()
-                        .iter()
-                        .filter_map(|(steamid, _)| {
-                            if inprogress_friendlist_req.contains(steamid) {
-                                return None;
-                            }
-                            // If friends list visibility is Some, we've looked up that user before.
-                            match server_read.get_friends_list(steamid).1 {
-                                Some(true) => {
+                        queued_friendlist_req = server_read.players().connected.iter()
+                            .filter_map(|steamid| {
+                                if inprogress_friendlist_req.contains(steamid) {
                                     return None;
                                 }
-                                Some(false) => {
-                                    let record = server_read.get_player_record(*steamid);
-                                    if record.is_some_and(|r | {
-                                        r.verdict == Verdict::Cheater ||
-                                        r.verdict == Verdict::Bot
-                                     }) {
-                                        need_all_friends_lists = true;
+                                // If friends list visibility is Some, we've looked up that user before.
+                                match server_read.players().friend_info.get(steamid).map(|fi| fi.public) {
+                                    Some(Some(true)) => {
+                                        return None;
                                     }
-                                    return None;
-                                }
-                                None => {
-                                    return Some(*steamid);
-                                }
-                            }      
-                        }).collect();
+                                    Some(Some(false)) => {
+                                        let record = server_read.players().records.get(steamid);
+                                        if record.is_some_and(|r | {
+                                            r.verdict == Verdict::Cheater ||
+                                            r.verdict == Verdict::Bot
+                                         }) {
+                                            need_all_friends_lists = true;
+                                        }
+                                        return None;
+                                    }
+                                    _ => {
+                                        return Some(*steamid);
+                                    }
+                                }      
+                            }).collect();
                     }
                     
                     steam_api_send

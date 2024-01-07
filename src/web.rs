@@ -22,9 +22,10 @@ use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 use crate::{
     io::{Command, IOManagerMessage},
-    player_records::{PlayerRecord, Verdict},
+    player::Player,
+    player_records::Verdict,
     server::Server,
-    settings::{Settings, FriendsAPIUsage},
+    settings::{FriendsAPIUsage, Settings},
     steamapi::SteamAPIMessage,
 };
 
@@ -179,14 +180,7 @@ async fn put_user(
     let mut server = state.server.write().unwrap();
     for (k, v) in users.0 {
         // Insert record if it didn't exist
-        if !server.has_player_record(k) {
-            server.insert_player_record(PlayerRecord::new(k));
-        }
-
-        // Update record
-        let mut record = server
-            .get_player_record_mut(k)
-            .expect("Mutating player record that was just inserted.");
+        let record = server.players_mut().records.entry(k).or_default();
 
         if let Some(custom_data) = v.custom_data {
             record.custom_data = custom_data;
@@ -195,7 +189,13 @@ async fn put_user(
         if let Some(verdict) = v.local_verdict {
             record.verdict = verdict;
         }
+
+        if record.is_empty() {
+            server.players_mut().records.remove(&k);
+        }
     }
+
+    server.players().records.save_ok();
 
     (StatusCode::OK, HEADERS)
 }
@@ -323,17 +323,23 @@ impl Default for Pagination {
 /// been on servers with.
 async fn get_history(State(state): AState, page: Query<Pagination>) -> impl IntoResponse {
     tracing::debug!("History requested");
+
+    let server = state.server.read().unwrap();
+    // let hVecDeque<SteamID> = &server.players().history;
+    let history: Vec<Player> = server
+        .players()
+        .history
+        .iter()
+        .rev()
+        .skip(page.0.from)
+        .take(page.0.to - page.0.from)
+        .flat_map(|s| server.players().get_serializable_player(s))
+        .collect();
+
     (
         StatusCode::OK,
         HEADERS,
-        serde_json::to_string(
-            &state
-                .server
-                .read()
-                .unwrap()
-                .get_player_history(page.0.from..page.0.to),
-        )
-        .expect("Serialize player history"),
+        serde_json::to_string(&history).expect("Serialize player history"),
     )
 }
 
@@ -343,7 +349,7 @@ async fn get_playerlist(State(state): AState) -> impl IntoResponse {
     (
         StatusCode::OK,
         HEADERS,
-        serde_json::to_string(&state.server.read().unwrap().get_player_records())
+        serde_json::to_string(&state.server.read().unwrap().players().records)
             .expect("Serialize player records"),
     )
 }
