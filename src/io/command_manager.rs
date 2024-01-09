@@ -1,8 +1,7 @@
-use std::{sync::Arc, time::Duration};
-use anyhow::ensure;
-use anyhow::{Context, Result};
+use anyhow::Result;
 use rcon::Connection;
-
+use std::{sync::Arc, time::Duration};
+use thiserror::Error;
 use tokio::{
     net::TcpStream,
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
@@ -10,6 +9,38 @@ use tokio::{
 };
 
 use super::Command;
+
+#[derive(Debug, Error)]
+pub enum CommandManagerError {
+    #[error("RCon error {0}")]
+    Rcon(#[from] rcon::Error),
+    #[error("Rcon connection timeout: {0}")]
+    TimeOut(#[from] tokio::time::error::Elapsed),
+    #[error("{0:?}")]
+    Other(#[from] anyhow::Error),
+}
+
+impl PartialEq for CommandManagerError {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Rcon(rcon::Error::Auth), Self::Rcon(rcon::Error::Auth)) => return true,
+            (Self::Rcon(rcon::Error::CommandTooLong), Self::Rcon(rcon::Error::CommandTooLong)) => {
+                return true
+            }
+            (Self::Rcon(rcon::Error::Io(_)), Self::Rcon(rcon::Error::Io(_))) => return true,
+            (Self::TimeOut(_), Self::TimeOut(_)) => return true,
+            (Self::Other(_), Self::Other(_)) => return true,
+            _ => return false,
+        }
+    }
+}
+
+#[derive(PartialEq)]
+enum ErrorState {
+    Never,
+    Okay,
+    Current(CommandManagerError),
+}
 
 pub enum CommandManagerMessage {
     RunCommand(Command),
@@ -21,7 +52,8 @@ pub struct CommandManager {
     rcon_password: Arc<str>,
     rcon: Option<Connection<TcpStream>>,
     rcon_port: u16,
-    rcon_connected: bool,
+    error_state: ErrorState,
+    error_hist: ErrorState,
     request_recv: UnboundedReceiver<CommandManagerMessage>,
     response_send: UnboundedSender<Arc<str>>,
 }
@@ -39,7 +71,8 @@ impl CommandManager {
             rcon_password,
             rcon: None,
             rcon_port,
-            rcon_connected: true, // Assume rcon connected until failure
+            error_state: ErrorState::Never,
+            error_hist: ErrorState::Never,
             request_recv: recv,
             response_send: resp_tx,
         };
@@ -49,46 +82,72 @@ impl CommandManager {
 
     /// Start the command manager loop. This will block until the channel is closed, so usually it should be spawned in a separate `tokio::task`
     pub async fn command_loop(&mut self) {
-        let mut error_printed: bool = false;
+        // let mut printed_for: ErrorState = ErrorState::Never;
         loop {
-            if !self.rcon_connected {
-                if let Err(e) = self.try_reconnect().await {
-                    if !error_printed {
-                        tracing::error!("Couldn't connect to RCON: {:?}", e);
-                        error_printed = true;
+            if self.error_state != self.error_hist {
+                match &self.error_state {
+                    ErrorState::Current(e @ CommandManagerError::TimeOut(_))
+                        if self.error_hist == ErrorState::Never =>
+                    {
+                        tracing::warn!("{}", e)
+                    }
+                    ErrorState::Current(err) => {
+                        tracing::error!("{}", err);
+                    }
+                    _ => {}
+                };
+            }
+
+            if self.error_state != ErrorState::Okay {
+                match self.try_reconnect().await {
+                    Ok(_) => {
+                        match self.error_state {
+                            ErrorState::Current(_) => {
+                                tracing::info!("Succesfully reconnected to RCon")
+                            }
+                            ErrorState::Never => {
+                                tracing::info!("Succesfully established a connection with RCon")
+                            }
+                            _ => {}
+                        };
+                        std::mem::swap(&mut self.error_state, &mut self.error_hist);
+                        self.error_state = ErrorState::Okay;
+                    } // :)
+                    Err(e) => {
+                        std::mem::swap(&mut self.error_state, &mut self.error_hist);
+                        self.error_state = ErrorState::Current(CommandManagerError::from(e));
                     }
                 }
             }
-            
-            match self.request_recv.recv().await.expect("The main IO Loop experienced a fatal error.") {
+
+            match self
+                .request_recv
+                .recv()
+                .await
+                .expect("The main IO Loop experienced a fatal error.")
+            {
                 CommandManagerMessage::RunCommand(cmd) => {
-                    if self.rcon_connected {
+                    if self.error_state == ErrorState::Okay {
                         let cmd = format!("{}", cmd);
                         if let Err(e) = self.run_command(&cmd).await {
                             tracing::error!("Failed to run command {}: {:?}", cmd, e);
-                            self.rcon_connected = false;
-                            error_printed = false;
+                            self.error_state = ErrorState::Current(CommandManagerError::from(e));
                         }
                     }
-                    
                 }
                 CommandManagerMessage::SetRconPassword(password) => {
                     self.rcon_password = password;
-                    self.rcon_connected = false;
-                    error_printed = false;
-                    
+                    self.error_state = ErrorState::Never;
                 }
                 CommandManagerMessage::SetRconPort(port) => {
                     self.rcon_port = port;
-                    self.rcon_connected = false;
-                    error_printed = false;
+                    self.error_state = ErrorState::Never;
                 }
             }
         }
     }
 
-    pub async fn run_command(&mut self, command: &str) -> Result<()> {
-        ensure!(self.rcon.as_mut().is_some(), "Couldn't reach RCON (no client).");
+    pub async fn run_command(&mut self, command: &str) -> Result<(), CommandManagerError> {
         let rcon = self.rcon.as_mut().unwrap();
 
         tracing::debug!("Running command \"{}\"", command);
@@ -98,19 +157,21 @@ impl CommandManager {
             .map_err(|e| {
                 self.rcon = None;
                 e
-            })
-            .context("Failed to run command")?
+            })?
             .into();
 
-        self.response_send
-            .send(result)
-            .expect("Couldn't send command response");
+        self.response_send.send(result).unwrap();
 
         Ok(())
     }
 
-    async fn try_reconnect(&mut self) -> Result<&mut Connection<TcpStream>> {
-        tracing::debug!("Attempting to reconnect to RCon");
+    async fn try_reconnect(&mut self) -> Result<(), CommandManagerError> {
+        match self.error_state {
+            ErrorState::Current(_) => tracing::debug!("Attempting to reconnect to RCon"),
+            ErrorState::Never => tracing::debug!("Attempting to connect to RCon"),
+            _ => {}
+        };
+
         match timeout(
             Duration::from_secs(2),
             Connection::connect(
@@ -122,19 +183,15 @@ impl CommandManager {
         {
             Ok(Ok(con)) => {
                 self.rcon = Some(con);
-                self.rcon_connected = true;
-                tracing::info!("RCon reconnected.");
-                Ok(self.rcon.as_mut().expect(""))
+                Ok(())
             }
             Ok(Err(e)) => {
                 self.rcon = None;
-                self.rcon_connected = false;
-                Err(e).context("Failed to establish connection")
+                Err(e.into())
             }
             Err(e) => {
                 self.rcon = None;
-                self.rcon_connected = false;
-                Err(e).context("RCon connection timed out")
+                Err(e.into())
             }
         }
     }

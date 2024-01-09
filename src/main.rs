@@ -307,7 +307,7 @@ fn main() {
                                     _ => {
                                         return Some(*steamid);
                                     }
-                                }      
+                                }
                             }).collect();
                     }
 
