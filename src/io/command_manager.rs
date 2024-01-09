@@ -22,15 +22,16 @@ pub enum CommandManagerError {
 
 impl PartialEq for CommandManagerError {
     fn eq(&self, other: &Self) -> bool {
+        #[allow(clippy::match_like_matches_macro)]
         match (self, other) {
-            (Self::Rcon(rcon::Error::Auth), Self::Rcon(rcon::Error::Auth)) => return true,
+            (Self::Rcon(rcon::Error::Auth), Self::Rcon(rcon::Error::Auth)) => true,
             (Self::Rcon(rcon::Error::CommandTooLong), Self::Rcon(rcon::Error::CommandTooLong)) => {
-                return true
+                true
             }
-            (Self::Rcon(rcon::Error::Io(_)), Self::Rcon(rcon::Error::Io(_))) => return true,
-            (Self::TimeOut(_), Self::TimeOut(_)) => return true,
-            (Self::Other(_), Self::Other(_)) => return true,
-            _ => return false,
+            (Self::Rcon(rcon::Error::Io(_)), Self::Rcon(rcon::Error::Io(_))) => true,
+            (Self::TimeOut(_), Self::TimeOut(_)) => true,
+            (Self::Other(_), Self::Other(_)) => true,
+            _ => false,
         }
     }
 }
@@ -115,7 +116,7 @@ impl CommandManager {
                     } // :)
                     Err(e) => {
                         std::mem::swap(&mut self.error_state, &mut self.error_hist);
-                        self.error_state = ErrorState::Current(CommandManagerError::from(e));
+                        self.error_state = ErrorState::Current(e);
                     }
                 }
             }
@@ -131,7 +132,7 @@ impl CommandManager {
                         let cmd = format!("{}", cmd);
                         if let Err(e) = self.run_command(&cmd).await {
                             tracing::error!("Failed to run command {}: {:?}", cmd, e);
-                            self.error_state = ErrorState::Current(CommandManagerError::from(e));
+                            self.error_state = ErrorState::Current(e);
                         }
                     }
                 }

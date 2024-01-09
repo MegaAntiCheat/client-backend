@@ -123,10 +123,8 @@ impl SteamAPIManager {
                     }
                 },
                 _ = batch_timer.tick() => {
-                    if self.api_key_valid {
-                        if !self.batch_buffer.is_empty() {
-                            self.send_batch().await;
-                        }
+                    if self.api_key_valid && !self.batch_buffer.is_empty() {
+                        self.send_batch().await;
                     }
                 }
             }

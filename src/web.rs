@@ -227,8 +227,8 @@ async fn get_prefs(State(state): AState) -> impl IntoResponse {
         internal: Some(InternalPreferences {
             friends_api_usage: Some(*settings.get_friends_api_usage()),
             tf2_directory: Some(settings.get_tf2_directory().to_string_lossy().into()),
-            rcon_password: Some(settings.get_rcon_password().into()),
-            steam_api_key: Some(settings.get_steam_api_key().into()),
+            rcon_password: Some(settings.get_rcon_password()),
+            steam_api_key: Some(settings.get_steam_api_key()),
             rcon_port: Some(settings.get_rcon_port()),
         }),
         external: Some(settings.get_external_preferences().clone()),
@@ -267,7 +267,7 @@ async fn put_prefs(State(state): AState, prefs: Json<Preferences>) -> impl IntoR
         if let Some(rcon_port) = internal.rcon_port {
             state
                 .io
-                .send(IOManagerMessage::SetRconPort(rcon_port.clone()))
+                .send(IOManagerMessage::SetRconPort(rcon_port))
                 .unwrap();
             settings.set_rcon_port(rcon_port);
         }

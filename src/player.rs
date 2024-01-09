@@ -63,7 +63,7 @@ impl Players {
     pub fn clear_tag(&mut self, steamid: SteamID, tag: &str) {
         if let Some(tags) = self.tags.get_mut(&steamid) {
             tags.remove(tag);
-            if tags.len() == 0 {
+            if tags.is_empty() {
                 self.tags.remove(&steamid);
             }
         }
@@ -152,7 +152,7 @@ impl Players {
                     continue;
                 }
 
-                self.remove_from_friends_list(&friend.steamid, &steamid);
+                self.remove_from_friends_list(&friend.steamid, steamid);
             }
         }
     }
@@ -267,7 +267,7 @@ impl Players {
             customData: record
                 .as_ref()
                 .map(|r| r.custom_data.clone())
-                .unwrap_or_else(|| default_custom_data()),
+                .unwrap_or_else(default_custom_data),
             convicted: false,
             tags,
             previous_names,
@@ -406,9 +406,7 @@ impl GameInfo {
     }
 
     pub(crate) fn new_from_g15(g15: G15Player) -> Option<GameInfo> {
-        if g15.userid.is_none() {
-            return None;
-        }
+        g15.userid.as_ref()?;
 
         let mut game_info = GameInfo::new();
         game_info.update_from_g15(g15);
@@ -483,19 +481,10 @@ pub struct Friend {
     pub friend_since: u64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Default)]
 pub struct FriendInfo {
     pub public: Option<bool>,
     friends: Vec<Friend>,
-}
-
-impl Default for FriendInfo {
-    fn default() -> Self {
-        FriendInfo {
-            public: None,
-            friends: Vec::new(),
-        }
-    }
 }
 
 impl Deref for FriendInfo {

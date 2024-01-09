@@ -155,7 +155,7 @@ impl IOManager {
                 },
                 command_response = self.command_recv.recv() => {
                     let out = self.read_command_response(command_response.expect("Failed to receive command response"));
-                    if out.len() > 0 {
+                    if !out.is_empty() {
                         self.response_send.send(out).expect("Main loop ded");
                     }
                 },
@@ -201,7 +201,7 @@ impl IOManager {
 
         // Check for G15 output
         let players = self.parser.parse_g15(&response);
-        if players.len() > 0 {
+        if !players.is_empty() {
             out.push(IOOutput::G15(players));
         }
 
@@ -210,39 +210,39 @@ impl IOManager {
 
     fn read_log_line(&self, line: &str) -> Option<IOOutput> {
         // Match status
-        if let Some(caps) = self.regex_status.captures(&line) {
+        if let Some(caps) = self.regex_status.captures(line) {
             match StatusLine::parse(caps) {
                 Ok(status) => return Some(IOOutput::Status(status)),
                 Err(e) => tracing::error!("Error parsing status line: {:?}", e),
             }
         }
         // Match chat message
-        if let Some(caps) = self.regex_chat.captures(&line) {
+        if let Some(caps) = self.regex_chat.captures(line) {
             let chat = ChatMessage::parse(caps);
             return Some(IOOutput::Chat(chat));
         }
         // Match player kills
-        if let Some(caps) = self.regex_kill.captures(&line) {
+        if let Some(caps) = self.regex_kill.captures(line) {
             let kill = PlayerKill::parse(caps);
             return Some(IOOutput::Kill(kill));
         }
         // Match server hostname
-        if let Some(caps) = self.regex_hostname.captures(&line) {
+        if let Some(caps) = self.regex_hostname.captures(line) {
             let hostname = Hostname::parse(caps);
             return Some(IOOutput::Hostname(hostname));
         }
         // Match server IP
-        if let Some(caps) = self.regex_ip.captures(&line) {
+        if let Some(caps) = self.regex_ip.captures(line) {
             let ip = ServerIP::parse(caps);
             return Some(IOOutput::ServerIP(ip));
         }
         // Match server map
-        if let Some(caps) = self.regex_map.captures(&line) {
+        if let Some(caps) = self.regex_map.captures(line) {
             let map = Map::parse(caps);
             return Some(IOOutput::Map(map));
         }
         // Match server player count
-        if let Some(caps) = self.regex_playercount.captures(&line) {
+        if let Some(caps) = self.regex_playercount.captures(line) {
             let playercount = PlayerCount::parse(caps);
             return Some(IOOutput::PlayerCount(playercount));
         }

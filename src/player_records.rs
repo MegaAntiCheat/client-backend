@@ -43,7 +43,7 @@ impl PlayerRecords {
             tracing::error!("Could not find a suitable location for the playerlist: {} \nPlease specify a file path manually with --playerlist otherwise information may not be saved.", e); 
         }).unwrap_or(PathBuf::from("playerlist.json"));
 
-        let playerlist = match PlayerRecords::load_from(playerlist_path) {
+        match PlayerRecords::load_from(playerlist_path) {
             Ok(playerlist) => playerlist,
             Err(ConfigFilesError::Json(path, e)) => {
                 tracing::error!("{} could not be loaded: {:?}", path, e);
@@ -65,9 +65,7 @@ impl PlayerRecords {
                 );
                 panic!("Failed to load playerlist")
             }
-        };
-
-        playerlist
+        }
     }
 
     /// Attempt to load the [PlayerRecords] from the provided file

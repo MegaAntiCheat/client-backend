@@ -83,7 +83,7 @@ impl Settings {
             tracing::error!("Could not find a suitable location for the configuration: {}\nPlease specify a file path manually with --config", e);
         }).unwrap_or(PathBuf::from("config.yaml"));
 
-        let mut settings = match Settings::load_from(settings_path, &args) {
+        let mut settings = match Settings::load_from(settings_path, args) {
             Ok(settings) => settings,
             Err(ConfigFilesError::Yaml(path, e)) => {
                 tracing::error!("{} could not be loaded: {:?}", path, e);
@@ -96,7 +96,7 @@ impl Settings {
                 tracing::warn!("Could not locate {}, creating new configuration.", &path);
                 let mut settings = Settings::default();
                 settings.set_config_path(path.into());
-                settings.set_overrides(&args);
+                settings.set_overrides(args);
                 settings
             }
             Err(e) => {
