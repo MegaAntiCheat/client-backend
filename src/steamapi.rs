@@ -284,6 +284,9 @@ async fn request_account_bans(
 }
 
 fn is_api_key_valid(api_key: &Arc<str>) -> bool {
+    // A valid steam API key is a 32 digit hexadecimal number. We store them as strings, so 
+    // we check for exactly 32 hexadecimal ascii digits. Anything that doesn't fit this rule
+    // is likely not a valid Steam API key (inb4 Valve changes the format on my ass)
     return api_key.len() == 32 && 
         api_key.chars()
         .map(|c| c.is_ascii_hexdigit())

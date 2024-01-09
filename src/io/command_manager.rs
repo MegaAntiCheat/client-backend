@@ -1,5 +1,5 @@
 use std::{sync::Arc, time::Duration};
-
+use anyhow::ensure;
 use anyhow::{Context, Result};
 use rcon::Connection;
 
@@ -21,7 +21,7 @@ pub struct CommandManager {
     rcon_password: Arc<str>,
     rcon: Option<Connection<TcpStream>>,
     rcon_port: u16,
-
+    rcon_connected: bool,
     request_recv: UnboundedReceiver<CommandManagerMessage>,
     response_send: UnboundedSender<Arc<str>>,
 }
@@ -39,6 +39,7 @@ impl CommandManager {
             rcon_password,
             rcon: None,
             rcon_port,
+            rcon_connected: true, // Assume rcon connected until failure
             request_recv: recv,
             response_send: resp_tx,
         };
@@ -48,38 +49,47 @@ impl CommandManager {
 
     /// Start the command manager loop. This will block until the channel is closed, so usually it should be spawned in a separate `tokio::task`
     pub async fn command_loop(&mut self) {
+        let mut error_printed: bool = false;
         loop {
-            match self.request_recv.recv().await.expect("IO loop ded") {
-                CommandManagerMessage::RunCommand(cmd) => {
-                    let cmd = format!("{}", cmd);
-                    if let Err(e) = self.run_command(&cmd).await {
-                        tracing::error!("Failed to run command {}: {:?}", cmd, e);
+            if !self.rcon_connected {
+                if let Err(e) = self.try_reconnect().await {
+                    if !error_printed {
+                        tracing::error!("Couldn't connect to RCON: {:?}", e);
+                        error_printed = true;
                     }
+                }
+            }
+            
+            match self.request_recv.recv().await.expect("The main IO Loop experienced a fatal error.") {
+                CommandManagerMessage::RunCommand(cmd) => {
+                    if self.rcon_connected {
+                        let cmd = format!("{}", cmd);
+                        if let Err(e) = self.run_command(&cmd).await {
+                            tracing::error!("Failed to run command {}: {:?}", cmd, e);
+                            self.rcon_connected = false;
+                            error_printed = false;
+                        }
+                    }
+                    
                 }
                 CommandManagerMessage::SetRconPassword(password) => {
                     self.rcon_password = password;
-                    if let Err(e) = self.try_reconnect().await {
-                        tracing::error!("Failed to reconnect to rcon: {:?}", e);
-                    }
+                    self.rcon_connected = false;
+                    error_printed = false;
+                    
                 }
                 CommandManagerMessage::SetRconPort(port) => {
                     self.rcon_port = port;
-                    if let Err(e) = self.try_reconnect().await {
-                        tracing::error!("Failed to reconnect to rcon: {:?}", e);
-                    }
+                    self.rcon_connected = false;
+                    error_printed = false;
                 }
             }
         }
     }
 
     pub async fn run_command(&mut self, command: &str) -> Result<()> {
-        let rcon = if let Some(rcon) = self.rcon.as_mut() {
-            rcon
-        } else {
-            self.try_reconnect()
-                .await
-                .context("Failed to reconnect to RCon.")?
-        };
+        ensure!(self.rcon.as_mut().is_some(), "Couldn't reach RCON (no client).");
+        let rcon = self.rcon.as_mut().unwrap();
 
         tracing::debug!("Running command \"{}\"", command);
         let result = rcon
@@ -112,15 +122,18 @@ impl CommandManager {
         {
             Ok(Ok(con)) => {
                 self.rcon = Some(con);
+                self.rcon_connected = true;
                 tracing::info!("RCon reconnected.");
                 Ok(self.rcon.as_mut().expect(""))
             }
             Ok(Err(e)) => {
                 self.rcon = None;
+                self.rcon_connected = false;
                 Err(e).context("Failed to establish connection")
             }
             Err(e) => {
                 self.rcon = None;
+                self.rcon_connected = false;
                 Err(e).context("RCon connection timed out")
             }
         }
