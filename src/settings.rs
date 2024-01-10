@@ -237,7 +237,7 @@ impl Settings {
         self.override_rcon_port = args.rcon_port.map(|val| {
             tracing::info!(
                 "Overrode configured RCON port value {:?}->{:?}",
-                self.webui_port,
+                self.rcon_port,
                 val
             );
             val
