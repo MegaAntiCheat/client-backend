@@ -2,6 +2,7 @@ use anyhow::Result;
 use rcon::Connection;
 use std::{sync::Arc, time::Duration};
 use thiserror::Error;
+use std::io::ErrorKind;
 use tokio::{
     net::TcpStream,
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
@@ -20,6 +21,8 @@ pub enum CommandManagerError {
     Other(#[from] anyhow::Error),
 }
 
+/// Since we only _really_ care about differentiating the Rcon errors, that is the only enum variant we expand.
+/// For the rest of the num variants, comparing that they are both the same supertype is simply enough.
 impl PartialEq for CommandManagerError {
     fn eq(&self, other: &Self) -> bool {
         #[allow(clippy::match_like_matches_macro)]
@@ -36,7 +39,10 @@ impl PartialEq for CommandManagerError {
     }
 }
 
+/// On app launch, the connection error state for RCon will be initialised to 'Never'. Once we have achieved the first connection
+/// with the defined RCon properties, we can only ever have an error state of 'Okay' or Current(CommandManagerError) 
 #[derive(PartialEq)]
+
 enum ErrorState {
     Never,
     Okay,
@@ -59,7 +65,6 @@ pub struct CommandManager {
     response_send: UnboundedSender<Arc<str>>,
 }
 
-#[allow(dead_code)]
 impl CommandManager {
     pub fn new(
         rcon_password: Arc<str>,
@@ -83,40 +88,60 @@ impl CommandManager {
 
     /// Start the command manager loop. This will block until the channel is closed, so usually it should be spawned in a separate `tokio::task`
     pub async fn command_loop(&mut self) {
-        // let mut printed_for: ErrorState = ErrorState::Never;
         loop {
+            // Maintain an error state and historical view for state-based error reporting
+            // This avoids reporting the same error message multiple times, but makes sure different messages of the same super type
+            // are reported.
             if self.error_state != self.error_hist {
                 match &self.error_state {
-                    ErrorState::Current(e @ CommandManagerError::TimeOut(_))
-                        if self.error_hist == ErrorState::Never =>
+                    // If we have just launched/reset RCon state, and we get connection refused, just warn about it instead as TF2 likely isn't open
+                    ErrorState::Current(e @ CommandManagerError::Rcon(rcon::Error::Io(err)))
+                        if self.error_hist == ErrorState::Never && err.kind() == ErrorKind::ConnectionRefused =>
                     {
-                        tracing::warn!("{}", e)
+                        tracing::warn!("{} (This is expected behaviour if TF2 is not open)", e)
                     }
+                    // We have entered an error state from some other state, or the error state has changed. Report it!
                     ErrorState::Current(err) => {
                         tracing::error!("{}", err);
                     }
+                    // We are either okay or never connected. Nothing to report.
                     _ => {}
                 };
             }
-
-            if self.error_state != ErrorState::Okay {
-                match self.try_reconnect().await {
-                    Ok(_) => {
-                        match self.error_state {
-                            ErrorState::Current(_) => {
-                                tracing::info!("Succesfully reconnected to RCon")
-                            }
-                            ErrorState::Never => {
-                                tracing::info!("Succesfully established a connection with RCon")
-                            }
-                            _ => {}
-                        };
-                        std::mem::swap(&mut self.error_state, &mut self.error_hist);
-                        self.error_state = ErrorState::Okay;
-                    } // :)
-                    Err(e) => {
-                        std::mem::swap(&mut self.error_state, &mut self.error_hist);
-                        self.error_state = ErrorState::Current(e);
+            // When we report any state other than okay, we always try and reconnect with the current RCon config,
+            // except for when we are receiving auth failures.
+            match self.error_state {
+                // State is okay, early exit.
+                ErrorState::Okay => {},
+                // Current error state indicates bad auth. So don't try and reconnect else we get shunted by TF2
+                // When the user fixes their rcon_password in the mac client, it will reset the error state to Never.
+                // Known issue: if the user changes the rcon_password _in TF2_, this will not trigger an ErrorState change here.
+                ErrorState::Current(CommandManagerError::Rcon(rcon::Error::Auth)) => {},
+                // Any other issue is worthy of a reconnect attempt.
+                _ => {
+                    match self.try_reconnect().await {
+                        Ok(_) => {
+                            // Current error state (which was _not_ Okay) no presents a historical view on what the error was
+                            // Since we are now connected, if the error state indicates never connected, we can assume first time connect
+                            // Otherwise this is a reconnect.
+                            match self.error_state {
+                                ErrorState::Current(_) => {
+                                    tracing::info!("Succesfully reconnected to RCon")
+                                }
+                                ErrorState::Never => {
+                                    tracing::info!("Succesfully established a connection with RCon")
+                                }
+                                _ => {}
+                            };
+                            std::mem::swap(&mut self.error_state, &mut self.error_hist);
+                            self.error_state = ErrorState::Okay;
+                        }
+                        Err(e) => {
+                            // Moves the current error state into the history, and history into current, then override current with the new error.
+                            // This avoids cloning/copying errors by simply moving ownership and dropping scope when not needed. 
+                            std::mem::swap(&mut self.error_state, &mut self.error_hist);
+                            self.error_state = ErrorState::Current(e);
+                        }
                     }
                 }
             }
@@ -128,6 +153,8 @@ impl CommandManager {
                 .expect("The main IO Loop experienced a fatal error.")
             {
                 CommandManagerMessage::RunCommand(cmd) => {
+                    // Only attempt to run commands if the error state indicates we have a valid RCon client.
+                    // This prevents getting shunted by the TF2 client for repeated Auth failures
                     if self.error_state == ErrorState::Okay {
                         let cmd = format!("{}", cmd);
                         if let Err(e) = self.run_command(&cmd).await {
@@ -136,6 +163,9 @@ impl CommandManager {
                         }
                     }
                 }
+                // Any change to the RCon configurations implicates a new RCon connection that we have never connected
+                // to in this 'session', so set state to Never instead of some error state or Okay (as we need to trigger a
+                // reconnect, but don't have any errors to report)
                 CommandManagerMessage::SetRconPassword(password) => {
                     self.rcon_password = password;
                     self.error_state = ErrorState::Never;
@@ -174,7 +204,10 @@ impl CommandManager {
         };
 
         match timeout(
-            Duration::from_secs(2),
+            // Windows will try and connect to an unbound port up to 3 times, with 500ms intervals
+            // 2000ms was too little time on the average system to accurately return the 'Connection Refused' error, and
+            // would instead return Elapsed.
+            Duration::from_millis(2500),
             Connection::connect(
                 format!("127.0.0.1:{}", &self.rcon_port),
                 &self.rcon_password,
