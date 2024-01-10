@@ -17,12 +17,11 @@ pub enum CommandManagerError {
     Rcon(#[from] rcon::Error),
     #[error("Rcon connection timeout: {0}")]
     TimeOut(#[from] tokio::time::error::Elapsed),
-    #[error("{0:?}")]
-    Other(#[from] anyhow::Error),
 }
 
-/// Since we only _really_ care about differentiating the Rcon errors, that is the only enum variant we expand.
-/// For the rest of the num variants, comparing that they are both the same supertype is simply enough.
+/// Since we only _really_ care about differentiating the Rcon errors, those are the values we check more explicitly.
+/// For the timeout variant, comparing that they are both the same supertype is simply enough as they only downcast to
+/// one error type.
 impl PartialEq for CommandManagerError {
     fn eq(&self, other: &Self) -> bool {
         #[allow(clippy::match_like_matches_macro)]
@@ -31,9 +30,8 @@ impl PartialEq for CommandManagerError {
             (Self::Rcon(rcon::Error::CommandTooLong), Self::Rcon(rcon::Error::CommandTooLong)) => {
                 true
             }
-            (Self::Rcon(rcon::Error::Io(_)), Self::Rcon(rcon::Error::Io(_))) => true,
+            (Self::Rcon(rcon::Error::Io(lh)), Self::Rcon(rcon::Error::Io(rh))) => lh.kind() == rh.kind(),
             (Self::TimeOut(_), Self::TimeOut(_)) => true,
-            (Self::Other(_), Self::Other(_)) => true,
             _ => false,
         }
     }
@@ -44,8 +42,11 @@ impl PartialEq for CommandManagerError {
 #[derive(PartialEq)]
 
 enum ErrorState {
+    /// Never had an error, never been connected to RCon
     Never,
+    /// Currently connected to RCon, logged no error state
     Okay,
+    /// No longer or never was connected to RCon due to the wrapped error
     Current(CommandManagerError),
 }
 
@@ -59,8 +60,8 @@ pub struct CommandManager {
     rcon_password: Arc<str>,
     rcon: Option<Connection<TcpStream>>,
     rcon_port: u16,
-    error_state: ErrorState,
-    error_hist: ErrorState,
+    current_err_state: ErrorState,
+    previous_err_state: ErrorState,
     request_recv: UnboundedReceiver<CommandManagerMessage>,
     response_send: UnboundedSender<Arc<str>>,
 }
@@ -77,8 +78,8 @@ impl CommandManager {
             rcon_password,
             rcon: None,
             rcon_port,
-            error_state: ErrorState::Never,
-            error_hist: ErrorState::Never,
+            current_err_state: ErrorState::Never,
+            previous_err_state: ErrorState::Never,
             request_recv: recv,
             response_send: resp_tx,
         };
@@ -92,11 +93,11 @@ impl CommandManager {
             // Maintain an error state and historical view for state-based error reporting
             // This avoids reporting the same error message multiple times, but makes sure different messages of the same super type
             // are reported.
-            if self.error_state != self.error_hist {
-                match &self.error_state {
+            if self.current_err_state != self.previous_err_state {
+                match &self.current_err_state {
                     // If we have just launched/reset RCon state, and we get connection refused, just warn about it instead as TF2 likely isn't open
                     ErrorState::Current(e @ CommandManagerError::Rcon(rcon::Error::Io(err)))
-                        if self.error_hist == ErrorState::Never
+                        if self.previous_err_state == ErrorState::Never
                             && err.kind() == ErrorKind::ConnectionRefused =>
                     {
                         tracing::warn!("{} (This is expected behaviour if TF2 is not open)", e)
@@ -111,7 +112,7 @@ impl CommandManager {
             }
             // When we report any state other than okay, we always try and reconnect with the current RCon config,
             // except for when we are receiving auth failures.
-            match self.error_state {
+            match self.current_err_state {
                 // If state is okay, early exit.
                 // Else if Current error state indicates bad auth. So don't try and reconnect else we get shunted by TF2
                 // When the user fixes their rcon_password in the mac client, it will reset the error state to Never.
@@ -124,7 +125,7 @@ impl CommandManager {
                             // Current error state (which was _not_ Okay) no presents a historical view on what the error was
                             // Since we are now connected, if the error state indicates never connected, we can assume first time connect
                             // Otherwise this is a reconnect.
-                            match self.error_state {
+                            match self.current_err_state {
                                 ErrorState::Current(_) => {
                                     tracing::info!("Succesfully reconnected to RCon")
                                 }
@@ -133,14 +134,14 @@ impl CommandManager {
                                 }
                                 _ => {}
                             };
-                            std::mem::swap(&mut self.error_state, &mut self.error_hist);
-                            self.error_state = ErrorState::Okay;
+                            std::mem::swap(&mut self.current_err_state, &mut self.previous_err_state);
+                            self.current_err_state = ErrorState::Okay;
                         }
                         Err(e) => {
                             // Moves the current error state into the history, and history into current, then override current with the new error.
                             // This avoids cloning/copying errors by simply moving ownership and dropping scope when not needed.
-                            std::mem::swap(&mut self.error_state, &mut self.error_hist);
-                            self.error_state = ErrorState::Current(e);
+                            std::mem::swap(&mut self.current_err_state, &mut self.previous_err_state);
+                            self.current_err_state = ErrorState::Current(e);
                         }
                     }
                 }
@@ -155,11 +156,11 @@ impl CommandManager {
                 CommandManagerMessage::RunCommand(cmd) => {
                     // Only attempt to run commands if the error state indicates we have a valid RCon client.
                     // This prevents getting shunted by the TF2 client for repeated Auth failures
-                    if self.error_state == ErrorState::Okay {
+                    if self.current_err_state == ErrorState::Okay {
                         let cmd = format!("{}", cmd);
                         if let Err(e) = self.run_command(&cmd).await {
                             tracing::error!("Failed to run command {}: {:?}", cmd, e);
-                            self.error_state = ErrorState::Current(e);
+                            self.current_err_state = ErrorState::Current(e);
                         }
                     }
                 }
@@ -168,11 +169,11 @@ impl CommandManager {
                 // reconnect, but don't have any errors to report)
                 CommandManagerMessage::SetRconPassword(password) => {
                     self.rcon_password = password;
-                    self.error_state = ErrorState::Never;
+                    self.current_err_state = ErrorState::Never;
                 }
                 CommandManagerMessage::SetRconPort(port) => {
                     self.rcon_port = port;
-                    self.error_state = ErrorState::Never;
+                    self.current_err_state = ErrorState::Never;
                 }
             }
         }
@@ -197,7 +198,7 @@ impl CommandManager {
     }
 
     async fn try_reconnect(&mut self) -> Result<(), CommandManagerError> {
-        match self.error_state {
+        match self.current_err_state {
             ErrorState::Current(_) => tracing::debug!("Attempting to reconnect to RCon"),
             ErrorState::Never => tracing::debug!("Attempting to connect to RCon"),
             _ => {}
