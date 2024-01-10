@@ -93,7 +93,7 @@ impl Server {
     pub fn handle_io_output(&mut self, response: IOOutput) -> Vec<SteamID> {
         use IOOutput::*;
         match response {
-            G15(players) => return self.handle_g15_parse(players).into(),
+            G15(players) => return self.handle_g15_parse(players),
             Status(status) => {
                 return self
                     .handle_status_line(status)

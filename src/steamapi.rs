@@ -37,6 +37,7 @@ pub enum SteamAPIResponse {
 pub struct SteamAPIManager {
     client: SteamAPI,
     batch_buffer: VecDeque<SteamID>,
+    api_key_valid: bool,
 
     request_recv: UnboundedReceiver<SteamAPIMessage>,
     response_send: UnboundedSender<SteamAPIResponse>,
@@ -49,9 +50,15 @@ impl SteamAPIManager {
     ) -> (UnboundedReceiver<SteamAPIResponse>, SteamAPIManager) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
+        let valid_api_key = is_api_key_valid(&api_key);
+        if !valid_api_key {
+            tracing::info!("Invalid/Improper API key provided, disabling Steam API requests.");
+        }
+
         let api_manager = SteamAPIManager {
             client: SteamAPI::new(api_key),
             batch_buffer: VecDeque::with_capacity(BATCH_SIZE),
+            api_key_valid: valid_api_key,
 
             request_recv: recv,
             response_send: resp_tx,
@@ -61,7 +68,16 @@ impl SteamAPIManager {
     }
 
     fn set_api_key(&mut self, api_key: Arc<str>) {
+        let _last = self.api_key_valid;
+        self.api_key_valid = is_api_key_valid(&api_key);
         self.client = SteamAPI::new(api_key);
+        if !_last && self.api_key_valid {
+            tracing::info!("New API key received, enabling SteamAPI requests.");
+        } else if _last && !self.api_key_valid {
+            tracing::info!("Invalid/Improper API key received, disabling SteamAPI requests.");
+        } else {
+            tracing::info!("Updated SteamAPI key.");
+        }
     }
 
     /// Enter a loop to wait for steam lookup requests, make those requests from the Steam web API,
@@ -78,33 +94,36 @@ impl SteamAPIManager {
                             self.set_api_key(key);
                         },
                         SteamAPIMessage::Lookup(steamid) => {
-                            self.batch_buffer.push_back(steamid);
-                            if self.batch_buffer.len() >= BATCH_SIZE {
-                                self.send_batch().await;
-                                batch_timer.reset();  // Reset the timer
+                            if self.api_key_valid {
+                                self.batch_buffer.push_back(steamid);
+                                if self.batch_buffer.len() >= BATCH_SIZE {
+                                    self.send_batch().await;
+                                    batch_timer.reset();  // Reset the timer
+                                }
                             }
                         },
                         SteamAPIMessage::CheckFriends(steamids) => {
-                            for id in steamids {
-                                match request_account_friends(&mut self.client, id).await {
-                                    Ok(friends) => {
-                                        self.response_send
-                                            .send(SteamAPIResponse::FriendLists((id, Ok(friends))))
-                                            .expect("Lost connection to main thread.");
-                                    }
-                                    Err(err) => {
-                                        self.response_send
-                                            .send(SteamAPIResponse::FriendLists((id, Err(err))))
-                                            .expect("Lost connection to main thread.");
+                            if self.api_key_valid {
+                                for id in steamids {
+                                    match request_account_friends(&mut self.client, id).await {
+                                        Ok(friends) => {
+                                            self.response_send
+                                                .send(SteamAPIResponse::FriendLists((id, Ok(friends))))
+                                                .expect("Lost connection to main thread.");
+                                        }
+                                        Err(err) => {
+                                            self.response_send
+                                                .send(SteamAPIResponse::FriendLists((id, Err(err))))
+                                                .expect("Lost connection to main thread.");
+                                        }
                                     }
                                 }
                             }
-
                         }
                     }
                 },
                 _ = batch_timer.tick() => {
-                    if !self.batch_buffer.is_empty() {
+                    if self.api_key_valid && !self.batch_buffer.is_empty() {
                         self.send_batch().await;
                     }
                 }
@@ -258,4 +277,16 @@ async fn request_account_bans(
     let bans = serde_json::from_str::<GetPlayerBansResponseBase>(&bans)
         .with_context(|| format!("Failed to parse player bans from SteamAPI: {}", &bans))?;
     Ok(bans.players)
+}
+
+fn is_api_key_valid(api_key: &Arc<str>) -> bool {
+    // A valid steam API key is a 32 digit hexadecimal number. We store them as strings, so
+    // we check for exactly 32 hexadecimal ascii digits. Anything that doesn't fit this rule
+    // is likely not a valid Steam API key (inb4 Valve changes the format on my ass)
+    return api_key.len() == 32
+        && api_key
+            .chars()
+            .map(|c| c.is_ascii_hexdigit())
+            .reduce(|acc, e| acc && e)
+            .unwrap();
 }
