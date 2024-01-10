@@ -1,4 +1,3 @@
-use anyhow::Result;
 use rcon::Connection;
 use std::io::ErrorKind;
 use std::{sync::Arc, time::Duration};
@@ -113,8 +112,7 @@ impl CommandManager {
             // When we report any state other than okay, we always try and reconnect with the current RCon config,
             // except for when we are receiving auth failures.
             match self.current_err_state {
-                // If state is okay, early exit.
-                // Else if Current error state indicates bad auth. So don't try and reconnect else we get shunted by TF2
+                // if current error state indicates bad auth, don't try and reconnect else we get shunted by TF2
                 // When the user fixes their rcon_password in the mac client, it will reset the error state to Never.
                 // Known issue: if the user changes the rcon_password _in TF2_, this will not trigger an ErrorState change here.
                 ErrorState::Okay | ErrorState::Current(CommandManagerError::Rcon(rcon::Error::Auth)) => {}
@@ -122,7 +120,7 @@ impl CommandManager {
                 _ => {
                     match self.try_reconnect().await {
                         Ok(_) => {
-                            // Current error state (which was _not_ Okay) no presents a historical view on what the error was
+                            // Current error state (which was _not_ Okay) now presents a historical view on what the error was
                             // Since we are now connected, if the error state indicates never connected, we can assume first time connect
                             // Otherwise this is a reconnect.
                             match self.current_err_state {
@@ -159,7 +157,7 @@ impl CommandManager {
                     if self.current_err_state == ErrorState::Okay {
                         let cmd = format!("{}", cmd);
                         if let Err(e) = self.run_command(&cmd).await {
-                            tracing::error!("Failed to run command {}: {:?}", cmd, e);
+                            self.previous_err_state = ErrorState::Okay;
                             self.current_err_state = ErrorState::Current(e);
                         }
                     }
