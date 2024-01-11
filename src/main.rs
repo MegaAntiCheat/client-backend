@@ -279,7 +279,7 @@ fn main() {
                 }
 
                 // Request friend lists of relevant players (depends on config)
-                if need_all_friends_lists || queued_friendlist_req.is_empty() {
+                if need_all_friends_lists || !queued_friendlist_req.is_empty() {
                     // If a cheater's friends list is private, we need everyone's friends list.
                     if need_all_friends_lists {
                         need_all_friends_lists = false;
