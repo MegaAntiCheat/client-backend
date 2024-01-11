@@ -76,20 +76,17 @@ impl Players {
         // Propagate to all other hashmap entries
 
         for friend in friendslist.iter() {
-            if let Some(other_friend) = self.friend_info.get_mut(&friend.steamid) {
-                other_friend.push(Friend {
-                    steamid,
-                    friend_since: friend.friend_since,
-                });
-            }
+            self.propagate_friend(steamid, friend.clone());
         }
 
-        let oldfriends = self.set_friends(steamid, friendslist);
+        let oldfriends: Vec<SteamID> = self.set_friends(steamid, friendslist);
 
         // If a player's friend has been unfriended, remove player from friend's hashmap
         for oldfriend in oldfriends {
             self.remove_from_friends_list(&oldfriend, &steamid);
         }
+
+        self.update_user_friend_tag(steamid);
     }
 
     /// Sets the friends list and friends list visibility, returning any old friends that have been removed
@@ -102,18 +99,19 @@ impl Players {
         friend_info.retain(|f1| !removed_friends.iter().any(|f2| f1.steamid == f2.steamid));
         std::mem::swap(&mut removed_friends, &mut friend_info.friends);
 
-        // Update friend tag
-        if let Some(user) = self.user {
-            let is_friends_with_user = friend_info.iter().any(|f| f.steamid == user);
-
-            if is_friends_with_user {
-                self.set_tag(steamid, tags::FRIEND.into());
-            } else {
-                self.clear_tag(steamid, tags::FRIEND);
-            }
-        }
-
         removed_friends.into_iter().map(|f| f.steamid).collect()
+    }
+
+    /// Helper function to add a friend to a friends list
+    fn propagate_friend(&mut self, steamid: SteamID, friend: Friend) {
+        let friend_info = self.friend_info.entry(friend.steamid).or_default();
+        
+        friend_info.push(Friend {
+            steamid: steamid,
+            friend_since: friend.friend_since
+        });
+
+        self.update_user_friend_tag(friend.steamid);
     }
 
     /// Helper function to remove a friend from a player's friendlist.
@@ -131,6 +129,7 @@ impl Players {
                 self.friend_info.remove(friend_to_remove);
             }
         }
+        self.update_user_friend_tag(*friend_to_remove);
     }
 
     /// Mark a friends list as being private, trim all now-stale information.
@@ -155,6 +154,15 @@ impl Players {
                 self.remove_from_friends_list(&friend.steamid, steamid);
             }
         }
+    }
+
+    fn update_user_friend_tag(&mut self, friend: SteamID) {
+        let is_friends_with_user: Option<bool> = self.is_friends_with_user(&friend);
+        if is_friends_with_user.is_some_and(|friends| friends) {
+            self.set_tag(friend, tags::FRIEND.into());
+        } else {
+            self.clear_tag(friend, tags::FRIEND);
+        } 
     }
 
     /// Check if an account is friends with the user.
