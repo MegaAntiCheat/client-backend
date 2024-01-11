@@ -303,6 +303,7 @@ impl Serialize for Players {
 pub enum PlayerState {
     Active,
     Spawning,
+    Disconnected,
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq)]
@@ -383,8 +384,6 @@ pub struct GameInfo {
     pub state: PlayerState,
     pub kills: u32,
     pub deaths: u32,
-    pub disconnected: bool,
-
     #[serde(skip)]
     /// How many cycles has passed since the player has been seen
     last_seen: u32,
@@ -399,10 +398,9 @@ impl Default for GameInfo {
             time: 0,
             ping: 0,
             loss: 0,
-            state: PlayerState::Spawning,
+            state: PlayerState::Active,
             kills: 0,
             deaths: 0,
-            disconnected: false,
             last_seen: 0,
         }
     }
@@ -466,7 +464,7 @@ impl GameInfo {
 
         self.last_seen += 1;
         if self.last_seen > DISCONNECTED_THRESHOLD {
-            self.disconnected = true;
+            self.state = PlayerState::Disconnected;
         }
     }
 
@@ -477,7 +475,10 @@ impl GameInfo {
 
     fn acknowledge(&mut self) {
         self.last_seen = 0;
-        self.disconnected = false;
+
+        if self.state == PlayerState::Disconnected {
+            self.state = PlayerState::Spawning;
+        }
     }
 }
 
