@@ -139,9 +139,9 @@ pub struct StatusLine {
 
 impl StatusLine {
     pub fn parse(caps: Captures) -> Result<StatusLine> {
-        let mut player_state = PlayerState::Spawning;
-        if caps[7].eq("active") {
-            player_state = PlayerState::Active;
+        let mut player_state = PlayerState::Active;
+        if caps[7].eq("spawning") {
+            player_state = PlayerState::Spawning;
         }
 
         Ok(StatusLine {

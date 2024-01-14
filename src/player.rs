@@ -477,7 +477,7 @@ impl GameInfo {
         self.last_seen = 0;
 
         if self.state == PlayerState::Disconnected {
-            self.state = PlayerState::Spawning;
+            self.state = PlayerState::Active;
         }
     }
 }
