@@ -116,7 +116,7 @@ impl Settings {
             Err(e) => {
                 if args.tf2_dir.is_none() {
                     tracing::error!("Could not locate TF2 directory: {:?}", e);
-                    tracing::error!("If you have a valid TF2 installation you can specify it manually by appending ' --tf2_dir \"Path to Team Fortress 2 folder\"' when running the program.");
+                    tracing::error!("If you have a valid TF2 installation you can specify it manually by appending ' --tf2-dir \"Path to Team Fortress 2 folder\"' when running the program.");
                 }
             }
         }
