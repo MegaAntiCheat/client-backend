@@ -1,7 +1,6 @@
 use std::{
-    fs,
-    fs::{File, OpenOptions},
-    io::{Read, Write},
+    fs::File,
+    io::Read,
     path::PathBuf,
 };
 
@@ -24,7 +23,6 @@ pub const TF2_REQUIRED_OPTS: [&str; 4] = ["-condebug", "-conclearlog", "-usercon
 /// Handles referencing the VDF store of a Steam app's launch options and provides an interface to read
 /// and write launch options based on a set of required options.
 pub struct LaunchOptions {
-    local_config: PathBuf,
     launch_args_regex: Regex,
     app_data: Option<String>,
     new_app_data: Option<String>,
@@ -86,7 +84,6 @@ impl LaunchOptions {
                 .expect("Constructing LaunchOptions regex");
 
         Ok(LaunchOptions {
-            local_config: config_path,
             launch_args_regex: launch_options_regex,
             app_data: matched_app_block,
             new_app_data: None,
@@ -127,96 +124,5 @@ impl LaunchOptions {
         });
 
         Ok(missing_args)
-    }
-
-    /// Identifies any missing required launch options, and writes them into the
-    /// `localconfig.vdf` file as well as the [`new_app_data`](Self::new_app_data) var.
-    ///
-    /// Return value is the return value of [`write_changes_to_file`](Self::write_changes_to_file)
-    pub fn write_corrected_args_to_file(&mut self) -> Result<(), anyhow::Error> {
-        self.add_opts_if_missing();
-        self.write_changes_to_file()
-    }
-
-    /// Writes any changes to the launch options present in [`new_app_data`](Self::new_app_data)
-    /// into the `localconfig.vdf` file.
-    ///
-    /// # Errors
-    /// Will raise anyhow::Error if:
-    /// - The `localconfig.vdf` file could not be opened to write into (potentially if Steam happens to also be writing the file simultanesouly).
-    /// - An error was encountered during writing to the file.
-    fn write_changes_to_file(&self) -> Result<(), anyhow::Error> {
-        let span = tracing::span!(Level::INFO, "WriteLaunchOptions");
-        let _enter = span.enter();
-        let old_app = self.app_data.clone().context("No data is loaded.")?;
-        let new_app = self
-            .new_app_data
-            .clone()
-            .context("No updated app data, assuming configuration correct.")?;
-
-        if old_app == new_app {
-            tracing::info!("Launch configuration correct, no changes required.");
-            return Ok(());
-        }
-        let span2 = tracing::span!(Level::INFO, "RewriteMissingLaunchOptions");
-        let _enter2 = span2.enter();
-
-        tracing::debug!("Reading all data from disk...");
-        let file_contents: Vec<u8> =
-            fs::read(self.local_config.as_path()).context("Failed to read localconfig.vdf.")?;
-
-        // Unsafe because we don't want to break non-utf8 byte sequences that may be contained in the "friends" object.
-        unsafe {
-            let mut f_str = String::from_utf8_unchecked(file_contents);
-            f_str = f_str.replace(&old_app, &new_app);
-            tracing::debug!("Replaced old app data with new app data");
-
-            let mut f = OpenOptions::new()
-                .write(true)
-                .open(self.local_config.as_path())
-                .context("Failed to open localconfig.vdf in write mode.")?;
-
-            f.write_all(f_str.as_bytes())
-                .context("Failed to write in localconfig.vdf.")?;
-            tracing::debug!("Wrote new app data to disk...");
-        }
-
-        Ok(())
-    }
-
-    /// Clones [`app_data`](Self::app_data) into [`new_app_data`](Self::new_app_data) and modifies the
-    /// LaunchOptions key to contain the updated list of launch opts.
-    ///
-    /// If there are no missing required launch options, this is a no-op.
-    fn add_opts_if_missing(&mut self) {
-        let copied_app_data = self.app_data.clone();
-        if let Some(mut prior) = copied_app_data {
-            if !prior.contains("\"LaunchOptions\"") {
-                prior += "\t\t\t\t\t\t\"LaunchOptions\"\t\t\"\""
-            }
-
-            TF2_REQUIRED_OPTS.iter().for_each(|opt| {
-                let curr_opts = self.launch_args_regex.find(&prior);
-                if let Some(mat) = curr_opts {
-                    let mat_str = mat.as_str();
-                    if !mat_str.contains(opt) {
-                        let new_opts = mat_str.replace(
-                            "\"LaunchOptions\"\t\t\"",
-                            &format!("\"LaunchOptions\"\t\t\"{} ", opt),
-                        );
-                        prior = prior.replace(mat_str, &new_opts);
-                    }
-                }
-            });
-
-            if let Some(old_app) = self.app_data.clone() {
-                if prior == old_app {
-                    tracing::debug!("No changes detected to launch options.");
-                } else {
-                    tracing::debug!("Tracking config to correct missing launch options... call `write_changes_to_file` now...");
-                    self.new_app_data = Some(prior);
-                }
-            }
-        }
     }
 }

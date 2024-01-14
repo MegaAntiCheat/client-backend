@@ -24,12 +24,6 @@ pub struct Args {
     /// Override the configured Steam API key,
     #[arg(short, long)]
     pub api_key: Option<String>,
-    /// Rewrite the user localconfig.vdf to append the corrected set of launch options if necessary (only works when steam is not running).
-    #[arg(long = "rewrite_launch_opts", action=ArgAction::SetTrue, default_value_t=false)]
-    pub rewrite_launch_options: bool,
-    /// Do not panic on detecting missing launch options or failure to read/parse the localconfig.vdf file.
-    #[arg(short, long = "ignore_launch_opts", action=ArgAction::SetTrue, default_value_t=false)]
-    pub ignore_launch_options: bool,
     /// Launch the web-ui in the default browser on startup
     #[arg(long = "autolaunch_ui", action=ArgAction::SetTrue, default_value_t=false)]
     pub autolaunch_ui: bool,
