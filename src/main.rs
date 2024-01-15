@@ -9,9 +9,11 @@ use steamapi::SteamAPIManager;
 use steamid_ng::SteamID;
 use tokio::select;
 use tokio::sync::mpsc::unbounded_channel;
+use tracing_subscriber::filter::Directive;
 use web::{web_main, SharedState};
 
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -206,8 +208,11 @@ fn main() {
                     // Steam API responses
                     Some(response) = steam_api_recv.recv() => {
                         match response {
-                            SteamAPIResponse::SteamInfo(info) => {
-                                server.write().unwrap().players_mut().steam_info.insert(info.0, info.1);
+                            SteamAPIResponse::SteamInfo((player, Ok(info))) => {
+                                server.write().unwrap().players_mut().steam_info.insert(player, info);
+                            },
+                            SteamAPIResponse::SteamInfo((player, Err(e))) => {
+                                tracing::error!("Failed to get steam info for {}: {e}", u64::from(player));
                             },
                             SteamAPIResponse::FriendLists((steamid, result)) => {
                                 match result {
@@ -327,13 +332,19 @@ fn main() {
 
 fn init_tracing() -> Option<WorkerGuard> {
     if std::env::var("RUST_LOG").is_err() {
-        std::env::set_var("RUST_LOG", "info,hyper::proto=warn,tf_demo_parser=warn");
+        std::env::set_var("RUST_LOG", "info");
     }
 
+    let suppress_hyper = Directive::from_str("hyper=warn").unwrap();
+    let suppress_demo_parser = Directive::from_str("tf_demo_parser=warn").unwrap();
     let subscriber = tracing_subscriber::registry().with(
         tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
-            .with_filter(EnvFilter::from_default_env()),
+            .with_filter(
+                EnvFilter::from_default_env()
+                    .add_directive(suppress_hyper.clone())
+                    .add_directive(suppress_demo_parser.clone()),
+            ),
     );
 
     match std::fs::File::create("./macclient.log") {
@@ -343,7 +354,14 @@ fn init_tracing() -> Option<WorkerGuard> {
                 .with(
                     tracing_subscriber::fmt::layer()
                         .with_ansi(false)
-                        .with_writer(file_writer.with_max_level(tracing::Level::TRACE)),
+                        .with_writer(file_writer.with_max_level(tracing::Level::TRACE))
+                        .with_filter(
+                            EnvFilter::builder()
+                                .parse("debug")
+                                .unwrap()
+                                .add_directive(suppress_hyper)
+                                .add_directive(suppress_demo_parser),
+                        ),
                 )
                 .init();
             Some(guard)

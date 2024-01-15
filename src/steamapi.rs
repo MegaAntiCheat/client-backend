@@ -2,7 +2,6 @@ use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use anyhow::{anyhow, Context, Result};
 use steamid_ng::SteamID;
 use tappet::{
     response_types::{
@@ -12,6 +11,7 @@ use tappet::{
     Executor, SteamAPI,
 };
 
+use thiserror::Error;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
@@ -30,8 +30,20 @@ pub enum SteamAPIMessage {
 }
 
 pub enum SteamAPIResponse {
-    SteamInfo((SteamID, SteamInfo)),
-    FriendLists((SteamID, Result<Vec<Friend>>)),
+    SteamInfo((SteamID, Result<SteamInfo, SteamAPIError>)),
+    FriendLists((SteamID, Result<Vec<Friend>, SteamAPIError>)),
+}
+
+#[derive(Debug, Error)]
+pub enum SteamAPIError {
+    #[error("Missing bans for player {0:?}")]
+    MissingBans(SteamID),
+    #[error("Missing summary for player {0:?}")]
+    MissingSummary(SteamID),
+    #[error(transparent)]
+    Serde(#[from] serde_json::Error),
+    #[error(transparent)]
+    Tappet(#[from] tappet::errors::SteamAPIError),
 }
 
 pub struct SteamAPIManager {
@@ -151,7 +163,7 @@ impl SteamAPIManager {
 async fn request_steam_info(
     client: &mut SteamAPI,
     playerids: Vec<SteamID>,
-) -> Result<Vec<(SteamID, SteamInfo)>> {
+) -> Result<Vec<(SteamID, Result<SteamInfo, SteamAPIError>)>, SteamAPIError> {
     tracing::debug!("Requesting steam accounts: {:?}", playerids);
 
     let summaries = request_player_summary(client, &playerids).await?;
@@ -166,43 +178,48 @@ async fn request_steam_info(
         .map(|ban| (ban.steam_id.clone(), ban))
         .collect();
 
-    let steam_infos = playerids
+    Ok(playerids
         .into_iter()
         .map(|player| {
             let id = format!("{}", u64::from(player));
-            let summary = id_to_summary
-                .get(&id)
-                .ok_or(anyhow!("Missing summary for player {}", id))?;
-            let ban = id_to_ban
-                .get(&id)
-                .ok_or(anyhow!("Missing ban info for player {}", id))?;
-            let steam_info = SteamInfo {
-                account_name: summary.personaname.clone().into(),
-                pfp_url: summary.avatarfull.clone().into(),
-                profile_url: summary.profileurl.clone().into(),
-                pfp_hash: summary.avatarhash.clone().into(),
-                profile_visibility: summary.communityvisibilitystate.into(),
-                time_created: summary.timecreated,
-                country_code: summary.loccountrycode.clone().map(|s| s.into()),
-                vac_bans: ban.number_of_vac_bans,
-                game_bans: ban.number_of_game_bans,
-                days_since_last_ban: if ban.number_of_vac_bans > 0 || ban.number_of_game_bans > 0 {
-                    Some(ban.days_since_last_ban)
-                } else {
-                    None
-                },
-            };
-            Ok((player, steam_info))
-        })
-        .collect::<Result<_>>()?;
 
-    Ok(steam_infos)
+            let build_steam_info = || {
+                let summary = id_to_summary
+                    .get(&id)
+                    .ok_or(SteamAPIError::MissingSummary(player))?;
+                let ban = id_to_ban
+                    .get(&id)
+                    .ok_or(SteamAPIError::MissingBans(player))?;
+                let steam_info = SteamInfo {
+                    account_name: summary.personaname.clone().into(),
+                    pfp_url: summary.avatarfull.clone().into(),
+                    profile_url: summary.profileurl.clone().into(),
+                    pfp_hash: summary.avatarhash.clone().into(),
+                    profile_visibility: summary.communityvisibilitystate.into(),
+                    time_created: summary.timecreated,
+                    country_code: summary.loccountrycode.clone().map(|s| s.into()),
+                    vac_bans: ban.number_of_vac_bans,
+                    game_bans: ban.number_of_game_bans,
+                    days_since_last_ban: if ban.number_of_vac_bans > 0
+                        || ban.number_of_game_bans > 0
+                    {
+                        Some(ban.days_since_last_ban)
+                    } else {
+                        None
+                    },
+                };
+                Ok(steam_info)
+            };
+
+            (player, build_steam_info())
+        })
+        .collect())
 }
 
 async fn request_player_summary(
     client: &mut SteamAPI,
     players: &[SteamID],
-) -> Result<Vec<PlayerSummary>> {
+) -> Result<Vec<PlayerSummary>, SteamAPIError> {
     let summaries = client
         .get()
         .ISteamUser()
@@ -213,36 +230,26 @@ async fn request_player_summary(
                 .collect(),
         )
         .execute()
-        .await
-        .context("Failed to get player summary from SteamAPI.")?;
-    let summaries = serde_json::from_str::<GetPlayerSummariesResponseBase>(&summaries)
-        .with_context(|| {
-            format!(
-                "Failed to parse player summary from SteamAPI: {}",
-                &summaries
-            )
-        })?;
+        .await?;
+    let summaries = serde_json::from_str::<GetPlayerSummariesResponseBase>(&summaries)?;
     Ok(summaries.response.players)
 }
 
 pub async fn request_account_friends(
     client: &mut SteamAPI,
     player: SteamID,
-) -> Result<Vec<Friend>> {
+) -> Result<Vec<Friend>, SteamAPIError> {
+    tracing::debug!(
+        "Requesting friends list from Steam API for {}",
+        u64::from(player)
+    );
     let friends = client
         .get()
         .ISteamUser()
         .GetFriendList(player.into(), "all".to_string())
         .execute()
-        .await
-        .context("Failed to get account friends from SteamAPI, profile may be private.")?;
-    let friends =
-        serde_json::from_str::<GetFriendListResponseBase>(&friends).with_context(|| {
-            format!(
-                "Failed to parse account friends from SteamAPI: {}",
-                &friends
-            )
-        })?;
+        .await?;
+    let friends = serde_json::from_str::<GetFriendListResponseBase>(&friends)?;
     Ok(friends
         .friendslist
         .map(|fl| fl.friends)
@@ -261,7 +268,7 @@ pub async fn request_account_friends(
 async fn request_account_bans(
     client: &mut SteamAPI,
     players: &[SteamID],
-) -> Result<Vec<PlayerBans>> {
+) -> Result<Vec<PlayerBans>, SteamAPIError> {
     let bans = client
         .get()
         .ISteamUser()
@@ -272,10 +279,8 @@ async fn request_account_bans(
                 .collect(),
         )
         .execute()
-        .await
-        .context("Failed to get player bans from SteamAPI")?;
-    let bans = serde_json::from_str::<GetPlayerBansResponseBase>(&bans)
-        .with_context(|| format!("Failed to parse player bans from SteamAPI: {}", &bans))?;
+        .await?;
+    let bans = serde_json::from_str::<GetPlayerBansResponseBase>(&bans)?;
     Ok(bans.players)
 }
 
