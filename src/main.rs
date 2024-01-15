@@ -31,6 +31,7 @@ mod demo;
 mod gamefinder;
 mod io;
 mod launchoptions;
+mod masterbase;
 mod player;
 mod player_records;
 mod server;

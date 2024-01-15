@@ -3,6 +3,7 @@ pub mod demo;
 pub mod gamefinder;
 pub mod io;
 pub mod launchoptions;
+pub mod masterbase;
 pub mod player;
 pub mod player_records;
 pub mod server;
