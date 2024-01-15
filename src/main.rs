@@ -141,7 +141,7 @@ fn main() {
 
             // Demo manager
             if args.demo_monitoring {
-                let demo_path = settings.get_tf2_directory().join("tf/demos");
+                let demo_path = settings.get_tf2_directory().join("tf");
                 tracing::info!("Demo path: {:?}", demo_path);
 
                 std::thread::spawn(move || {

@@ -1,7 +1,6 @@
-use anyhow::{anyhow, Context, Result};
 use bitbuffer::{BitError, BitRead, BitReadBuffer, BitReadStream, LittleEndian};
+use notify::event::ModifyKind;
 use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::{Deserialize, Serialize};
 use std::fs::{metadata, File};
 use std::io::{Read, Seek};
 use std::path::{Path, PathBuf};
@@ -44,7 +43,8 @@ impl DemoManager {
             self.previous_demos.push(old);
         }
 
-        tracing::debug!("Watching new demo: {:?}", path);
+        // TODO - Change to debug when demo monitoring defaults to on
+        tracing::info!("Watching new demo: {:?}", path);
 
         self.current_demo = Some(OpenDemo {
             file_path: path,
@@ -72,12 +72,15 @@ impl DemoManager {
 
 impl OpenDemo {
     /// Append the provided bytes to the current demo being watched, and handle any packets
-    pub fn read_next_bytes(&mut self) -> Result<()> {
-        let current_metadata = metadata(&self.file_path).context("Couldn't read demo metadata")?;
+    pub fn read_next_bytes(&mut self) -> std::io::Result<()> {
+        let current_metadata = metadata(&self.file_path)?;
 
         // Check there's actually data to read
         if current_metadata.len() < self.bytes.len() as u64 {
-            return Err(anyhow!("Demo has shortened. Something has gone wrong."));
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "Demo has shortened. Something has gone wrong.",
+            ));
         } else if current_metadata.len() == self.bytes.len() as u64 {
             return Ok(());
         }
@@ -97,6 +100,7 @@ impl OpenDemo {
     }
 
     fn process_next_chunk(&mut self) {
+        // TODO - Change to debug when demo monitoring defaults to on
         tracing::info!("New demo length: {}", self.bytes.len());
 
         let buffer = BitReadBuffer::new(&self.bytes, LittleEndian);
@@ -130,9 +134,6 @@ impl OpenDemo {
         loop {
             match packets.next(&self.handler.state_handler) {
                 Ok(Some(packet)) => {
-                    // SAFETY: It's borrowing from the stream which is borrowing from self.bytes.
-                    // self.bytes is never modified, only appended to so the data should still be valid.
-                    // let packet: Packet<'static> = unsafe { std::mem::transmute(packet) };
                     self.handle_packet(&packet);
                     self.handler.handle_packet(packet).unwrap();
                     self.offset = packets.pos();
@@ -144,7 +145,7 @@ impl OpenDemo {
                     requested,
                     bits_left,
                 })) => {
-                    tracing::warn!("Tried to read header but there were not enough bits. Requested: {}, Remaining: {}", requested, bits_left);
+                    tracing::warn!("Tried to read packet but there were not enough bits. Requested: {}, Remaining: {}", requested, bits_left);
                     break;
                 }
                 Err(e) => {
@@ -164,7 +165,7 @@ impl OpenDemo {
         {
             for m in messages {
                 if let Message::GameEvent(GameEventMessage {
-                    event_type_id,
+                    event_type_id: _,
                     event,
                 }) = m
                 {
@@ -210,14 +211,6 @@ impl OpenDemo {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-pub struct BigBrotherPacket {
-    players: Vec<String>,  // List of players on the server, array of SteamIDs
-    ip: String,            // IP address of the server
-    sequence: i32, // A sequence number that starts at 0 and increments for each successive fragment
-    demo: Option<Vec<u8>>, // Up-to-date copy of demo file. None for packet 0 as the demo wouldn't be flushed to disk yet.
-}
-
 pub fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
     let (tx, rx) = mpsc::channel();
     let config = Config::default().with_poll_interval(Duration::from_secs(2));
@@ -234,12 +227,12 @@ pub fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
         config,
     )?;
 
-    watcher.watch(demo_path.as_path(), RecursiveMode::NonRecursive)?;
+    watcher.watch(demo_path.as_path(), RecursiveMode::Recursive)?;
 
     // Create a tick interval to periodically check metadata
     let metadata_tick = Duration::from_secs(5);
 
-    tracing::info!("Demo loop started");
+    tracing::debug!("Demo loop started");
 
     let mut manager = DemoManager::new();
     loop {
@@ -252,25 +245,29 @@ pub fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
                             manager.new_demo(path.clone());
                         }
                     }
-                    notify::event::EventKind::Modify(_) => {
+                    notify::event::EventKind::Modify(ModifyKind::Data(_)) => {
                         if manager
                             .current_demo_path()
                             .map(|p| p == path)
                             .unwrap_or(false)
                         {
                             manager.read_next_bytes();
+                        } else if path.extension().map_or(false, |ext| ext == "dem") {
+                            // A new demo can be started with the same name as a previous one, or the player can
+                            // be already connected to a server and recording a demo when the application is run.
+                            // This should catch those cases.
+                            manager.new_demo(path.clone());
+                            manager.read_next_bytes();
                         }
                     }
-                    _ => {
-                        tracing::debug!("Unhandled event kind: {:?}", event.kind);
-                    }
+                    _ => {}
                 }
             }
             Err(mpsc::RecvTimeoutError::Timeout) => {
                 manager.read_next_bytes();
             }
-            Err(e) => {
-                panic!("Couldn't receive thingy {}", e);
+            Err(mpsc::RecvTimeoutError::Disconnected) => {
+                panic!("Couldn't receive demo updates. Watcher died.");
             }
         }
     }
