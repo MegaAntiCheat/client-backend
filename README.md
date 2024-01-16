@@ -58,9 +58,9 @@ steam_api_key: "YOUR STEAM API KEY GOES HERE"
 
 Then, run `cargo run` in the terminal from the root directory if you have cloned from source, OR run the executable binary.
 
-## Daily Run
+## Launching
 
-To run without opening console just run the `Launcher.bat` file. Running this also tells you if your MAC is outdated and will try to auto update
+To launch run the `Lancher.bat` file. It will look for updates, try to update, and then it will run Mega Aniti-Cheat.
 
 ## Contributing
 Always run `cargo fmt` before submitting your Merge Request. Recommended that you also run `cargo clippy` and implement the improvements it suggests if reasonable.
