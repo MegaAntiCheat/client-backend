@@ -58,5 +58,10 @@ steam_api_key: "YOUR STEAM API KEY GOES HERE"
 
 Then, run `cargo run` in the terminal from the root directory if you have cloned from source, OR run the executable binary.
 
+## Daily Run
+
+To run without opening console just run the `Run.bat` file
+Running this also tells you if your MAC is out dated
+
 ## Contributing
 Always run `cargo fmt` before submitting your Merge Request. Recommended that you also run `cargo clippy` and implement the improvements it suggests if reasonable.

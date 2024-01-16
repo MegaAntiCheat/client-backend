@@ -1,5 +1,8 @@
 @echo off
 
+echo Checking for updates
+git remote show origin
+
 echo Running first.bat...
 call client-backend\include_ui.bat
 
