@@ -13,25 +13,26 @@ if %errorlevel% equ 0 (
     echo [Dependencies] %nodejs% is installed.
 ) else (
     echo [Dependencies] Node.js Not installed
-    echo [Dependencies] Installing Node.js.
-    msiexec.exe /i resources\node-v20.11.0-x64.msi /L*V resources\rustinstall.log
+    echo [Dependencies] Please install Node.js LTS here.
+    echo [Dependencies] https://nodejs.org/en
 )
+
 where %rust% >nul 2>nul
 if %errorlevel% equ 0 (
     echo [Dependencies] %rust% is installed.
 ) else (
     echo [Dependencies] Rust not installed.
-    echo [Dependencies] Installing Rust.
-    start /wait resources\rustup-init.exe
+    echo [Dependencies] Please install Rust here.
+    echo [Dependencies] https://www.rust-lang.org/tools/install
 )
 
 where %gitwd% >nul 2>nul
 if %errorlevel% equ 0 (
     echo [Dependencies] %gitwd% is installed.
 ) else (
-    echo [Dependencies] Git not installed.
-    echo [Dependencies] Installing Git.
-    start /wait resources\Git-2.43.0-64-bit.exe
+    echo [Dependencies] Git not installed (Optional).
+    echo [Dependencies] You can install Git here.
+    echo [Dependencies] https://git-scm.com/download/win.
 )
 
 

@@ -60,8 +60,7 @@ Then, run `cargo run` in the terminal from the root directory if you have cloned
 
 ## Launching For Windows
 
-To launch run the `LancherWindows.bat` file. It will look for updates, try to update, and then it will run Mega Aniti-Cheat. It will also check to make Shure you have all the corect
-Dependencies for Mega Anti-Cheat and install them if they are needed.
+To launch run the `LancherWindows.bat` file. It will look for updates and try to update. It will also make shure you have all the dependencies and give you the links for them. Git is suggested as it used for auto updating.
 
 ## Contributing
 Always run `cargo fmt` before submitting your Merge Request. Recommended that you also run `cargo clippy` and implement the improvements it suggests if reasonable.
