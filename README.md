@@ -60,8 +60,8 @@ Then, run `cargo run` in the terminal from the root directory if you have cloned
 
 ## Daily Run
 
-To run without opening console just run the `Run.bat` file
-Running this also tells you if your MAC is out dated
+To run without opening console just run the `Launcher.bat` file
+Running this also tells you if your MAC is outdated and will auto update
 
 ## Contributing
 Always run `cargo fmt` before submitting your Merge Request. Recommended that you also run `cargo clippy` and implement the improvements it suggests if reasonable.
