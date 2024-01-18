@@ -2,18 +2,25 @@ use crate::player_records::Verdict;
 use crate::steamapi::SteamAPIResponse;
 use args::Args;
 use clap::Parser;
+use events::{EventLoop, Handled, HandlerStruct, StateUpdater};
 use include_dir::{include_dir, Dir};
 use player_records::PlayerRecords;
 use server::Server;
 use steamapi::SteamAPIManager;
 use steamid_ng::SteamID;
+use tappet::{Executor, SteamAPI};
 use tokio::select;
-use tokio::sync::mpsc::unbounded_channel;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
+use tokio::task::JoinHandle;
 use tracing_subscriber::filter::Directive;
+
 use web::{web_main, SharedState};
 
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::str::FromStr;
+use std::sync::mpsc::Receiver;
+
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -30,6 +37,7 @@ use crate::io::IOManagerMessage;
 
 mod args;
 mod demo;
+mod events;
 mod gamefinder;
 mod io;
 mod launchoptions;
@@ -42,7 +50,101 @@ mod web;
 
 static UI_DIR: Dir = include_dir!("ui");
 
+define_messages!(Message<State>: Refresh, NewPlayer, ProfileLookup);
+define_handlers!(Handler<State, Message>: GetNewPlayers, LookupProfiles);
+
+pub struct State {}
+
+// Handlers ***************
+
+pub struct GetNewPlayers;
+impl HandlerStruct<State, Message> for GetNewPlayers {
+    fn handle_message(&mut self, state: &State, message: &Message) -> Handled<Message> {
+        match message {
+            Message::Refresh(_) => Handled::single(NewPlayer {}),
+            _ => Handled::none(),
+        }
+    }
+}
+
+pub struct LookupProfiles {
+    pub api_key: Arc<str>,
+}
+impl HandlerStruct<State, Message> for LookupProfiles {
+    fn handle_message(&mut self, state: &State, message: &Message) -> Handled<Message> {
+        match message {
+            Message::NewPlayer(_) => {
+                let key = self.api_key.clone();
+                Handled::future(async move {
+                    let _ = SteamAPI::new(key)
+                        .get()
+                        .ISteamUser()
+                        .GetPlayerSummaries(vec![String::from("")])
+                        .execute()
+                        .await;
+
+                    Message::ProfileLookup(ProfileLookup {})
+                })
+            }
+            _ => Handled::none(),
+        }
+    }
+}
+
+// Messages **************
+
+pub struct Refresh;
+impl StateUpdater<State> for Refresh {
+    fn update_state(&self, state: &mut State) {
+        println!("Refreshing");
+    }
+}
+
+pub struct NewPlayer {}
+impl StateUpdater<State> for NewPlayer {}
+
+pub struct ProfileLookup {}
+impl StateUpdater<State> for ProfileLookup {
+    fn update_state(&self, state: &mut State) {
+        println!("Got profile result!");
+    }
+}
+
+// Main **********************
+
 fn main() {
+    let (tx, rx) = std::sync::mpsc::channel();
+
+    let mut event_loop: EventLoop<State, Message, Handler> = EventLoop::new()
+        .add_handler(GetNewPlayers {})
+        .add_handler(LookupProfiles {
+            api_key: "boop".into(),
+        })
+        .add_source(Box::new(rx));
+
+    tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()
+        .unwrap()
+        .block_on(async move {
+            // Refresh loop
+            tokio::task::spawn(async move {
+                let mut refresh_interval = tokio::time::interval(Duration::from_secs(3));
+                refresh_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+                loop {
+                    refresh_interval.tick().await;
+                    tx.send(Refresh {}).unwrap();
+                }
+            });
+
+            // Run event loop
+            let mut state = State {};
+
+            loop {
+                event_loop.execute_cycle(&mut state).await;
+            }
+        });
+
     let _guard = init_tracing();
 
     // Arg handling

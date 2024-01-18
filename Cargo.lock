@@ -364,6 +364,7 @@ dependencies = [
  "clap",
  "clap_lex 0.5.1",
  "directories-next",
+ "futures 0.3.30",
  "include_dir",
  "keyvalues-parser 0.1.0",
  "keyvalues-serde 0.1.0",
