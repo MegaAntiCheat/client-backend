@@ -1,3 +1,4 @@
+workspace = { members = ["event_loop"] }
 [package]
 name = "client-backend"
 version = "0.1.0"
@@ -45,3 +46,4 @@ tf-demo-parser = { git = "https://github.com/MegaAntiCheat/parser" }
 bitbuffer = "0.10.9"
 chrono = { version = "0.4.32", features = ["serde"] }
 futures = "0.3.30"
+event_loop = { version = "0.1.0", path = "event_loop" }
