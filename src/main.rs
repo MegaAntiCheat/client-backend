@@ -2,7 +2,7 @@ use crate::player_records::Verdict;
 use crate::steamapi::SteamAPIResponse;
 use args::Args;
 use clap::Parser;
-use events::{EventLoop, Handled, HandlerStruct, StateUpdater};
+use events::{EventLoop, Handled, HandlerStruct, Is, StateUpdater};
 use include_dir::{include_dir, Dir};
 use player_records::PlayerRecords;
 use server::Server;
@@ -58,11 +58,12 @@ pub struct State {}
 // Handlers ***************
 
 pub struct GetNewPlayers;
-impl HandlerStruct<State, Message> for GetNewPlayers {
-    fn handle_message(&mut self, state: &State, message: &Message) -> Handled<Message> {
-        match message {
-            Message::Refresh(_) => Handled::single(NewPlayer {}),
-            _ => Handled::none(),
+impl<M: Is<Refresh> + Is<NewPlayer>> HandlerStruct<State, M> for GetNewPlayers {
+    fn handle_message(&mut self, state: &State, message: &M) -> Handled<M> {
+        let m: Option<&Refresh> = message.try_get();
+        match m {
+            Some(_) => Handled::single(NewPlayer {}),
+            None => Handled::none(),
         }
     }
 }
@@ -70,23 +71,23 @@ impl HandlerStruct<State, Message> for GetNewPlayers {
 pub struct LookupProfiles {
     pub api_key: Arc<str>,
 }
-impl HandlerStruct<State, Message> for LookupProfiles {
-    fn handle_message(&mut self, state: &State, message: &Message) -> Handled<Message> {
-        match message {
-            Message::NewPlayer(_) => {
-                let key = self.api_key.clone();
-                Handled::future(async move {
-                    let _ = SteamAPI::new(key)
-                        .get()
-                        .ISteamUser()
-                        .GetPlayerSummaries(vec![String::from("")])
-                        .execute()
-                        .await;
+impl<M: Is<NewPlayer> + Is<ProfileLookup>> HandlerStruct<State, M> for LookupProfiles {
+    fn handle_message(&mut self, state: &State, message: &M) -> Handled<M> {
+        let m: Option<&NewPlayer> = message.try_get();
+        if let Some(_) = m {
+            let key = self.api_key.clone();
+            Handled::future(async move {
+                let _ = SteamAPI::new(key)
+                    .get()
+                    .ISteamUser()
+                    .GetPlayerSummaries(vec![String::from("")])
+                    .execute()
+                    .await;
 
-                    Message::ProfileLookup(ProfileLookup {})
-                })
-            }
-            _ => Handled::none(),
+                ProfileLookup {}.into()
+            })
+        } else {
+            Handled::none()
         }
     }
 }

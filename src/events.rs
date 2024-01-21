@@ -178,8 +178,9 @@ impl<M, I: Into<M>> MessageSource<M> for Receiver<I> {
     }
 }
 
-pub trait Is<T> {
+pub trait Is<T>: From<T> {
     fn is(&self) -> bool;
+    fn try_get(&self) -> Option<&T>;
 }
 
 // Define Handler struct
@@ -236,6 +237,12 @@ macro_rules! define_messages {
                     match self {
                         $enum::$message(_) => true,
                         _ => false,
+                    }
+                }
+                fn try_get(&self) -> Option<&$message> {
+                    match self {
+                        $enum::$message(a) => Some(a),
+                        _ => None,
                     }
                 }
             }
