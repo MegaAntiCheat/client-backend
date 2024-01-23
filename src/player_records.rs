@@ -11,6 +11,7 @@ use anyhow::Context;
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
 use steamid_ng::SteamID;
+use chrono::{DateTime, Utc};
 
 use crate::{
     args::Args,
@@ -156,24 +157,19 @@ impl DerefMut for PlayerRecords {
 // PlayerRecord
 
 /// A Record of a player stored in the persistent personal playerlist
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone, Default)]
 pub struct PlayerRecord {
     #[serde(default = "default_custom_data")]
     pub custom_data: serde_json::Value,
     pub verdict: Verdict,
-    #[serde(default)]
     pub previous_names: Vec<Arc<str>>,
+    #[serde(default = "default_date")]
+    pub date_modified: DateTime<Utc>, // updates on any manual change by user.
+    #[serde(default = "default_date")]
+    pub date_created: DateTime<Utc>,
 }
 
 impl PlayerRecord {
-    pub fn new() -> PlayerRecord {
-        PlayerRecord {
-            custom_data: serde_json::Value::Object(serde_json::Map::new()),
-            verdict: Verdict::Player,
-            previous_names: Vec::new(),
-        }
-    }
-
     /// Returns true if the record does not hold any meaningful information
     pub fn is_empty(&self) -> bool {
         self.verdict == Verdict::Player && {
@@ -197,14 +193,12 @@ impl PlayerRecord {
     }
 }
 
-impl Default for PlayerRecord {
-    fn default() -> Self {
-        PlayerRecord::new()
-    }
-}
-
 pub fn default_custom_data() -> serde_json::Value {
     serde_json::Value::Object(Map::new())
+}
+
+pub fn default_date() -> DateTime<Utc> {
+    DateTime::<Utc>::from_timestamp(0, 0).unwrap()
 }
 
 /// What a player is marked as in the personal playerlist
@@ -220,5 +214,11 @@ pub enum Verdict {
 impl Display for Verdict {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl Default for Verdict {
+    fn default() -> Self {
+        Self::Player
     }
 }
