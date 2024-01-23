@@ -198,7 +198,7 @@ pub fn default_custom_data() -> serde_json::Value {
 }
 
 pub fn default_date() -> DateTime<Utc> {
-    DateTime::<Utc>::from_timestamp(0, 0).unwrap()
+    Utc::now()
 }
 
 /// What a player is marked as in the personal playerlist
