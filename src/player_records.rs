@@ -8,10 +8,10 @@ use std::{
 };
 
 use anyhow::Context;
+use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
 use steamid_ng::SteamID;
-use chrono::{DateTime, Utc};
 
 use crate::{
     args::Args,
@@ -163,10 +163,11 @@ pub struct PlayerRecord {
     pub custom_data: serde_json::Value,
     pub verdict: Verdict,
     pub previous_names: Vec<Arc<str>>,
+    /// Time of last manual change made by the user.
     #[serde(default = "default_date")]
-    pub date_modified: DateTime<Utc>, // updates on any manual change by user.
+    pub modified: DateTime<Utc>,
     #[serde(default = "default_date")]
-    pub date_created: DateTime<Utc>,
+    pub created: DateTime<Utc>,
 }
 
 impl PlayerRecord {
