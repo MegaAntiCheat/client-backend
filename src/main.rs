@@ -60,52 +60,31 @@ fn main() {
     ) {
         Ok(val) => Some(val),
         Err(why) => {
-            // Error only if "no_panic_on_missing_launch_options" is not true.
-            if !(args.ignore_launch_options) {
-                panic!("Failed to get information on the current TF2 launch options from the local steam library: {}", why);
-            } else {
-                tracing::warn!("Couldn't verify app launch options, ignoring...");
-                None
-            }
+            tracing::warn!("Couldn't verify app launch options: {:?}", why);
+            None
         }
     };
 
-    if let Some(mut opts) = launch_opts {
+    if let Some(opts) = launch_opts {
         // Warn about missing launch options for TF2
         let missing = opts.check_missing_args();
-        if args.rewrite_launch_options {
-            // Add missing launch options to the localconfig.vdf for the current user.
-            // This only sticks if steam is closed when the write occurs.
-            let _ = opts.write_corrected_args_to_file();
-        } else {
-            match missing {
-                Ok(missing_opts) if !missing_opts.is_empty() => {
-                    tracing::warn!(
-                        "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
-                    );
-                    tracing::warn!("Missing launch options: {:?}", missing_opts);
-                    if !(args.ignore_launch_options) {
-                        panic!(
-                            "Missing required launch options in TF2 for MAC to function. Aborting...\n
-                            (Add the command-line argument '--ignore_launch_opts' to ignore this)."
-                        );
-                    }
-                }
+        match missing {
+            Ok(missing_opts) if !missing_opts.is_empty() => {
+                tracing::warn!(
+                    "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
+                );
+                tracing::warn!("Missing launch options: \"{}\"", missing_opts.join(" "));
+            }
 
-                Ok(_) => {
-                    tracing::info!("All required launch arguments are present!");
-                }
+            Ok(_) => {
+                tracing::info!("All required launch arguments are present!");
+            }
 
-                Err(missing_opts_err) => {
-                    if !(args.ignore_launch_options) {
-                        panic!("Failed to verify app launch options: {}", missing_opts_err);
-                    } else {
-                        tracing::error!(
-                            "Failed to verify app launch options: {:?}",
-                            missing_opts_err
-                        );
-                    }
-                }
+            Err(missing_opts_err) => {
+                tracing::error!(
+                    "Failed to verify app launch options: {:?} (App may continue to function normally)",
+                    missing_opts_err
+                );
             }
         }
     }

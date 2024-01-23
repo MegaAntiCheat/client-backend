@@ -39,7 +39,7 @@ keyvalues-serde = "0.1.0"
 substring = "1.4.5"
 tower-http = { version = "0.4.3", features = ["cors"] }
 include_dir = "0.7.3"
-steamlocate = { version = "1.2.1", features = ["steamid_ng"] }
+steamlocate = "2.0.0-beta.2"
 watchman_client ={ version = "0.8.0" }
 tf-demo-parser = { git = "https://github.com/MegaAntiCheat/parser" }
 bitbuffer = "0.10.9"
