@@ -11,16 +11,13 @@ use steamapi::SteamAPIManager;
 use steamid_ng::SteamID;
 use tappet::{Executor, SteamAPI};
 use tokio::select;
-use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver};
-use tokio::task::JoinHandle;
+use tokio::sync::mpsc::unbounded_channel;
 use tracing_subscriber::filter::Directive;
 
 use web::{web_main, SharedState};
 
 use std::path::{Path, PathBuf};
-use std::pin::Pin;
 use std::str::FromStr;
-use std::sync::mpsc::Receiver;
 
 use std::sync::{Arc, RwLock};
 use std::time::Duration;

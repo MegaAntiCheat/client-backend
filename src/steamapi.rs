@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::collections::VecDeque;
+
 use std::sync::Arc;
 
 use steamid_ng::SteamID;
@@ -48,7 +48,7 @@ pub enum SteamAPIError {
 
 pub struct SteamAPIManager {
     client: SteamAPI,
-    batch_buffer: VecDeque<SteamID>,
+    batch_buffer: Vec<SteamID>,
     api_key_valid: bool,
 
     request_recv: UnboundedReceiver<SteamAPIMessage>,
@@ -69,7 +69,7 @@ impl SteamAPIManager {
 
         let api_manager = SteamAPIManager {
             client: SteamAPI::new(api_key),
-            batch_buffer: VecDeque::with_capacity(BATCH_SIZE),
+            batch_buffer: Vec::with_capacity(BATCH_SIZE),
             api_key_valid: valid_api_key,
 
             request_recv: recv,
@@ -107,7 +107,7 @@ impl SteamAPIManager {
                         },
                         SteamAPIMessage::Lookup(steamid) => {
                             if self.api_key_valid {
-                                self.batch_buffer.push_back(steamid);
+                                self.batch_buffer.push(steamid);
                                 if self.batch_buffer.len() >= BATCH_SIZE {
                                     self.send_batch().await;
                                     batch_timer.reset();  // Reset the timer
@@ -144,7 +144,7 @@ impl SteamAPIManager {
     }
 
     async fn send_batch(&mut self) {
-        match request_steam_info(&mut self.client, self.batch_buffer.drain(..).collect()).await {
+        match request_steam_info(&mut self.client, &self.batch_buffer).await {
             Ok(steam_info_map) => {
                 for response in steam_info_map {
                     self.response_send
@@ -156,13 +156,15 @@ impl SteamAPIManager {
                 tracing::error!("Failed to get player info from SteamAPI: {:?}", e);
             }
         }
+
+        self.batch_buffer.clear();
     }
 }
 
 /// Make a request to the Steam web API for the chosen player and return the important steam info.
 async fn request_steam_info(
     client: &mut SteamAPI,
-    playerids: Vec<SteamID>,
+    playerids: &[SteamID],
 ) -> Result<Vec<(SteamID, Result<SteamInfo, SteamAPIError>)>, SteamAPIError> {
     tracing::debug!("Requesting steam accounts: {:?}", playerids);
 
@@ -179,8 +181,8 @@ async fn request_steam_info(
         .collect();
 
     Ok(playerids
-        .into_iter()
-        .map(|player| {
+        .iter()
+        .map(|&player| {
             let id = format!("{}", u64::from(player));
 
             let build_steam_info = || {
