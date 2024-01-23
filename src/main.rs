@@ -60,7 +60,7 @@ fn main() {
     ) {
         Ok(val) => Some(val),
         Err(why) => {
-            tracing::warn!("Couldn't verify app launch options {:?}, ignoring...", why);
+            tracing::warn!("Couldn't verify app launch options: {:?}", why);
             None
         }
     };
@@ -73,7 +73,7 @@ fn main() {
                 tracing::warn!(
                     "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
                 );
-                tracing::warn!("Missing launch options: {:?}", missing_opts.join(", "));
+                tracing::warn!("Missing launch options: \"{}\"", missing_opts.join(" "));
             }
 
             Ok(_) => {
