@@ -1,37 +1,23 @@
-use crate::player_records::Verdict;
-use crate::steamapi::SteamAPIResponse;
 use args::Args;
 use clap::Parser;
+use demo::demo_loop;
 use event_loop::{define_handlers, define_messages};
-use event_loop::{EventLoop, Handled, HandlerStruct, Is, StateUpdater};
+use event_loop::{EventLoop, Handled, HandlerStruct, StateUpdater};
+use events::{refresh_timer, ConsoleLog};
 use include_dir::{include_dir, Dir};
+use launchoptions::LaunchOptions;
 use player_records::PlayerRecords;
 use server::Server;
-use steamapi::SteamAPIManager;
-use steamid_ng::SteamID;
-use tappet::{Executor, SteamAPI};
-use tokio::select;
-use tokio::sync::mpsc::unbounded_channel;
-use tracing_subscriber::filter::Directive;
-
-use web::{web_main, SharedState};
-
+use settings::Settings;
+use state::MACState;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-
-use std::sync::{Arc, RwLock};
 use std::time::Duration;
-
-use demo::demo_loop;
-use io::{Command, IOManager};
-use launchoptions::LaunchOptions;
-use settings::Settings;
 use tracing_appender::non_blocking::WorkerGuard;
+use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{
     fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
 };
-
-use crate::io::IOManagerMessage;
 
 mod args;
 mod demo;
@@ -43,107 +29,51 @@ mod player;
 mod player_records;
 mod server;
 mod settings;
+mod state;
 mod steamapi;
 mod web;
 
+use events::{
+    command_manager::{Command, CommandManager, CommandResponse},
+    console::{ConsoleOutput, ConsoleParser, RawConsoleOutput},
+    new_players::{ExtractNewPlayers, NewPlayers},
+    steam_api::{
+        FriendLookupResult, LookupFriends, LookupProfiles, ProfileLookupBatchTick,
+        ProfileLookupResult,
+    },
+    Refresh,
+};
+
+define_messages!(Message<MACState>:
+    Refresh,
+
+    Command,
+    CommandResponse,
+
+    RawConsoleOutput,
+    ConsoleOutput,
+
+    NewPlayers,
+
+    ProfileLookupBatchTick,
+    ProfileLookupResult,
+    FriendLookupResult
+);
+
+define_handlers!(Handler<MACState, Message>:
+    CommandManager,
+
+    ConsoleParser,
+
+    ExtractNewPlayers,
+
+    LookupProfiles,
+    LookupFriends
+);
+
 static UI_DIR: Dir = include_dir!("ui");
 
-define_messages!(Message<State>: Refresh, NewPlayer, ProfileLookup);
-define_handlers!(Handler<State, Message>: GetNewPlayers, LookupProfiles);
-
-pub struct State {}
-
-// Handlers ***************
-
-pub struct GetNewPlayers;
-impl<M: Is<Refresh> + Is<NewPlayer>> HandlerStruct<State, M> for GetNewPlayers {
-    fn handle_message(&mut self, state: &State, message: &M) -> Handled<M> {
-        let m: Option<&Refresh> = message.try_get();
-        match m {
-            Some(_) => Handled::single(NewPlayer {}),
-            None => Handled::none(),
-        }
-    }
-}
-
-pub struct LookupProfiles {
-    pub api_key: Arc<str>,
-}
-impl<M: Is<NewPlayer> + Is<ProfileLookup>> HandlerStruct<State, M> for LookupProfiles {
-    fn handle_message(&mut self, state: &State, message: &M) -> Handled<M> {
-        let m: Option<&NewPlayer> = message.try_get();
-        if let Some(_) = m {
-            let key = self.api_key.clone();
-            Handled::future(async move {
-                let _ = SteamAPI::new(key)
-                    .get()
-                    .ISteamUser()
-                    .GetPlayerSummaries(vec![String::from("")])
-                    .execute()
-                    .await;
-
-                ProfileLookup {}.into()
-            })
-        } else {
-            Handled::none()
-        }
-    }
-}
-
-// Messages **************
-
-pub struct Refresh;
-impl StateUpdater<State> for Refresh {
-    fn update_state(&self, state: &mut State) {
-        println!("Refreshing");
-    }
-}
-
-pub struct NewPlayer {}
-impl StateUpdater<State> for NewPlayer {}
-
-pub struct ProfileLookup {}
-impl StateUpdater<State> for ProfileLookup {
-    fn update_state(&self, state: &mut State) {
-        println!("Got profile result!");
-    }
-}
-
-// Main **********************
-
 fn main() {
-    let (tx, rx) = std::sync::mpsc::channel();
-
-    let mut event_loop: EventLoop<State, Message, Handler> = EventLoop::new()
-        .add_handler(GetNewPlayers {})
-        .add_handler(LookupProfiles {
-            api_key: "boop".into(),
-        })
-        .add_source(Box::new(rx));
-
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()
-        .unwrap()
-        .block_on(async move {
-            // Refresh loop
-            tokio::task::spawn(async move {
-                let mut refresh_interval = tokio::time::interval(Duration::from_secs(3));
-                refresh_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-                loop {
-                    refresh_interval.tick().await;
-                    tx.send(Refresh {}).unwrap();
-                }
-            });
-
-            // Run event loop
-            let mut state = State {};
-
-            loop {
-                event_loop.execute_cycle(&mut state).await;
-            }
-        });
-
     let _guard = init_tracing();
 
     // Arg handling
@@ -191,7 +121,6 @@ fn main() {
     }
 
     let webui_port = settings.get_webui_port();
-    let rcon_port = settings.get_rcon_port();
     let playerlist = PlayerRecords::load_or_create(&args);
     playerlist.save_ok();
 
@@ -201,19 +130,6 @@ fn main() {
         .build()
         .unwrap()
         .block_on(async {
-            // Initialize State
-            let log_file_path: PathBuf =
-                PathBuf::from(settings.get_tf2_directory()).join("tf/console.log");
-
-            // IO Manager
-            let (io_send, io_recv) = unbounded_channel();
-            let (mut io_recv, mut io_manager) =
-                IOManager::new(log_file_path, settings.get_rcon_password(), rcon_port, io_recv);
-
-            tokio::task::spawn(async move {
-                io_manager.io_loop().await;
-            });
-
             // Autolaunch UI
             if args.autolaunch_ui || settings.get_autolaunch_ui() {
                 if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", webui_port))) {
@@ -233,18 +149,31 @@ fn main() {
                 });
             }
 
-            // Steam API
-            let mut server = Server::new(playerlist);
-            server.players_mut().user = settings.get_steam_user();
-            let (steam_api_send, steam_api_recv) = unbounded_channel();
-            let (mut steam_api_recv, mut steam_api) =
-                SteamAPIManager::new(settings.get_steam_api_key(), steam_api_recv);
-            tokio::task::spawn(async move {
-                steam_api.api_loop().await;
-            });
+            // Watch console log
+            let log_file_path: PathBuf =
+                PathBuf::from(settings.get_tf2_directory()).join("tf/console.log");
+            let console_log = Box::new(ConsoleLog::new(log_file_path).await);
 
+            let server = Server::new(playerlist);
+            let mut state = MACState { server, settings };
+
+            let refresh_loop = refresh_timer(Duration::from_secs(3)).await;
+
+            let mut event_loop: EventLoop<MACState, Message, Handler> = EventLoop::new()
+                .add_source(console_log)
+                .add_source(Box::new(refresh_loop))
+                .add_handler(CommandManager::new())
+                .add_handler(ConsoleParser::default())
+                .add_handler(ExtractNewPlayers)
+                .add_handler(LookupProfiles::new())
+                .add_handler(LookupFriends::new(settings::FriendsAPIUsage::All));
+
+            loop {
+                event_loop.execute_cycle(&mut state).await;
+            }
 
             // Setup web API server
+            /*
             let settings = Arc::new(RwLock::new(settings));
             let server = Arc::new(RwLock::new(server));
 
@@ -258,9 +187,11 @@ fn main() {
             tokio::task::spawn(async move {
                 web_main(shared_state, webui_port).await;
             });
+            */
 
             // Main loop
 
+            /*
             let mut refresh_interval = tokio::time::interval(Duration::from_secs(3));
             refresh_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             let mut refresh_iteration: u64 = 0;
@@ -407,6 +338,7 @@ fn main() {
                 new_players.clear();
                 queued_friendlist_req.clear();
             }
+            */
         });
 }
 

@@ -11,13 +11,15 @@ use tappet::{
     Executor, SteamAPI,
 };
 
-use thiserror::Error;
 use tokio::sync::mpsc::unbounded_channel;
 use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::sync::mpsc::UnboundedSender;
 use tokio::time::{Duration, MissedTickBehavior};
 
-use crate::player::{Friend, SteamInfo};
+use crate::{
+    events::steam_api::SteamAPIError,
+    player::{Friend, SteamInfo},
+};
 
 const BATCH_INTERVAL: Duration = Duration::from_millis(500);
 const BATCH_SIZE: usize = 20; // adjust as needed
@@ -32,18 +34,6 @@ pub enum SteamAPIMessage {
 pub enum SteamAPIResponse {
     SteamInfo((SteamID, Result<SteamInfo, SteamAPIError>)),
     FriendLists((SteamID, Result<Vec<Friend>, SteamAPIError>)),
-}
-
-#[derive(Debug, Error)]
-pub enum SteamAPIError {
-    #[error("Missing bans for player {0:?}")]
-    MissingBans(SteamID),
-    #[error("Missing summary for player {0:?}")]
-    MissingSummary(SteamID),
-    #[error(transparent)]
-    Serde(#[from] serde_json::Error),
-    #[error(transparent)]
-    Tappet(#[from] tappet::errors::SteamAPIError),
 }
 
 pub struct SteamAPIManager {
@@ -162,7 +152,7 @@ impl SteamAPIManager {
 }
 
 /// Make a request to the Steam web API for the chosen player and return the important steam info.
-async fn request_steam_info(
+pub async fn request_steam_info(
     client: &mut SteamAPI,
     playerids: &[SteamID],
 ) -> Result<Vec<(SteamID, Result<SteamInfo, SteamAPIError>)>, SteamAPIError> {

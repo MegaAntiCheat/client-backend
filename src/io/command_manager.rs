@@ -1,22 +1,15 @@
 use rcon::Connection;
 use std::io::ErrorKind;
 use std::{sync::Arc, time::Duration};
-use thiserror::Error;
 use tokio::{
     net::TcpStream,
     sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
     time::timeout,
 };
 
-use super::Command;
+use crate::events::command_manager::CommandManagerError;
 
-#[derive(Debug, Error)]
-pub enum CommandManagerError {
-    #[error("RCon error {0}")]
-    Rcon(#[from] rcon::Error),
-    #[error("Rcon connection timeout: {0}")]
-    TimeOut(#[from] tokio::time::error::Elapsed),
-}
+use super::Command;
 
 /// Since we only _really_ care about differentiating the Rcon errors, those are the values we check more explicitly.
 /// For the timeout variant, comparing that they are both the same supertype is simply enough as they only downcast to
@@ -29,7 +22,9 @@ impl PartialEq for CommandManagerError {
             (Self::Rcon(rcon::Error::CommandTooLong), Self::Rcon(rcon::Error::CommandTooLong)) => {
                 true
             }
-            (Self::Rcon(rcon::Error::Io(lh)), Self::Rcon(rcon::Error::Io(rh))) => lh.kind() == rh.kind(),
+            (Self::Rcon(rcon::Error::Io(lh)), Self::Rcon(rcon::Error::Io(rh))) => {
+                lh.kind() == rh.kind()
+            }
             (Self::TimeOut(_), Self::TimeOut(_)) => true,
             _ => false,
         }
@@ -115,7 +110,8 @@ impl CommandManager {
                 // if current error state indicates bad auth, don't try and reconnect else we get shunted by TF2
                 // When the user fixes their rcon_password in the mac client, it will reset the error state to Never.
                 // Known issue: if the user changes the rcon_password _in TF2_, this will not trigger an ErrorState change here.
-                ErrorState::Okay | ErrorState::Current(CommandManagerError::Rcon(rcon::Error::Auth)) => {}
+                ErrorState::Okay
+                | ErrorState::Current(CommandManagerError::Rcon(rcon::Error::Auth)) => {}
                 // Any other issue is worthy of a reconnect attempt.
                 _ => {
                     match self.try_reconnect().await {
@@ -132,13 +128,19 @@ impl CommandManager {
                                 }
                                 _ => {}
                             };
-                            std::mem::swap(&mut self.current_err_state, &mut self.previous_err_state);
+                            std::mem::swap(
+                                &mut self.current_err_state,
+                                &mut self.previous_err_state,
+                            );
                             self.current_err_state = ErrorState::Okay;
                         }
                         Err(e) => {
                             // Moves the current error state into the history, and history into current, then override current with the new error.
                             // This avoids cloning/copying errors by simply moving ownership and dropping scope when not needed.
-                            std::mem::swap(&mut self.current_err_state, &mut self.previous_err_state);
+                            std::mem::swap(
+                                &mut self.current_err_state,
+                                &mut self.previous_err_state,
+                            );
                             self.current_err_state = ErrorState::Current(e);
                         }
                     }

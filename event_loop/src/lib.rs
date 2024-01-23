@@ -7,9 +7,9 @@ pub struct EventLoop<S, M, H>
 where
     S: Send,
     M: Send + ConsumingStateUpdater<S> + 'static,
-    H: HandlerStruct<S, M>,
+    H: HandlerStruct<S, M, M>,
 {
-    pub sources: Vec<Box<dyn MessageSource<M>>>,
+    pub sources: Vec<Box<dyn MessageSource<M> + 'static>>,
     pub handlers: Vec<H>,
     pub queue: Vec<M>,
     pub async_tasks: Vec<JoinHandle<M>>,
@@ -21,7 +21,7 @@ impl<S, M, H> EventLoop<S, M, H>
 where
     S: Send,
     M: Send + ConsumingStateUpdater<S> + 'static,
-    H: HandlerStruct<S, M>,
+    H: HandlerStruct<S, M, M>,
 {
     pub fn new() -> EventLoop<S, M, H> {
         EventLoop {
@@ -70,10 +70,10 @@ where
         for h in &mut self.handlers {
             for m in &messages {
                 let mut actions = Vec::new();
-                match h.handle_message(state, m).0 {
-                    Internal::None => {}
-                    Internal::Single(a) => actions.push(a),
-                    Internal::Batch(a) => actions = a,
+                match h.handle_message(state, m) {
+                    None => {}
+                    Some(Handled(Internal::Single(a))) => actions.push(a),
+                    Some(Handled(Internal::Batch(a))) => actions = a,
                 }
 
                 for a in actions {
@@ -94,14 +94,13 @@ where
     }
 }
 
-pub trait HandlerStruct<S, M> {
-    fn handle_message(&mut self, state: &S, message: &M) -> Handled<M>;
+pub trait HandlerStruct<S, IM, OM> {
+    fn handle_message(&mut self, state: &S, message: &IM) -> Option<Handled<OM>>;
 }
 
 pub struct Handled<M>(Internal<Action<M>>);
 
 enum Internal<T> {
-    None,
     Single(T),
     Batch(Vec<T>),
 }
@@ -118,35 +117,36 @@ impl<M> From<M> for Action<M> {
 }
 
 impl<M> Handled<M> {
-    pub const fn none() -> Self {
-        Self(Internal::None)
+    pub const fn none() -> Option<Self> {
+        None
     }
 
-    pub fn single(m: impl Into<M>) -> Self {
-        Self(Internal::Single(Action::Message(m.into())))
+    pub fn single(m: impl Into<M>) -> Option<Self> {
+        Some(Self(Internal::Single(Action::Message(m.into()))))
     }
 
-    pub fn future(future: impl Future<Output = M> + 'static + Send) -> Self {
-        Self(Internal::Single(Action::Future(Box::pin(future))))
+    pub fn future(future: impl Future<Output = M> + 'static + Send) -> Option<Self> {
+        Some(Self(Internal::Single(Action::Future(Box::pin(future)))))
     }
 
-    pub fn multiple(commands: impl IntoIterator<Item = Handled<M>>) -> Self {
+    pub fn multiple(commands: impl IntoIterator<Item = Option<Handled<M>>>) -> Option<Self> {
         let mut batch = Vec::new();
 
-        for Handled(command) in commands {
-            match command {
-                Internal::None => {}
-                Internal::Single(command) => batch.push(command),
-                Internal::Batch(commands) => batch.extend(commands),
+        for maybe_handled in commands {
+            match maybe_handled {
+                None => {}
+                Some(Handled(Internal::Single(command))) => batch.push(command),
+                Some(Handled(Internal::Batch(commands))) => batch.extend(commands),
             }
         }
 
-        Self(Internal::Batch(batch))
+        Some(Self(Internal::Batch(batch)))
     }
 }
 
-pub trait StateUpdater<S> {
-    fn update_state(&self, _: &mut S) {}
+#[allow(unused_variables)]
+pub trait StateUpdater<S>: Sized {
+    fn update_state(self, state: &mut S) {}
 }
 
 pub trait ConsumingStateUpdater<S>
@@ -169,13 +169,26 @@ impl<M, I: Into<M>> MessageSource<M> for UnboundedReceiver<I> {
     }
 }
 
-impl<M, I: Into<M>> MessageSource<M> for Receiver<I> {
+impl<M, I: Into<M>> MessageSource<M> for std::sync::mpsc::Receiver<I> {
     fn next_message(&mut self) -> Option<M> {
         match self.try_recv() {
             Ok(m) => Some(m.into()),
             _ => None,
         }
     }
+}
+
+impl<M, I: Into<M>> MessageSource<M> for tokio::sync::mpsc::Receiver<I> {
+    fn next_message(&mut self) -> Option<M> {
+        match self.try_recv() {
+            Ok(m) => Some(m.into()),
+            _ => None,
+        }
+    }
+}
+
+pub fn try_get<T>(message: &impl Is<T>) -> Option<&T> {
+    message.try_get()
 }
 
 pub trait Is<T>: From<T> {
@@ -193,8 +206,8 @@ macro_rules! define_handlers {
         }
 
         // Impl HandlerStruct<State, Message>
-        impl HandlerStruct<$state, $message> for $enum {
-            fn handle_message(&mut self, state: &$state, message: &$message) -> Handled<$message> {
+        impl HandlerStruct<$state, $message, $message> for $enum {
+            fn handle_message(&mut self, state: &$state, message: &$message) -> Option<Handled<$message>> {
                 match self {
                     $($enum::$handler(inner) => inner.handle_message(state, message)),+
                 }

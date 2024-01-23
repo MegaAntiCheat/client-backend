@@ -7,9 +7,12 @@ use std::sync::Arc;
 
 use tokio::sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender};
 
+use crate::events::command_manager::Command;
+use crate::events::console::ConsoleOutput;
+
 use self::command_manager::{CommandManager, CommandManagerMessage};
 use self::filewatcher::{FileWatcher, FileWatcherCommand};
-use self::g15::{G15Parser, G15Player};
+use self::g15::G15Parser;
 use self::regexes::{
     ChatMessage, Hostname, Map, PlayerCount, PlayerKill, ServerIP, StatusLine, REGEX_CHAT,
     REGEX_HOSTNAME, REGEX_IP, REGEX_KILL, REGEX_MAP, REGEX_PLAYERCOUNT, REGEX_STATUS,
@@ -21,43 +24,6 @@ pub mod g15;
 pub(crate) mod regexes;
 
 // Enums
-
-#[derive(Debug, Clone)]
-pub enum IOOutput {
-    Status(StatusLine),
-    Chat(ChatMessage),
-    Kill(PlayerKill),
-    Hostname(Hostname),
-    ServerIP(ServerIP),
-    Map(Map),
-    PlayerCount(PlayerCount),
-    G15(Vec<G15Player>),
-}
-
-#[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub enum Command {
-    G15,
-    Status,
-    Say(Arc<str>),
-    SayTeam(Arc<str>),
-    Kick {
-        /// The uid of the player as returned by [Command::Status] or [Command::G15]
-        player: Arc<str>,
-        #[serde(default)]
-        reason: KickReason,
-    },
-    Custom(Arc<str>),
-}
-
-#[derive(Debug, Deserialize, Clone)]
-#[serde(rename_all = "camelCase")]
-pub enum KickReason {
-    None,
-    Idle,
-    Cheating,
-    Scamming,
-}
 
 // IOThread
 
@@ -79,7 +45,7 @@ pub struct IOManager {
     filewatcher_recv: UnboundedReceiver<Arc<str>>,
 
     message_recv: UnboundedReceiver<IOManagerMessage>,
-    response_send: UnboundedSender<Vec<IOOutput>>,
+    response_send: UnboundedSender<Vec<ConsoleOutput>>,
 
     parser: G15Parser,
     regex_status: Regex,
@@ -97,7 +63,7 @@ impl IOManager {
         rcon_password: Arc<str>,
         rcon_port: u16,
         recv: UnboundedReceiver<IOManagerMessage>,
-    ) -> (UnboundedReceiver<Vec<IOOutput>>, IOManager) {
+    ) -> (UnboundedReceiver<Vec<ConsoleOutput>>, IOManager) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
         let (command_send, command_recv) = unbounded_channel();
@@ -189,7 +155,7 @@ impl IOManager {
         }
     }
 
-    fn read_command_response(&self, response: Arc<str>) -> Vec<IOOutput> {
+    fn read_command_response(&self, response: Arc<str>) -> Vec<ConsoleOutput> {
         let mut out = Vec::new();
 
         // Parse out anything from status
@@ -202,49 +168,49 @@ impl IOManager {
         // Check for G15 output
         let players = self.parser.parse_g15(&response);
         if !players.is_empty() {
-            out.push(IOOutput::G15(players));
+            out.push(ConsoleOutput::G15(players));
         }
 
         out
     }
 
-    fn read_log_line(&self, line: &str) -> Option<IOOutput> {
+    fn read_log_line(&self, line: &str) -> Option<ConsoleOutput> {
         // Match status
         if let Some(caps) = self.regex_status.captures(line) {
             match StatusLine::parse(caps) {
-                Ok(status) => return Some(IOOutput::Status(status)),
+                Ok(status) => return Some(ConsoleOutput::Status(status)),
                 Err(e) => tracing::error!("Error parsing status line: {:?}", e),
             }
         }
         // Match chat message
         if let Some(caps) = self.regex_chat.captures(line) {
             let chat = ChatMessage::parse(caps);
-            return Some(IOOutput::Chat(chat));
+            return Some(ConsoleOutput::Chat(chat));
         }
         // Match player kills
         if let Some(caps) = self.regex_kill.captures(line) {
             let kill = PlayerKill::parse(caps);
-            return Some(IOOutput::Kill(kill));
+            return Some(ConsoleOutput::Kill(kill));
         }
         // Match server hostname
         if let Some(caps) = self.regex_hostname.captures(line) {
             let hostname = Hostname::parse(caps);
-            return Some(IOOutput::Hostname(hostname));
+            return Some(ConsoleOutput::Hostname(hostname));
         }
         // Match server IP
         if let Some(caps) = self.regex_ip.captures(line) {
             let ip = ServerIP::parse(caps);
-            return Some(IOOutput::ServerIP(ip));
+            return Some(ConsoleOutput::ServerIP(ip));
         }
         // Match server map
         if let Some(caps) = self.regex_map.captures(line) {
             let map = Map::parse(caps);
-            return Some(IOOutput::Map(map));
+            return Some(ConsoleOutput::Map(map));
         }
         // Match server player count
         if let Some(caps) = self.regex_playercount.captures(line) {
             let playercount = PlayerCount::parse(caps);
-            return Some(IOOutput::PlayerCount(playercount));
+            return Some(ConsoleOutput::PlayerCount(playercount));
         }
 
         None
@@ -265,22 +231,5 @@ impl Display for Command {
             Command::SayTeam(message) => write!(f, "say_team \"{}\"", message),
             Command::Custom(command) => write!(f, "{}", command),
         }
-    }
-}
-
-impl Default for KickReason {
-    fn default() -> Self {
-        Self::None
-    }
-}
-
-impl Display for KickReason {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(match self {
-            KickReason::None => "other",
-            KickReason::Idle => "idle",
-            KickReason::Cheating => "cheating",
-            KickReason::Scamming => "scamming",
-        })
     }
 }

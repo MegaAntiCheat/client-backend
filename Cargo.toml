@@ -30,7 +30,7 @@ serde_yaml = "0.9.22"
 steamid-ng = "1.0.0"
 tappet = { git = "https://github.com/saskenuba/SteamHelper-rs", rev = "208a6ad5e2484f9cea101110dc8e29d220475821"}
 thiserror = "1.0.43"
-tokio = { version = "1.29.1", features = ["full"] }
+tokio = { version = "1.29.1", features = ["full", "time"] }
 tokio-stream = "0.1.14"
 tracing = "0.1.37"
 tracing-appender = "0.2.2"

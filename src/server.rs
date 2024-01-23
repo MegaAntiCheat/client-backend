@@ -3,10 +3,10 @@ use std::sync::Arc;
 use steamid_ng::SteamID;
 
 use crate::{
+    events::console::ConsoleOutput,
     io::{
         g15,
         regexes::{self, ChatMessage, PlayerKill, StatusLine},
-        IOOutput,
     },
     player::{GameInfo, Players},
     player_records::PlayerRecords,
@@ -90,8 +90,8 @@ impl Server {
     /// Handles any io output from running commands / reading the console log file.
     /// Returns:
     /// * Some<[SteamID]> of a player if they have been newly added to the server.
-    pub fn handle_io_output(&mut self, response: IOOutput) -> Vec<SteamID> {
-        use IOOutput::*;
+    pub fn handle_io_output(&mut self, response: ConsoleOutput) -> Vec<SteamID> {
+        use ConsoleOutput::*;
         match response {
             G15(players) => return self.handle_g15_parse(players),
             Status(status) => {

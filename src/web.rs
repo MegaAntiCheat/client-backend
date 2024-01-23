@@ -21,7 +21,8 @@ use tokio::sync::mpsc::{Sender, UnboundedSender};
 use tokio_stream::{wrappers::ReceiverStream, Stream};
 
 use crate::{
-    io::{Command, IOManagerMessage},
+    events::command_manager::Command,
+    io::IOManagerMessage,
     player::Player,
     player_records::Verdict,
     server::Server,
