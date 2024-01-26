@@ -158,15 +158,13 @@ impl DerefMut for PlayerRecords {
 
 /// A Record of a player stored in the persistent personal playerlist
 #[derive(Debug, Serialize, Deserialize, Clone)]
+#[serde(default)]
 pub struct PlayerRecord {
-    #[serde(default = "default_custom_data")]
     pub custom_data: serde_json::Value,
     pub verdict: Verdict,
     pub previous_names: Vec<Arc<str>>,
     /// Time of last manual change made by the user.
-    #[serde(default = "default_date")]
     pub modified: DateTime<Utc>,
-    #[serde(default = "default_date")]
     pub created: DateTime<Utc>,
 }
 
