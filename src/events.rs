@@ -11,11 +11,10 @@ use self::console::RawConsoleOutput;
 
 pub mod command_manager;
 pub mod console;
-pub mod handlers;
-pub mod messages;
 pub mod new_players;
 pub mod steam_api;
 
+#[derive(Debug, Clone, Copy)]
 pub struct Refresh;
 impl<S> StateUpdater<S> for Refresh {}
 

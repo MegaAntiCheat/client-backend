@@ -31,7 +31,7 @@ pub enum ConsoleOutput {
 }
 impl StateUpdater<MACState> for ConsoleOutput {
     fn update_state(self, state: &mut MACState) {
-        todo!()
+        state.handle_console_output(self);
     }
 }
 

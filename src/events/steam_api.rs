@@ -28,9 +28,11 @@ pub enum SteamAPIError {
 
 // Messages *************************
 
+#[derive(Debug, Clone, Copy)]
 pub struct ProfileLookupBatchTick;
 impl<S> StateUpdater<S> for ProfileLookupBatchTick {}
 
+#[derive(Debug)]
 pub struct ProfileLookupResult(
     pub Result<Vec<(SteamID, Result<SteamInfo, SteamAPIError>)>, SteamAPIError>,
 );
@@ -44,11 +46,7 @@ impl StateUpdater<MACState> for ProfileLookupResult {
         for (steamid, result) in self.0.unwrap() {
             match result {
                 Ok(steaminfo) => {
-                    state
-                        .server
-                        .players_mut()
-                        .steam_info
-                        .insert(steamid, steaminfo);
+                    state.players.steam_info.insert(steamid, steaminfo);
                 }
                 Err(e) => {
                     tracing::error!("Faield to lookup profile for {}: {}", u64::from(steamid), e);
@@ -58,6 +56,7 @@ impl StateUpdater<MACState> for ProfileLookupResult {
     }
 }
 
+#[derive(Debug)]
 pub struct FriendLookupResult {
     steamid: SteamID,
     result: Result<Vec<Friend>, SteamAPIError>,
@@ -66,16 +65,10 @@ impl StateUpdater<MACState> for FriendLookupResult {
     fn update_state(self, state: &mut MACState) {
         match self.result {
             Err(_) => {
-                state
-                    .server
-                    .players_mut()
-                    .mark_friends_list_private(&self.steamid);
+                state.players.mark_friends_list_private(&self.steamid);
             }
             Ok(friends) => {
-                state
-                    .server
-                    .players_mut()
-                    .update_friends_list(self.steamid, friends);
+                state.players.update_friends_list(self.steamid, friends);
             }
         }
     }
@@ -135,10 +128,12 @@ impl LookupFriends {
 
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for LookupFriends
 where
-    IM: Is<NewPlayers>,
+    IM: Is<NewPlayers> + Is<FriendLookupResult>,
     OM: Is<FriendLookupResult>,
 {
     fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
-        todo!("Friend lookup policy")
+        // TODO - Friend lookup policy
+
+        Handled::none()
     }
 }

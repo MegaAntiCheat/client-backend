@@ -7,6 +7,7 @@ use super::console::ConsoleOutput;
 
 // Messages *********************
 
+#[derive(Debug, Clone)]
 pub struct NewPlayers(pub Vec<SteamID>);
 impl<S> StateUpdater<S> for NewPlayers {}
 
@@ -46,7 +47,7 @@ where
             return None;
         }
 
-        steamids.retain(|s| !state.server.players().connected.contains(s));
+        steamids.retain(|s| !state.players.connected.contains(s));
         Handled::single(NewPlayers(steamids))
     }
 }

@@ -7,7 +7,10 @@ use std::{
 use steamid_ng::SteamID;
 
 use crate::{
-    io::{g15::G15Player, regexes::StatusLine},
+    io::{
+        g15::{self, G15Player},
+        regexes::StatusLine,
+    },
     player_records::{default_custom_data, PlayerRecords, Verdict},
 };
 
@@ -105,10 +108,10 @@ impl Players {
     /// Helper function to add a friend to a friends list
     fn propagate_friend(&mut self, steamid: SteamID, friend: Friend) {
         let friend_info = self.friend_info.entry(friend.steamid).or_default();
-        
+
         friend_info.push(Friend {
             steamid: steamid,
-            friend_since: friend.friend_since
+            friend_since: friend.friend_since,
         });
 
         self.update_user_friend_tag(friend.steamid);
@@ -162,7 +165,7 @@ impl Players {
             self.set_tag(friend, tags::FRIEND.into());
         } else {
             self.clear_tag(friend, tags::FRIEND);
-        } 
+        }
     }
 
     /// Check if an account is friends with the user.
@@ -282,6 +285,57 @@ impl Players {
             friends,
             friendsIsPublic: friend_info.and_then(|fi| fi.public),
         })
+    }
+
+    pub fn handle_g15(&mut self, players: Vec<g15::G15Player>) {
+        for g15 in players {
+            if g15.steamid.is_none() {
+                continue;
+            }
+            let steamid = g15.steamid.unwrap();
+
+            // Add to connected players if they aren't already
+            if !self.connected.contains(&steamid) {
+                self.connected.push(steamid);
+            }
+
+            // Update game info
+            if let Some(game_info) = self.game_info.get_mut(&steamid) {
+                if let Some(name) = g15.name.as_ref() {
+                    if *name != game_info.name {
+                        self.records.update_name(&steamid, name.clone());
+                    }
+                }
+                game_info.update_from_g15(g15);
+            } else if let Some(game_info) = GameInfo::new_from_g15(g15) {
+                // Update name
+                self.records.update_name(&steamid, game_info.name.clone());
+                self.game_info.insert(steamid, game_info);
+            }
+        }
+    }
+
+    pub fn handle_status_line(&mut self, status: StatusLine) {
+        let steamid = status.steamid;
+
+        // Add to connected players if they aren't already
+        if !self.connected.contains(&steamid) {
+            self.connected.push(steamid);
+        }
+
+        if let Some(game_info) = self.game_info.get_mut(&steamid) {
+            if status.name != game_info.name {
+                self.records.update_name(&steamid, status.name.clone());
+            }
+
+            game_info.update_from_status(status);
+        } else {
+            let game_info = GameInfo::new_from_status(status);
+
+            // Update name
+            self.records.update_name(&steamid, game_info.name.clone());
+            self.game_info.insert(steamid, game_info);
+        }
     }
 }
 

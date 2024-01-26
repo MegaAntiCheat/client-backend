@@ -6,6 +6,7 @@ use event_loop::{EventLoop, Handled, HandlerStruct, StateUpdater};
 use events::{refresh_timer, ConsoleLog};
 use include_dir::{include_dir, Dir};
 use launchoptions::LaunchOptions;
+use player::Players;
 use player_records::PlayerRecords;
 use server::Server;
 use settings::Settings;
@@ -31,7 +32,7 @@ mod server;
 mod settings;
 mod state;
 mod steamapi;
-mod web;
+// mod web;
 
 use events::{
     command_manager::{Command, CommandManager, CommandResponse},
@@ -43,6 +44,14 @@ use events::{
     },
     Refresh,
 };
+
+struct DebugHandler;
+impl<S, IM: std::fmt::Debug, OM> HandlerStruct<S, IM, OM> for DebugHandler {
+    fn handle_message(&mut self, state: &S, message: &IM) -> Option<Handled<OM>> {
+        println!("New message {:?}", message);
+        Handled::none()
+    }
+}
 
 define_messages!(Message<MACState>:
     Refresh,
@@ -68,7 +77,9 @@ define_handlers!(Handler<MACState, Message>:
     ExtractNewPlayers,
 
     LookupProfiles,
-    LookupFriends
+    LookupFriends,
+
+    DebugHandler
 );
 
 static UI_DIR: Dir = include_dir!("ui");
@@ -76,62 +87,32 @@ static UI_DIR: Dir = include_dir!("ui");
 fn main() {
     let _guard = init_tracing();
 
-    // Arg handling
     let args = Args::parse();
 
-    // Load settings
     let settings = Settings::load_or_create(&args);
     settings.save_ok();
 
-    // Launch options and overrides
-    let launch_opts = match LaunchOptions::new(
-        settings
-            .get_steam_user()
-            .expect("Failed to identify the local steam user (failed to find `loginusers.vdf`)"),
-    ) {
-        Ok(val) => Some(val),
-        Err(why) => {
-            tracing::warn!("Couldn't verify app launch options: {:?}", why);
-            None
-        }
-    };
-
-    if let Some(opts) = launch_opts {
-        // Warn about missing launch options for TF2
-        let missing = opts.check_missing_args();
-        match missing {
-            Ok(missing_opts) if !missing_opts.is_empty() => {
-                tracing::warn!(
-                    "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
-                );
-                tracing::warn!("Missing launch options: \"{}\"", missing_opts.join(" "));
-            }
-
-            Ok(_) => {
-                tracing::info!("All required launch arguments are present!");
-            }
-
-            Err(missing_opts_err) => {
-                tracing::error!(
-                    "Failed to verify app launch options: {:?} (App may continue to function normally)",
-                    missing_opts_err
-                );
-            }
-        }
-    }
-
-    let webui_port = settings.get_webui_port();
     let playerlist = PlayerRecords::load_or_create(&args);
     playerlist.save_ok();
 
-    // Start the async part of the program
+    let mut state = MACState {
+        server: Server::new(),
+        settings,
+        players: Players::new(playerlist),
+    };
+
+    check_launch_options(&state.settings);
+
+    let webui_port = state.settings.get_webui_port();
+
+    // The juicy part of the program
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
         .unwrap()
         .block_on(async {
             // Autolaunch UI
-            if args.autolaunch_ui || settings.get_autolaunch_ui() {
+            if args.autolaunch_ui || state.settings.get_autolaunch_ui() {
                 if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", webui_port))) {
                     tracing::error!("Failed to open web browser: {:?}", e);
                 }
@@ -139,7 +120,7 @@ fn main() {
 
             // Demo manager
             if args.demo_monitoring {
-                let demo_path = settings.get_tf2_directory().join("tf");
+                let demo_path = state.settings.get_tf2_directory().join("tf");
                 tracing::info!("Demo path: {:?}", demo_path);
 
                 std::thread::spawn(move || {
@@ -151,17 +132,15 @@ fn main() {
 
             // Watch console log
             let log_file_path: PathBuf =
-                PathBuf::from(settings.get_tf2_directory()).join("tf/console.log");
+                PathBuf::from(state.settings.get_tf2_directory()).join("tf/console.log");
             let console_log = Box::new(ConsoleLog::new(log_file_path).await);
 
-            let server = Server::new(playerlist);
-            let mut state = MACState { server, settings };
-
-            let refresh_loop = refresh_timer(Duration::from_secs(3)).await;
+            let refresh_loop = Box::new(refresh_timer(Duration::from_secs(3)).await);
 
             let mut event_loop: EventLoop<MACState, Message, Handler> = EventLoop::new()
                 .add_source(console_log)
-                .add_source(Box::new(refresh_loop))
+                .add_source(refresh_loop)
+                .add_handler(DebugHandler)
                 .add_handler(CommandManager::new())
                 .add_handler(ConsoleParser::default())
                 .add_handler(ExtractNewPlayers)
@@ -340,6 +319,45 @@ fn main() {
             }
             */
         });
+}
+
+fn check_launch_options(settings: &Settings) {
+    // Launch options and overrides
+    let launch_opts = match LaunchOptions::new(
+        settings
+            .get_steam_user()
+            .expect("Failed to identify the local steam user (failed to find `loginusers.vdf`)"),
+    ) {
+        Ok(val) => Some(val),
+        Err(why) => {
+            tracing::warn!("Couldn't verify app launch options: {:?}", why);
+            None
+        }
+    };
+
+    if let Some(opts) = launch_opts {
+        // Warn about missing launch options for TF2
+        let missing = opts.check_missing_args();
+        match missing {
+            Ok(missing_opts) if !missing_opts.is_empty() => {
+                tracing::warn!(
+                    "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
+                );
+                tracing::warn!("Missing launch options: \"{}\"", missing_opts.join(" "));
+            }
+
+            Ok(_) => {
+                tracing::info!("All required launch arguments are present!");
+            }
+
+            Err(missing_opts_err) => {
+                tracing::error!(
+                    "Failed to verify app launch options: {:?} (App may continue to function normally)",
+                    missing_opts_err
+                );
+            }
+        }
+    }
 }
 
 fn init_tracing() -> Option<WorkerGuard> {

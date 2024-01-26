@@ -181,7 +181,7 @@ async fn put_user(
     let mut server = state.server.write().unwrap();
     for (k, v) in users.0 {
         // Insert record if it didn't exist
-        let record = server.players_mut().records.entry(k).or_default();
+        let record = server.players.records.entry(k).or_default();
 
         if let Some(custom_data) = v.custom_data {
             record.custom_data = custom_data;

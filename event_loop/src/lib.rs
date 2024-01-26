@@ -1,4 +1,4 @@
-use std::{future::Future, marker::PhantomData, sync::mpsc::Receiver};
+use std::{future::Future, marker::PhantomData};
 
 use futures::future::BoxFuture;
 use tokio::{sync::mpsc::UnboundedReceiver, task::JoinHandle};
@@ -229,6 +229,7 @@ macro_rules! define_handlers {
 macro_rules! define_messages {
     ($enum:ident <$state:ty>: $($message:ident),+) => {
         // Define enum
+        #[derive(Debug)]
         pub enum $enum {
             $($message($message)),+
         }
