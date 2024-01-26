@@ -157,7 +157,7 @@ impl DerefMut for PlayerRecords {
 // PlayerRecord
 
 /// A Record of a player stored in the persistent personal playerlist
-#[derive(Debug, Serialize, Deserialize, Clone, Default)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PlayerRecord {
     #[serde(default = "default_custom_data")]
     pub custom_data: serde_json::Value,
@@ -190,6 +190,18 @@ impl PlayerRecord {
                     .as_str()
                     .map(|s| s.is_empty())
                     .unwrap_or(false)
+        }
+    }
+}
+
+impl Default for PlayerRecord {
+    fn default() -> Self {
+        PlayerRecord {
+            custom_data: default_custom_data(),
+            verdict: Verdict::default(),
+            previous_names: Vec::new(),
+            modified: default_date(),
+            created: default_date(),
         }
     }
 }
