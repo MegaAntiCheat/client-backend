@@ -1,21 +1,13 @@
 use serde::Serialize;
 use std::sync::Arc;
-use steamid_ng::SteamID;
 
 use crate::{
     events::console::ConsoleOutput,
-    io::{
-        g15,
-        regexes::{self, ChatMessage, PlayerKill, StatusLine},
-    },
-    player::{GameInfo, Players},
-    player_records::PlayerRecords,
+    io::regexes::{self, ChatMessage, PlayerKill},
 };
 
 // Server
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
 pub struct Server {
     map: Option<Arc<str>>,
     ip: Option<Arc<str>>,

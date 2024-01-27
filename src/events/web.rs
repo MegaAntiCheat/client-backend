@@ -3,7 +3,10 @@ use std::{
     convert::Infallible,
     net::SocketAddr,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::{
+        mpsc::{Receiver, Sender},
+        Arc, Mutex,
+    },
 };
 
 use axum::{
@@ -18,10 +21,15 @@ use futures::Stream;
 use include_dir::Dir;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
-use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio_stream::wrappers::ReceiverStream;
 
-use crate::{player_records::Verdict, settings::FriendsAPIUsage, state::MACState};
+use crate::{
+    player::{Player, Players},
+    player_records::Verdict,
+    server::Gamemode,
+    settings::FriendsAPIUsage,
+    state::MACState,
+};
 
 use super::command_manager::Command;
 
@@ -49,16 +57,13 @@ pub enum WebRequest {
     /// Tell the client to execute console commands
     PostCommand(RequestedCommands),
 }
-impl StateUpdater<MACState> for WebRequest {
-    fn update_state(self, state: &mut MACState) {
-        todo!()
-    }
-}
+impl StateUpdater<MACState> for WebRequest {}
 
 pub struct WebAPIHandler;
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for WebAPIHandler
 where
     IM: Is<WebRequest>,
+    OM: Is<Command>,
 {
     fn handle_message(
         &mut self,
@@ -67,18 +72,30 @@ where
     ) -> Option<event_loop::Handled<OM>> {
         match try_get::<WebRequest>(message)? {
             WebRequest::GetGame(tx) => {
-                tx.blocking_send(serde_json::to_string(&state.server).unwrap())
-                    .unwrap();
-                Handled::none()
+                tx.send(get_game_response(state)).unwrap();
             }
-            WebRequest::PostUser(users, tx) => todo!(),
-            WebRequest::PutUser(users) => todo!(),
-            WebRequest::GetPrefs(tx) => todo!(),
-            WebRequest::PutPrefs(prefs) => todo!(),
-            WebRequest::GetHistory(page, tx) => todo!(),
-            WebRequest::GetPlayerlist(tx) => todo!(),
-            WebRequest::PostCommand(cmds) => todo!(),
+            WebRequest::PostUser(users, tx) => {
+                tx.send(post_user_response(state, users)).unwrap();
+            }
+            WebRequest::PutUser(users) => {}
+            WebRequest::GetPrefs(tx) => {
+                tx.send(get_prefs_response(state)).unwrap();
+            }
+            WebRequest::PutPrefs(prefs) => {}
+            WebRequest::GetHistory(page, tx) => {
+                tx.send(get_history_response(state, page)).unwrap();
+            }
+            WebRequest::GetPlayerlist(tx) => {
+                tx.send(get_playerlist_response(state)).unwrap();
+            }
+            WebRequest::PostCommand(cmds) => {
+                return Handled::multiple(
+                    cmds.commands.iter().map(|cmd| Handled::single(cmd.clone())),
+                );
+            }
         }
+
+        Handled::none()
     }
 }
 
@@ -90,7 +107,7 @@ pub struct WebState {
 
 impl WebState {
     pub fn new(ui: Option<&'static Dir<'static>>) -> (WebState, Receiver<WebRequest>) {
-        let (tx, rx) = channel(24);
+        let (tx, rx) = std::sync::mpsc::channel();
         (WebState { request: tx, ui }, rx)
     }
 }
@@ -188,27 +205,67 @@ fn guess_content_type(path: &Path) -> &'static str {
 
 async fn get_game(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET game");
-    let (tx, mut rx) = channel(1);
-    state.request.send(WebRequest::GetGame(tx)).await.unwrap();
-    (StatusCode::OK, HEADERS, rx.recv().await.unwrap())
+    let (tx, rx) = std::sync::mpsc::channel();
+    state.request.send(WebRequest::GetGame(tx)).unwrap();
+    match rx.recv() {
+        Ok(resp) => (StatusCode::OK, HEADERS, resp),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+    }
+}
+
+fn get_game_response(state: &MACState) -> String {
+    #[derive(Serialize)]
+    #[allow(non_snake_case)]
+    struct Game<'a> {
+        map: &'a Option<Arc<str>>,
+        ip: &'a Option<Arc<str>>,
+        hostname: &'a Option<Arc<str>>,
+        maxPlayers: &'a Option<u32>,
+        numPlayers: &'a Option<u32>,
+        gamemode: Option<&'a Gamemode>,
+        players: &'a Players,
+    }
+
+    let game = Game {
+        map: &state.server.map(),
+        ip: &state.server.ip(),
+        hostname: &state.server.hostname(),
+        maxPlayers: &state.server.max_players(),
+        numPlayers: &state.server.num_players(),
+        gamemode: state.server.gamemode(),
+        players: &state.players,
+    };
+
+    serde_json::to_string(&game).unwrap()
 }
 
 // User
 
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
-struct UserRequest {
+pub struct UserRequest {
     users: Vec<u64>,
 }
 
 async fn post_user(State(state): State<WebState>, users: Json<UserRequest>) -> impl IntoResponse {
     tracing::debug!("API: POST user");
-    let resp: String = todo!();
-    (StatusCode::OK, HEADERS, resp)
+    let (tx, rx) = std::sync::mpsc::channel();
+    state
+        .request
+        .send(WebRequest::PostUser(users.0, tx))
+        .unwrap();
+    match rx.recv() {
+        Ok(resp) => (StatusCode::OK, HEADERS, resp),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+    }
+}
+
+fn post_user_response(state: &MACState, users: &UserRequest) -> String {
+    "Not yet implemented".into()
 }
 
 #[derive(Debug, Deserialize)]
-struct UserUpdate {
+pub struct UserUpdate {
     #[serde(rename = "localVerdict")]
     local_verdict: Option<Verdict>,
     #[serde(rename = "customData")]
@@ -220,15 +277,15 @@ async fn put_user(
     users: Json<HashMap<SteamID, UserUpdate>>,
 ) -> impl IntoResponse {
     tracing::debug!("API: PUT user");
-    let resp: String = todo!();
-    (StatusCode::OK, HEADERS, resp)
+    state.request.send(WebRequest::PutUser(users.0)).ok();
+    (StatusCode::OK, HEADERS)
 }
 
 // Preferences
 
 #[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct InternalPreferences {
+pub struct InternalPreferences {
     pub friends_api_usage: Option<FriendsAPIUsage>,
     pub tf2_directory: Option<Arc<str>>,
     pub rcon_password: Option<Arc<str>>,
@@ -237,28 +294,48 @@ struct InternalPreferences {
 }
 
 #[derive(Serialize, Deserialize, Debug)]
-struct Preferences {
+pub struct Preferences {
     pub internal: Option<InternalPreferences>,
     pub external: Option<serde_json::Value>,
 }
 
 async fn get_prefs(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET prefs");
-    let resp: String = todo!();
-    (StatusCode::OK, HEADERS, resp)
+    let (tx, rx) = std::sync::mpsc::channel();
+    state.request.send(WebRequest::GetPrefs(tx)).unwrap();
+    match rx.recv() {
+        Ok(resp) => (StatusCode::OK, HEADERS, resp),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+    }
+}
+
+fn get_prefs_response(state: &MACState) -> String {
+    let settings = &state.settings;
+    let prefs = Preferences {
+        internal: Some(InternalPreferences {
+            friends_api_usage: Some(*settings.get_friends_api_usage()),
+            tf2_directory: Some(settings.get_tf2_directory().to_string_lossy().into()),
+            rcon_password: Some(settings.get_rcon_password()),
+            steam_api_key: Some(settings.get_steam_api_key()),
+            rcon_port: Some(settings.get_rcon_port()),
+        }),
+        external: Some(settings.get_external_preferences().clone()),
+    };
+
+    serde_json::to_string(&prefs).unwrap()
 }
 
 async fn put_prefs(State(state): State<WebState>, prefs: Json<Preferences>) -> impl IntoResponse {
     tracing::debug!("API: PUT prefs");
-    let resp: String = todo!();
-    (StatusCode::OK, HEADERS, resp)
+    state.request.send(WebRequest::PutPrefs(prefs.0)).ok();
+    (StatusCode::OK, HEADERS)
 }
 
 // History
 
 #[derive(Deserialize, Debug)]
 #[serde(default)]
-struct Pagination {
+pub struct Pagination {
     pub from: usize,
     pub to: usize,
 }
@@ -271,22 +348,52 @@ impl Default for Pagination {
 
 async fn get_history(State(state): State<WebState>, page: Query<Pagination>) -> impl IntoResponse {
     tracing::debug!("API: GET history");
-    let resp: String = todo!();
-    (StatusCode::OK, HEADERS, resp)
+    let (tx, rx) = std::sync::mpsc::channel();
+    state
+        .request
+        .send(WebRequest::GetHistory(page.0, tx))
+        .unwrap();
+    match rx.recv() {
+        Ok(resp) => (StatusCode::OK, HEADERS, resp),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+    }
+}
+
+fn get_history_response(state: &MACState, page: &Pagination) -> String {
+    // let hVecDeque<SteamID> = &server.players().history;
+    let history: Vec<Player> = state
+        .players
+        .history
+        .iter()
+        .rev()
+        .skip(page.from)
+        .take(page.to - page.from)
+        .flat_map(|s| state.players.get_serializable_player(s))
+        .collect();
+
+    serde_json::to_string(&history).unwrap()
 }
 
 // Playerlist
 
 async fn get_playerlist(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET playerlist");
-    let resp: String = todo!();
-    (StatusCode::OK, HEADERS, resp)
+    let (tx, rx) = std::sync::mpsc::channel();
+    state.request.send(WebRequest::GetPlayerlist(tx)).unwrap();
+    match rx.recv() {
+        Ok(resp) => (StatusCode::OK, HEADERS, resp),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+    }
+}
+
+fn get_playerlist_response(state: &MACState) -> String {
+    "Not yet implemented".into()
 }
 
 // Commands
 
 #[derive(Deserialize, Debug)]
-struct RequestedCommands {
+pub struct RequestedCommands {
     commands: Vec<Command>,
 }
 
@@ -295,12 +402,13 @@ async fn post_commands(
     commands: Json<RequestedCommands>,
 ) -> impl IntoResponse {
     tracing::debug!("API: POST commands");
+    state.request.send(WebRequest::PostCommand(commands.0)).ok();
     (StatusCode::OK, HEADERS)
 }
 
 // Events
 
-type Subscriber = Sender<Result<Event, Infallible>>;
+type Subscriber = tokio::sync::mpsc::Sender<Result<Event, Infallible>>;
 static SUBSCRIBERS: Mutex<Option<Vec<Subscriber>>> = Mutex::new(None);
 
 /// Gets a SSE stream to listen for any updates the client can provide.
