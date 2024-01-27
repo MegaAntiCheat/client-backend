@@ -1,10 +1,9 @@
 use args::Args;
 use clap::Parser;
 use demo::demo_loop;
-use event_loop::{define_handlers, define_messages};
+use event_loop::{define_handlers, define_messages, try_get, Is};
 use event_loop::{EventLoop, Handled, HandlerStruct, StateUpdater};
-use events::web::{web_main, WebState};
-use events::{refresh_timer, ConsoleLog};
+use events::{emit_on_timer, ConsoleLog};
 use include_dir::{include_dir, Dir};
 use launchoptions::LaunchOptions;
 use player::Players;
@@ -20,35 +19,46 @@ use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{
     fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
 };
+use web::{web_main, WebState};
 
 mod args;
+mod command_manager;
+mod console;
 mod demo;
 mod events;
 mod gamefinder;
 mod io;
 mod launchoptions;
+mod new_players;
 mod player;
 mod player_records;
 mod server;
 mod settings;
 mod state;
-mod steamapi;
+mod steam_api;
+mod web;
 
-use events::{
-    command_manager::{Command, CommandManager},
-    console::{ConsoleOutput, ConsoleParser, RawConsoleOutput},
-    new_players::{ExtractNewPlayers, NewPlayers},
-    steam_api::{
-        FriendLookupResult, LookupFriends, LookupProfiles, ProfileLookupBatchTick,
-        ProfileLookupResult,
-    },
-    web::{WebAPIHandler, WebRequest},
-    Refresh,
+use command_manager::{Command, CommandManager};
+use console::{ConsoleOutput, ConsoleParser, RawConsoleOutput};
+use events::Refresh;
+use new_players::{ExtractNewPlayers, NewPlayers};
+use steam_api::{
+    FriendLookupResult, LookupFriends, LookupProfiles, ProfileLookupBatchTick, ProfileLookupResult,
 };
+use web::{WebAPIHandler, WebRequest};
 
 struct DebugHandler;
-impl<S, IM: std::fmt::Debug, OM> HandlerStruct<S, IM, OM> for DebugHandler {
+impl<S, IM, OM> HandlerStruct<S, IM, OM> for DebugHandler
+where
+    IM: std::fmt::Debug + Is<RawConsoleOutput> + Is<ProfileLookupBatchTick>,
+{
     fn handle_message(&mut self, _: &S, message: &IM) -> Option<Handled<OM>> {
+        if let Some(_) = try_get::<RawConsoleOutput>(message) {
+            return Handled::none();
+        } else if let Some(_) = try_get::<ProfileLookupBatchTick>(message) {
+            return Handled::none();
+        }
+
         tracing::debug!("New message {:?}", message);
         Handled::none()
     }
@@ -145,11 +155,14 @@ fn main() {
                 PathBuf::from(state.settings.get_tf2_directory()).join("tf/console.log");
             let console_log = Box::new(ConsoleLog::new(log_file_path).await);
 
-            let refresh_loop = Box::new(refresh_timer(Duration::from_secs(3)).await);
+            let lookup_batch_timer =
+                emit_on_timer(Duration::from_millis(500), || ProfileLookupBatchTick).await;
+            let refresh_timer = emit_on_timer(Duration::from_secs(3), || Refresh).await;
 
             let mut event_loop: EventLoop<MACState, Message, Handler> = EventLoop::new()
                 .add_source(console_log)
-                .add_source(refresh_loop)
+                .add_source(refresh_timer)
+                .add_source(lookup_batch_timer)
                 .add_source(Box::new(web_requests))
                 .add_handler(DebugHandler)
                 .add_handler(CommandManager::new())

@@ -12,7 +12,7 @@ where
     pub sources: Vec<Box<dyn MessageSource<M> + 'static>>,
     pub handlers: Vec<H>,
     pub queue: Vec<M>,
-    pub async_tasks: Vec<JoinHandle<M>>,
+    pub async_tasks: Vec<JoinHandle<Option<M>>>,
 
     state: PhantomData<S>,
 }
@@ -59,7 +59,9 @@ where
         for (i, j) in self.async_tasks.iter_mut().enumerate() {
             if j.is_finished() {
                 finished_tasks.push(i);
-                messages.push(j.await.unwrap());
+                if let Some(m) = j.await.unwrap() {
+                    messages.push(m);
+                }
             }
         }
         for i in finished_tasks.into_iter().rev() {
@@ -107,7 +109,7 @@ enum Internal<T> {
 
 enum Action<M> {
     Message(M),
-    Future(BoxFuture<'static, M>),
+    Future(BoxFuture<'static, Option<M>>),
 }
 
 impl<M> From<M> for Action<M> {
@@ -125,7 +127,7 @@ impl<M> Handled<M> {
         Some(Self(Internal::Single(Action::Message(m.into()))))
     }
 
-    pub fn future(future: impl Future<Output = M> + 'static + Send) -> Option<Self> {
+    pub fn future(future: impl Future<Output = Option<M>> + 'static + Send) -> Option<Self> {
         Some(Self(Internal::Single(Action::Future(Box::pin(future)))))
     }
 

@@ -2,9 +2,11 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     net::SocketAddr,
-    ops::Deref,
-    path::{Path, PathBuf},
-    sync::{Arc, Mutex, RwLock},
+    path::Path,
+    sync::{
+        mpsc::{Receiver, Sender},
+        Arc, Mutex,
+    },
 };
 
 use axum::{
@@ -14,40 +16,104 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
+use event_loop::{try_get, Handled, HandlerStruct, Is, StateUpdater};
+use futures::Stream;
 use include_dir::Dir;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
-use tokio::sync::mpsc::{Sender, UnboundedSender};
-use tokio_stream::{wrappers::ReceiverStream, Stream};
+use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
-    events::command_manager::Command,
-    io::IOManagerMessage,
-    player::Player,
+    player::{Player, Players},
     player_records::Verdict,
-    server::Server,
-    settings::{FriendsAPIUsage, Settings},
-    steamapi::SteamAPIMessage,
+    server::Gamemode,
+    settings::FriendsAPIUsage,
+    state::MACState,
 };
+
+use super::command_manager::Command;
 
 const HEADERS: [(header::HeaderName, &str); 2] = [
     (header::CONTENT_TYPE, "application/json"),
     (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
 ];
 
-#[derive(Clone)]
-pub struct SharedState {
-    pub ui: Option<&'static Dir<'static>>,
-    pub io: UnboundedSender<IOManagerMessage>,
-    pub api: UnboundedSender<SteamAPIMessage>,
-    pub server: Arc<RwLock<Server>>,
-    pub settings: Arc<RwLock<Settings>>,
+#[derive(Debug)]
+pub enum WebRequest {
+    /// Retrieve info on the active game
+    GetGame(Sender<String>),
+    /// Retrieve info on specific accounts
+    PostUser(UserRequest, Sender<String>),
+    /// Set Verdict and customData for specific accounts
+    PutUser(HashMap<SteamID, UserUpdate>),
+    /// Retrieve client preferences
+    GetPrefs(Sender<String>),
+    /// Set client preferences
+    PutPrefs(Preferences),
+    /// Retrieve a range of player history
+    GetHistory(Pagination, Sender<String>),
+    /// Retrieve the current playerlist
+    GetPlayerlist(Sender<String>),
+    /// Tell the client to execute console commands
+    PostCommand(RequestedCommands),
+}
+impl StateUpdater<MACState> for WebRequest {}
+
+pub struct WebAPIHandler;
+impl<IM, OM> HandlerStruct<MACState, IM, OM> for WebAPIHandler
+where
+    IM: Is<WebRequest>,
+    OM: Is<Command>,
+{
+    fn handle_message(
+        &mut self,
+        state: &MACState,
+        message: &IM,
+    ) -> Option<event_loop::Handled<OM>> {
+        match try_get::<WebRequest>(message)? {
+            WebRequest::GetGame(tx) => {
+                tx.send(get_game_response(state)).unwrap();
+            }
+            WebRequest::PostUser(users, tx) => {
+                tx.send(post_user_response(state, users)).unwrap();
+            }
+            WebRequest::PutUser(users) => {}
+            WebRequest::GetPrefs(tx) => {
+                tx.send(get_prefs_response(state)).unwrap();
+            }
+            WebRequest::PutPrefs(prefs) => {}
+            WebRequest::GetHistory(page, tx) => {
+                tx.send(get_history_response(state, page)).unwrap();
+            }
+            WebRequest::GetPlayerlist(tx) => {
+                tx.send(get_playerlist_response(state)).unwrap();
+            }
+            WebRequest::PostCommand(cmds) => {
+                return Handled::multiple(
+                    cmds.commands.iter().map(|cmd| Handled::single(cmd.clone())),
+                );
+            }
+        }
+
+        Handled::none()
+    }
 }
 
-type AState = axum::extract::State<SharedState>;
+#[derive(Clone)]
+pub struct WebState {
+    pub request: Sender<WebRequest>,
+    pub ui: Option<&'static Dir<'static>>,
+}
+
+impl WebState {
+    pub fn new(ui: Option<&'static Dir<'static>>) -> (WebState, Receiver<WebRequest>) {
+        let (tx, rx) = std::sync::mpsc::channel();
+        (WebState { request: tx, ui }, rx)
+    }
+}
 
 /// Start the web API server
-pub async fn web_main(state: SharedState, port: u16) {
+pub async fn web_main(web_state: WebState, port: u16) {
     let api = Router::new()
         .route("/", get(ui_redirect))
         .route("/ui", get(ui_redirect))
@@ -62,7 +128,7 @@ pub async fn web_main(state: SharedState, port: u16) {
         .route("/mac/playerlist/v1", get(get_playerlist))
         .route("/mac/commands/v1", post(post_commands))
         .layer(tower_http::cors::CorsLayer::permissive())
-        .with_state(state);
+        .with_state(web_state);
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     tracing::info!("Starting web interface at http://{addr}");
@@ -79,7 +145,7 @@ async fn ui_redirect() -> impl IntoResponse {
 // UI
 
 async fn get_ui(
-    State(state): AState,
+    State(state): State<WebState>,
     axum::extract::Path(path): axum::extract::Path<String>,
 ) -> impl IntoResponse {
     if let Some(ui) = state.ui {
@@ -137,75 +203,89 @@ fn guess_content_type(path: &Path) -> &'static str {
 
 // Game
 
-/// API endpoint to retrieve the current server state
-async fn get_game(State(state): AState) -> impl IntoResponse {
-    tracing::debug!("State requested");
-    let server = state.server.read().unwrap();
-    (
-        StatusCode::OK,
-        HEADERS,
-        serde_json::to_string(server.deref()).expect("Serialize game state"),
-    )
+async fn get_game(State(state): State<WebState>) -> impl IntoResponse {
+    tracing::debug!("API: GET game");
+    let (tx, rx) = std::sync::mpsc::channel();
+    state.request.send(WebRequest::GetGame(tx)).unwrap();
+    match rx.recv() {
+        Ok(resp) => (StatusCode::OK, HEADERS, resp),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+    }
+}
+
+fn get_game_response(state: &MACState) -> String {
+    #[derive(Serialize)]
+    #[allow(non_snake_case)]
+    struct Game<'a> {
+        map: &'a Option<Arc<str>>,
+        ip: &'a Option<Arc<str>>,
+        hostname: &'a Option<Arc<str>>,
+        maxPlayers: &'a Option<u32>,
+        numPlayers: &'a Option<u32>,
+        gamemode: Option<&'a Gamemode>,
+        players: &'a Players,
+    }
+
+    let game = Game {
+        map: &state.server.map(),
+        ip: &state.server.ip(),
+        hostname: &state.server.hostname(),
+        maxPlayers: &state.server.max_players(),
+        numPlayers: &state.server.num_players(),
+        gamemode: state.server.gamemode(),
+        players: &state.players,
+    };
+
+    serde_json::to_string(&game).unwrap()
 }
 
 // User
 
 #[derive(Debug, Clone, Deserialize)]
 #[allow(dead_code)]
-struct UserRequest {
+pub struct UserRequest {
     users: Vec<u64>,
 }
 
-/// Posts a list of SteamIDs to lookup, returns the players.
-async fn post_user(users: Json<UserRequest>) -> impl IntoResponse {
-    tracing::debug!("Players requested: {:?}", users);
-    // TODO
-    (StatusCode::OK, HEADERS, "Not implemented".to_string())
+async fn post_user(State(state): State<WebState>, users: Json<UserRequest>) -> impl IntoResponse {
+    tracing::debug!("API: POST user");
+    let (tx, rx) = std::sync::mpsc::channel();
+    state
+        .request
+        .send(WebRequest::PostUser(users.0, tx))
+        .unwrap();
+    match rx.recv() {
+        Ok(resp) => (StatusCode::OK, HEADERS, resp),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+    }
+}
+
+fn post_user_response(state: &MACState, users: &UserRequest) -> String {
+    "Not yet implemented".into()
 }
 
 #[derive(Debug, Deserialize)]
-struct UserUpdate {
+pub struct UserUpdate {
     #[serde(rename = "localVerdict")]
     local_verdict: Option<Verdict>,
     #[serde(rename = "customData")]
     custom_data: Option<serde_json::Value>,
 }
 
-/// Puts a user's details to insert them into the persistent storage for that user.
 async fn put_user(
-    State(state): AState,
+    State(state): State<WebState>,
     users: Json<HashMap<SteamID, UserUpdate>>,
 ) -> impl IntoResponse {
-    tracing::debug!("Player updates sent: {:?}", &users);
-
-    let mut server = state.server.write().unwrap();
-    for (k, v) in users.0 {
-        // Insert record if it didn't exist
-        let record = server.players.records.entry(k).or_default();
-
-        if let Some(custom_data) = v.custom_data {
-            record.custom_data = custom_data;
-        }
-
-        if let Some(verdict) = v.local_verdict {
-            record.verdict = verdict;
-        }
-
-        if record.is_empty() {
-            server.players_mut().records.remove(&k);
-        }
-    }
-
-    server.players().records.save_ok();
-
+    tracing::debug!("API: PUT user");
+    state.request.send(WebRequest::PutUser(users.0)).ok();
     (StatusCode::OK, HEADERS)
 }
 
 // Preferences
 
-#[derive(Serialize, Deserialize)]
+#[derive(Serialize, Deserialize, Debug)]
 #[serde(rename_all = "camelCase")]
-struct InternalPreferences {
+pub struct InternalPreferences {
     pub friends_api_usage: Option<FriendsAPIUsage>,
     pub tf2_directory: Option<Arc<str>>,
     pub rcon_password: Option<Arc<str>>,
@@ -213,17 +293,24 @@ struct InternalPreferences {
     pub rcon_port: Option<u16>,
 }
 
-#[derive(Serialize, Deserialize)]
-struct Preferences {
+#[derive(Serialize, Deserialize, Debug)]
+pub struct Preferences {
     pub internal: Option<InternalPreferences>,
     pub external: Option<serde_json::Value>,
 }
 
-/// Get the current preferences
-async fn get_prefs(State(state): AState) -> impl IntoResponse {
-    tracing::debug!("Preferences requested.");
+async fn get_prefs(State(state): State<WebState>) -> impl IntoResponse {
+    tracing::debug!("API: GET prefs");
+    let (tx, rx) = std::sync::mpsc::channel();
+    state.request.send(WebRequest::GetPrefs(tx)).unwrap();
+    match rx.recv() {
+        Ok(resp) => (StatusCode::OK, HEADERS, resp),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+    }
+}
 
-    let settings = state.settings.read().unwrap();
+fn get_prefs_response(state: &MACState) -> String {
+    let settings = &state.settings;
     let prefs = Preferences {
         internal: Some(InternalPreferences {
             friends_api_usage: Some(*settings.get_friends_api_usage()),
@@ -235,72 +322,98 @@ async fn get_prefs(State(state): AState) -> impl IntoResponse {
         external: Some(settings.get_external_preferences().clone()),
     };
 
-    (
-        StatusCode::OK,
-        HEADERS,
-        serde_json::to_string(&prefs).expect("Serialize preferences"),
-    )
+    serde_json::to_string(&prefs).unwrap()
 }
 
-/// Puts any preferences to be updated
-async fn put_prefs(State(state): AState, prefs: Json<Preferences>) -> impl IntoResponse {
-    tracing::debug!("Preferences updates sent.");
+async fn put_prefs(State(state): State<WebState>, prefs: Json<Preferences>) -> impl IntoResponse {
+    tracing::debug!("API: PUT prefs");
+    state.request.send(WebRequest::PutPrefs(prefs.0)).ok();
+    (StatusCode::OK, HEADERS)
+}
 
-    let mut settings = state.settings.write().unwrap();
-    if let Some(internal) = prefs.0.internal {
-        if let Some(tf2_dir) = internal.tf2_directory {
-            let path: PathBuf = tf2_dir.to_string().into();
-            state
-                .io
-                .send(IOManagerMessage::SetLogFilePath(
-                    path.join("tf/console.log"),
-                ))
-                .unwrap();
-            settings.set_tf2_directory(path);
-        }
-        if let Some(rcon_pwd) = internal.rcon_password {
-            state
-                .io
-                .send(IOManagerMessage::SetRconPassword(rcon_pwd.clone()))
-                .unwrap();
-            settings.set_rcon_password(rcon_pwd);
-        }
-        if let Some(rcon_port) = internal.rcon_port {
-            state
-                .io
-                .send(IOManagerMessage::SetRconPort(rcon_port))
-                .unwrap();
-            settings.set_rcon_port(rcon_port);
-        }
-        if let Some(steam_api_key) = internal.steam_api_key {
-            state
-                .api
-                .send(SteamAPIMessage::SetAPIKey(steam_api_key.clone()))
-                .unwrap();
-            settings.set_steam_api_key(steam_api_key);
-        }
-        if let Some(friends_api_usage) = internal.friends_api_usage {
-            settings.set_friends_api_usage(friends_api_usage);
-        }
+// History
+
+#[derive(Deserialize, Debug)]
+#[serde(default)]
+pub struct Pagination {
+    pub from: usize,
+    pub to: usize,
+}
+
+impl Default for Pagination {
+    fn default() -> Self {
+        Pagination { from: 0, to: 100 }
     }
+}
 
-    if let Some(external) = prefs.0.external {
-        settings.update_external_preferences(external);
+async fn get_history(State(state): State<WebState>, page: Query<Pagination>) -> impl IntoResponse {
+    tracing::debug!("API: GET history");
+    let (tx, rx) = std::sync::mpsc::channel();
+    state
+        .request
+        .send(WebRequest::GetHistory(page.0, tx))
+        .unwrap();
+    match rx.recv() {
+        Ok(resp) => (StatusCode::OK, HEADERS, resp),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
     }
+}
 
-    settings.save_ok();
+fn get_history_response(state: &MACState, page: &Pagination) -> String {
+    // let hVecDeque<SteamID> = &server.players().history;
+    let history: Vec<Player> = state
+        .players
+        .history
+        .iter()
+        .rev()
+        .skip(page.from)
+        .take(page.to - page.from)
+        .flat_map(|s| state.players.get_serializable_player(s))
+        .collect();
 
+    serde_json::to_string(&history).unwrap()
+}
+
+// Playerlist
+
+async fn get_playerlist(State(state): State<WebState>) -> impl IntoResponse {
+    tracing::debug!("API: GET playerlist");
+    let (tx, rx) = std::sync::mpsc::channel();
+    state.request.send(WebRequest::GetPlayerlist(tx)).unwrap();
+    match rx.recv() {
+        Ok(resp) => (StatusCode::OK, HEADERS, resp),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+    }
+}
+
+fn get_playerlist_response(state: &MACState) -> String {
+    "Not yet implemented".into()
+}
+
+// Commands
+
+#[derive(Deserialize, Debug)]
+pub struct RequestedCommands {
+    commands: Vec<Command>,
+}
+
+async fn post_commands(
+    State(state): State<WebState>,
+    commands: Json<RequestedCommands>,
+) -> impl IntoResponse {
+    tracing::debug!("API: POST commands");
+    state.request.send(WebRequest::PostCommand(commands.0)).ok();
     (StatusCode::OK, HEADERS)
 }
 
 // Events
 
-type Subscriber = Sender<Result<Event, Infallible>>;
+type Subscriber = tokio::sync::mpsc::Sender<Result<Event, Infallible>>;
 static SUBSCRIBERS: Mutex<Option<Vec<Subscriber>>> = Mutex::new(None);
 
 /// Gets a SSE stream to listen for any updates the client can provide.
 async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
-    tracing::debug!("Events subcription sent.");
+    tracing::debug!("API: Events subcription");
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(16);
 
@@ -312,76 +425,4 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     subscribers.as_mut().unwrap().push(tx);
 
     Sse::new(ReceiverStream::new(rx))
-}
-
-// History
-
-#[derive(Deserialize)]
-#[serde(default)]
-struct Pagination {
-    pub from: usize,
-    pub to: usize,
-}
-
-impl Default for Pagination {
-    fn default() -> Self {
-        Pagination { from: 0, to: 100 }
-    }
-}
-
-/// Gets a historical record of the last (up to) 100 players that the user has
-/// been on servers with.
-async fn get_history(State(state): AState, page: Query<Pagination>) -> impl IntoResponse {
-    tracing::debug!("History requested");
-
-    let server = state.server.read().unwrap();
-    // let hVecDeque<SteamID> = &server.players().history;
-    let history: Vec<Player> = server
-        .players()
-        .history
-        .iter()
-        .rev()
-        .skip(page.0.from)
-        .take(page.0.to - page.0.from)
-        .flat_map(|s| server.players().get_serializable_player(s))
-        .collect();
-
-    (
-        StatusCode::OK,
-        HEADERS,
-        serde_json::to_string(&history).expect("Serialize player history"),
-    )
-}
-
-/// Gets the Serde serialised PlayerRecords object from the current state server object.
-async fn get_playerlist(State(state): AState) -> impl IntoResponse {
-    tracing::debug!("Playerlist requested");
-    (
-        StatusCode::OK,
-        HEADERS,
-        serde_json::to_string(&state.server.read().unwrap().players().records)
-            .expect("Serialize player records"),
-    )
-}
-// Commands
-
-#[derive(Deserialize, Debug)]
-struct RequestedCommands {
-    commands: Vec<Command>,
-}
-
-async fn post_commands(
-    State(state): AState,
-    commands: Json<RequestedCommands>,
-) -> impl IntoResponse {
-    tracing::debug!("Commands sent: {:?}", commands);
-
-    for command in commands.0.commands {
-        state
-            .io
-            .send(IOManagerMessage::RunCommand(command))
-            .unwrap();
-    }
-
-    (StatusCode::OK, HEADERS)
 }

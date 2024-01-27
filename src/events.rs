@@ -5,21 +5,22 @@ use tokio::sync::mpsc::{
     error::TryRecvError, unbounded_channel, Receiver, UnboundedReceiver, UnboundedSender,
 };
 
+use crate::console::RawConsoleOutput;
 use crate::io::filewatcher::{FileWatcher, FileWatcherCommand};
-
-use self::console::RawConsoleOutput;
-
-pub mod command_manager;
-pub mod console;
-pub mod new_players;
-pub mod steam_api;
-pub mod web;
+use crate::state::MACState;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Refresh;
-impl<S> StateUpdater<S> for Refresh {}
+impl StateUpdater<MACState> for Refresh {
+    fn update_state(self, state: &mut MACState) {
+        state.players.refresh();
+    }
+}
 
-pub async fn refresh_timer(interval: Duration) -> Receiver<Refresh> {
+pub async fn emit_on_timer<M: 'static + Send>(
+    interval: Duration,
+    emit: fn() -> M,
+) -> Box<Receiver<M>> {
     let (tx, rx) = tokio::sync::mpsc::channel(1);
 
     let mut interval = tokio::time::interval(interval);
@@ -28,7 +29,7 @@ pub async fn refresh_timer(interval: Duration) -> Receiver<Refresh> {
     tokio::task::spawn(async move {
         loop {
             interval.tick().await;
-            if let Ok(_) = tx.send(Refresh).await {
+            if let Ok(_) = tx.send(emit()).await {
                 continue;
             }
 
@@ -36,7 +37,7 @@ pub async fn refresh_timer(interval: Duration) -> Receiver<Refresh> {
         }
     });
 
-    rx
+    Box::new(rx)
 }
 
 pub struct ConsoleLog {

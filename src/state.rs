@@ -1,4 +1,4 @@
-use crate::{events::console::ConsoleOutput, player::Players, server::Server, settings::Settings};
+use crate::{console::ConsoleOutput, player::Players, server::Server, settings::Settings};
 
 pub struct MACState {
     pub server: Server,

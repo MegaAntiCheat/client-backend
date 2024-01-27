@@ -2,7 +2,7 @@ use serde::Serialize;
 use std::sync::Arc;
 
 use crate::{
-    events::console::ConsoleOutput,
+    console::ConsoleOutput,
     io::regexes::{self, ChatMessage, PlayerKill},
 };
 
