@@ -3,10 +3,7 @@ use std::{
     convert::Infallible,
     net::SocketAddr,
     path::Path,
-    sync::{
-        mpsc::{Receiver, Sender},
-        Arc, Mutex,
-    },
+    sync::{Arc, Mutex},
 };
 
 use axum::{
@@ -21,6 +18,7 @@ use futures::Stream;
 use include_dir::Dir;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
+use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::command_manager::Command;
@@ -40,19 +38,19 @@ const HEADERS: [(header::HeaderName, &str); 2] = [
 #[allow(clippy::module_name_repetitions)]
 pub enum WebRequest {
     /// Retrieve info on the active game
-    GetGame(Sender<String>),
+    GetGame(UnboundedSender<String>),
     /// Retrieve info on specific accounts
-    PostUser(UserRequest, Sender<String>),
+    PostUser(UserRequest, UnboundedSender<String>),
     /// Set Verdict and customData for specific accounts
     PutUser(HashMap<SteamID, UserUpdate>),
     /// Retrieve client preferences
-    GetPrefs(Sender<String>),
+    GetPrefs(UnboundedSender<String>),
     /// Set client preferences
     PutPrefs(Preferences),
     /// Retrieve a range of player history
-    GetHistory(Pagination, Sender<String>),
+    GetHistory(Pagination, UnboundedSender<String>),
     /// Retrieve the current playerlist
-    GetPlayerlist(Sender<String>),
+    GetPlayerlist(UnboundedSender<String>),
     /// Tell the client to execute console commands
     PostCommand(RequestedCommands),
 }
@@ -111,14 +109,14 @@ where
 #[derive(Clone)]
 #[allow(clippy::module_name_repetitions)]
 pub struct WebState {
-    pub request: Sender<WebRequest>,
+    pub request: UnboundedSender<WebRequest>,
     pub ui: Option<&'static Dir<'static>>,
 }
 
 impl WebState {
     #[must_use]
-    pub fn new(ui: Option<&'static Dir<'static>>) -> (Self, Receiver<WebRequest>) {
-        let (tx, rx) = std::sync::mpsc::channel();
+    pub fn new(ui: Option<&'static Dir<'static>>) -> (Self, UnboundedReceiver<WebRequest>) {
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         (Self { request: tx, ui }, rx)
     }
 }
@@ -226,15 +224,15 @@ fn guess_content_type(path: &Path) -> &'static str {
 
 async fn get_game(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET game");
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     state
         .request
         .send(WebRequest::GetGame(tx))
         .expect("Failed to send request to main thread");
-    match rx.recv() {
-        Ok(resp) => (StatusCode::OK, HEADERS, resp),
-        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{e}")),
-    }
+    (rx.recv().await).map_or_else(
+        || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
+        |resp| (StatusCode::OK, HEADERS, resp),
+    )
 }
 
 fn get_game_response(state: &MACState) -> String {
@@ -273,15 +271,15 @@ pub struct UserRequest {
 
 async fn post_user(State(state): State<WebState>, users: Json<UserRequest>) -> impl IntoResponse {
     tracing::debug!("API: POST user");
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     state
         .request
         .send(WebRequest::PostUser(users.0, tx))
         .expect("Failed to send request to main thread");
-    match rx.recv() {
-        Ok(resp) => (StatusCode::OK, HEADERS, resp),
-        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{e}")),
-    }
+    (rx.recv().await).map_or_else(
+        || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
+        |resp| (StatusCode::OK, HEADERS, resp),
+    )
 }
 
 fn post_user_response(_state: &MACState, _users: &UserRequest) -> String {
@@ -301,15 +299,15 @@ async fn put_user(
 
 async fn get_prefs(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET prefs");
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     state
         .request
         .send(WebRequest::GetPrefs(tx))
         .expect("Failed to send request to main thread.");
-    match rx.recv() {
-        Ok(resp) => (StatusCode::OK, HEADERS, resp),
-        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{e}")),
-    }
+    (rx.recv().await).map_or_else(
+        || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
+        |resp| (StatusCode::OK, HEADERS, resp),
+    )
 }
 
 fn get_prefs_response(state: &MACState) -> String {
@@ -349,15 +347,15 @@ impl Default for Pagination {
 
 async fn get_history(State(state): State<WebState>, page: Query<Pagination>) -> impl IntoResponse {
     tracing::debug!("API: GET history");
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     state
         .request
         .send(WebRequest::GetHistory(page.0, tx))
         .expect("Could not communicate with main thread");
-    match rx.recv() {
-        Ok(resp) => (StatusCode::OK, HEADERS, resp),
-        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{e}")),
-    }
+    (rx.recv().await).map_or_else(
+        || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
+        |resp| (StatusCode::OK, HEADERS, resp),
+    )
 }
 
 fn get_history_response(state: &MACState, page: &Pagination) -> String {
@@ -379,15 +377,15 @@ fn get_history_response(state: &MACState, page: &Pagination) -> String {
 
 async fn get_playerlist(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET playerlist");
-    let (tx, rx) = std::sync::mpsc::channel();
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     state
         .request
         .send(WebRequest::GetPlayerlist(tx))
         .expect("Couldn't communicate with main thread");
-    match rx.recv() {
-        Ok(resp) => (StatusCode::OK, HEADERS, resp),
-        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{e}")),
-    }
+    (rx.recv().await).map_or_else(
+        || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
+        |resp| (StatusCode::OK, HEADERS, resp),
+    )
 }
 
 fn get_playerlist_response(_state: &MACState) -> String { "Not yet implemented".into() }
