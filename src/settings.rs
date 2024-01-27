@@ -29,11 +29,28 @@ pub enum ConfigFilesError {
     #[error("{0:?}")]
     Other(#[from] anyhow::Error),
 }
-#[derive(Debug, Serialize, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize, Deserialize, Copy, Clone, PartialEq, Eq)]
 pub enum FriendsAPIUsage {
     None,
     CheatersOnly,
     All,
+}
+
+impl FriendsAPIUsage {
+    pub fn lookup_user(&self) -> bool {
+        *self != FriendsAPIUsage::None
+    }
+
+    pub fn lookup_cheaters(&self) -> bool {
+        if *self == FriendsAPIUsage::All || *self == FriendsAPIUsage::CheatersOnly {
+            return true;
+        }
+        false
+    }
+
+    pub fn lookup_others(&self) -> bool {
+        *self == FriendsAPIUsage::All
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -336,8 +353,8 @@ impl Settings {
         self.friends_api_usage = friends_api_usage;
     }
 
-    pub fn get_friends_api_usage(&self) -> &FriendsAPIUsage {
-        &self.friends_api_usage
+    pub fn get_friends_api_usage(&self) -> FriendsAPIUsage {
+        self.friends_api_usage
     }
 
     pub fn get_rcon_port(&self) -> u16 {

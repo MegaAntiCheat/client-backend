@@ -1,12 +1,15 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::collections::HashMap;
+use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::Duration;
 
-use event_loop::{Is, MessageSource, StateUpdater};
-use tokio::sync::mpsc::{
-    error::TryRecvError, unbounded_channel, Receiver, UnboundedReceiver, UnboundedSender,
-};
+use event_loop::StateUpdater;
+use serde::{Deserialize, Serialize};
+use steamid_ng::SteamID;
+use tokio::sync::mpsc::Receiver;
 
-use crate::console::RawConsoleOutput;
-use crate::io::filewatcher::{FileWatcher, FileWatcherCommand};
+use crate::player_records::Verdict;
+use crate::settings::FriendsAPIUsage;
 use crate::state::MACState;
 
 #[derive(Debug, Clone, Copy)]
@@ -14,6 +17,39 @@ pub struct Refresh;
 impl StateUpdater<MACState> for Refresh {
     fn update_state(self, state: &mut MACState) {
         state.players.refresh();
+    }
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct UserUpdate {
+    #[serde(rename = "localVerdict")]
+    pub local_verdict: Option<Verdict>,
+    #[serde(rename = "customData")]
+    pub custom_data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Clone)]
+pub struct UserUpdates(pub HashMap<SteamID, UserUpdate>);
+impl StateUpdater<MACState> for UserUpdates {
+    fn update_state(self, state: &mut MACState) {
+        for (k, v) in self.0 {
+            // Insert record if it didn't exist
+            let record = state.players.records.entry(k).or_default();
+
+            if let Some(custom_data) = v.custom_data {
+                record.custom_data = custom_data;
+            }
+
+            if let Some(verdict) = v.local_verdict {
+                record.verdict = verdict;
+            }
+
+            if record.is_empty() {
+                state.players.records.remove(&k);
+            }
+        }
+
+        state.players.records.save_ok();
     }
 }
 
@@ -40,39 +76,47 @@ pub async fn emit_on_timer<M: 'static + Send>(
     Box::new(rx)
 }
 
-pub struct ConsoleLog {
-    recv: UnboundedReceiver<Arc<str>>,
-    _send: UnboundedSender<FileWatcherCommand>,
-
-    logged_error: bool,
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct InternalPreferences {
+    pub friends_api_usage: Option<FriendsAPIUsage>,
+    pub tf2_directory: Option<Arc<str>>,
+    pub rcon_password: Option<Arc<str>>,
+    pub steam_api_key: Option<Arc<str>>,
+    pub rcon_port: Option<u16>,
 }
-impl<M: Is<RawConsoleOutput>> MessageSource<M> for ConsoleLog {
-    fn next_message(&mut self) -> Option<M> {
-        match self.recv.try_recv() {
-            Ok(msg) => Some(RawConsoleOutput(msg).into()),
-            Err(TryRecvError::Empty) => None,
-            Err(TryRecvError::Disconnected) => {
-                if !self.logged_error {
-                    tracing::error!("No more console messages coming.");
-                    self.logged_error = true;
-                }
-                None
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Preferences {
+    pub internal: Option<InternalPreferences>,
+    pub external: Option<serde_json::Value>,
+}
+
+impl StateUpdater<MACState> for Preferences {
+    fn update_state(self, state: &mut MACState) {
+        if let Some(internal) = self.internal {
+            if let Some(tf2_dir) = internal.tf2_directory {
+                let path: PathBuf = tf2_dir.to_string().into();
+                state.settings.set_tf2_directory(path);
+            }
+            if let Some(rcon_pwd) = internal.rcon_password {
+                state.settings.set_rcon_password(rcon_pwd);
+            }
+            if let Some(rcon_port) = internal.rcon_port {
+                state.settings.set_rcon_port(rcon_port);
+            }
+            if let Some(steam_api_key) = internal.steam_api_key {
+                state.settings.set_steam_api_key(steam_api_key);
+            }
+            if let Some(friends_api_usage) = internal.friends_api_usage {
+                state.settings.set_friends_api_usage(friends_api_usage);
             }
         }
-    }
-}
-impl ConsoleLog {
-    pub async fn new(log_file_path: PathBuf) -> ConsoleLog {
-        let (console_log_tx, console_log_rx) = unbounded_channel();
-        let (console_rx, mut log_watcher) = FileWatcher::new(log_file_path, console_log_rx);
-        tokio::task::spawn(async move {
-            log_watcher.file_watch_loop().await;
-        });
 
-        ConsoleLog {
-            recv: console_rx,
-            _send: console_log_tx,
-            logged_error: false,
+        if let Some(external) = self.external {
+            state.settings.update_external_preferences(external);
         }
+
+        state.settings.save_ok();
     }
 }

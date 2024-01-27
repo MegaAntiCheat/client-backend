@@ -1,4 +1,7 @@
-use std::collections::{HashMap, VecDeque};
+use std::{
+    collections::{HashMap, VecDeque},
+    sync::Arc,
+};
 
 use event_loop::{try_get, Handled, HandlerStruct, Is, StateUpdater};
 use steamid_ng::SteamID;
@@ -13,6 +16,7 @@ use thiserror::Error;
 
 use crate::{
     player::{Friend, SteamInfo},
+    player_records::Verdict,
     settings::FriendsAPIUsage,
     state::MACState,
 };
@@ -130,23 +134,89 @@ where
     }
 }
 
-pub struct LookupFriends {
-    policy: FriendsAPIUsage,
-}
+pub struct LookupFriends;
 
 impl LookupFriends {
-    pub fn new(policy: FriendsAPIUsage) -> LookupFriends {
-        LookupFriends { policy }
+    fn lookup_players<M: Is<FriendLookupResult>>(
+        &mut self,
+        api_key: Arc<str>,
+        players: &[SteamID],
+    ) -> Option<Handled<M>> {
+        let out = Handled::multiple(players.iter().map(|&p| {
+            let key = api_key.clone();
+            Handled::future(async move {
+                let mut client = SteamAPI::new(key);
+                Some(
+                    FriendLookupResult {
+                        steamid: p,
+                        result: request_account_friends(&mut client, p).await,
+                    }
+                    .into(),
+                )
+            })
+        }));
+        return out;
     }
 }
 
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for LookupFriends
 where
-    IM: Is<NewPlayers> + Is<FriendLookupResult>,
+    IM: Is<NewPlayers>,
     OM: Is<FriendLookupResult>,
 {
     fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
-        // TODO - Friend lookup policy
+        if let Some(NewPlayers(new_players)) = try_get(message) {
+            // Need all friends if there's a cheater/bot on the server with a private friends list
+            let need_all_friends = state.players.connected.iter().any(|p| {
+                state
+                    .players
+                    .records
+                    .get(p)
+                    .map(|r| r.verdict == Verdict::Cheater || r.verdict == Verdict::Bot)
+                    .unwrap_or(false)
+                    && state
+                        .players
+                        .friend_info
+                        .get(p)
+                        .map(|f| f.public == Some(false))
+                        .unwrap_or(false)
+            });
+
+            let mut queued_friendlist_req: Vec<SteamID> = Vec::new();
+
+            for &p in new_players {
+                if state.settings.get_steam_user().is_some_and(|s| p == s) {
+                    queued_friendlist_req.push(p);
+                    continue;
+                }
+
+                match state.settings.get_friends_api_usage() {
+                    FriendsAPIUsage::CheatersOnly => {
+                        let verdict = state
+                            .players
+                            .records
+                            .get(&p)
+                            .map(|r| r.verdict)
+                            .unwrap_or_default();
+
+                        if !need_all_friends
+                            && (verdict == Verdict::Cheater || verdict == Verdict::Bot)
+                        {
+                            queued_friendlist_req.push(p);
+                        }
+                    }
+                    FriendsAPIUsage::All => queued_friendlist_req.push(p),
+                    FriendsAPIUsage::None => {}
+                }
+            }
+
+            if !queued_friendlist_req.is_empty() {
+                queued_friendlist_req.retain(|s| state.players.friend_info.get(s).is_some());
+
+                return self
+                    .lookup_players(state.settings.get_steam_api_key(), &queued_friendlist_req);
+            }
+        }
 
         Handled::none()
     }

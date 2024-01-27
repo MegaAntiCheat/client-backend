@@ -3,7 +3,7 @@ use clap::Parser;
 use demo::demo_loop;
 use event_loop::{define_handlers, define_messages, try_get, Is};
 use event_loop::{EventLoop, Handled, HandlerStruct, StateUpdater};
-use events::{emit_on_timer, ConsoleLog};
+use events::emit_on_timer;
 use include_dir::{include_dir, Dir};
 use launchoptions::LaunchOptions;
 use player::Players;
@@ -39,8 +39,8 @@ mod steam_api;
 mod web;
 
 use command_manager::{Command, CommandManager};
-use console::{ConsoleOutput, ConsoleParser, RawConsoleOutput};
-use events::Refresh;
+use console::{ConsoleLog, ConsoleOutput, ConsoleParser, RawConsoleOutput};
+use events::{Preferences, Refresh, UserUpdates};
 use new_players::{ExtractNewPlayers, NewPlayers};
 use steam_api::{
     FriendLookupResult, LookupFriends, LookupProfiles, ProfileLookupBatchTick, ProfileLookupResult,
@@ -77,6 +77,9 @@ define_messages!(Message<MACState>:
     ProfileLookupBatchTick,
     ProfileLookupResult,
     FriendLookupResult,
+
+    Preferences,
+    UserUpdates,
 
     WebRequest
 );
@@ -169,7 +172,7 @@ fn main() {
                 .add_handler(ConsoleParser::default())
                 .add_handler(ExtractNewPlayers)
                 .add_handler(LookupProfiles::new())
-                .add_handler(LookupFriends::new(settings::FriendsAPIUsage::All))
+                .add_handler(LookupFriends)
                 .add_handler(WebAPIHandler);
 
             loop {

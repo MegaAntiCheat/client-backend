@@ -5,12 +5,8 @@ use clap_lex::SeekFrom;
 use tokio::{
     fs::{File, OpenOptions},
     io::{AsyncReadExt, AsyncSeekExt},
-    sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
-
-pub enum FileWatcherCommand {
-    SetWatchedFile(PathBuf),
-}
 
 struct OpenFile {
     /// Size of the file (in bytes) when it was last read
@@ -24,23 +20,17 @@ pub struct FileWatcher {
     file_path: PathBuf,
     /// The file currently being watched
     open_file: Option<OpenFile>,
-
-    request_recv: UnboundedReceiver<FileWatcherCommand>,
     response_send: UnboundedSender<Arc<str>>,
 }
 
 impl FileWatcher {
-    pub fn new(
-        path: PathBuf,
-        recv: UnboundedReceiver<FileWatcherCommand>,
-    ) -> (UnboundedReceiver<Arc<str>>, FileWatcher) {
+    pub fn new(path: PathBuf) -> (UnboundedReceiver<Arc<str>>, FileWatcher) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
         let file_watcher = FileWatcher {
             file_path: path,
             open_file: None,
 
-            request_recv: recv,
             response_send: resp_tx,
         };
 
@@ -55,20 +45,6 @@ impl FileWatcher {
         }
 
         loop {
-            match self.request_recv.try_recv() {
-                Ok(FileWatcherCommand::SetWatchedFile(new_path)) => {
-                    self.file_path = new_path;
-                    if let Err(e) = self.reopen_file().await {
-                        tracing::error!("Failed to open new file {:?}: {:?}", self.file_path, e);
-                    }
-                }
-                Err(TryRecvError::Empty) => {}
-                Err(TryRecvError::Disconnected) => {
-                    tracing::error!("Lost connection to main thread. Shutting down.");
-                    break;
-                }
-            }
-
             match self.open_file {
                 Some(_) => {
                     self.read_new_file_lines().await.ok();

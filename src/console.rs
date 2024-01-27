@@ -1,10 +1,12 @@
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
-use event_loop::{Handled, HandlerStruct, Is, StateUpdater};
+use event_loop::{Handled, HandlerStruct, Is, MessageSource, StateUpdater};
 use regex::Regex;
+use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver};
 
 use crate::{
     io::{
+        filewatcher::FileWatcher,
         g15::{G15Parser, G15Player},
         regexes::{
             ChatMessage, Hostname, Map, PlayerCount, PlayerKill, ServerIP, StatusLine, REGEX_CHAT,
@@ -17,6 +19,40 @@ use crate::{
 #[derive(Debug, Clone)]
 pub struct RawConsoleOutput(pub Arc<str>);
 impl<S> StateUpdater<S> for RawConsoleOutput {}
+
+pub struct ConsoleLog {
+    recv: UnboundedReceiver<Arc<str>>,
+
+    logged_error: bool,
+}
+impl<M: Is<RawConsoleOutput>> MessageSource<M> for ConsoleLog {
+    fn next_message(&mut self) -> Option<M> {
+        match self.recv.try_recv() {
+            Ok(msg) => Some(RawConsoleOutput(msg).into()),
+            Err(TryRecvError::Empty) => None,
+            Err(TryRecvError::Disconnected) => {
+                if !self.logged_error {
+                    tracing::error!("No more console messages coming.");
+                    self.logged_error = true;
+                }
+                None
+            }
+        }
+    }
+}
+impl ConsoleLog {
+    pub async fn new(log_file_path: PathBuf) -> ConsoleLog {
+        let (console_rx, mut log_watcher) = FileWatcher::new(log_file_path);
+        tokio::task::spawn(async move {
+            log_watcher.file_watch_loop().await;
+        });
+
+        ConsoleLog {
+            recv: console_rx,
+            logged_error: false,
+        }
+    }
+}
 
 #[derive(Debug, Clone)]
 pub enum ConsoleOutput {

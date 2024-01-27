@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     net::SocketAddr,
-    path::{Path, PathBuf},
+    path::Path,
     sync::{
         mpsc::{Receiver, Sender},
         Arc, Mutex,
@@ -24,10 +24,9 @@ use steamid_ng::SteamID;
 use tokio_stream::wrappers::ReceiverStream;
 
 use crate::{
+    events::{InternalPreferences, Preferences, UserUpdate, UserUpdates},
     player::{Player, Players},
-    player_records::Verdict,
     server::Gamemode,
-    settings::FriendsAPIUsage,
     state::MACState,
 };
 
@@ -57,70 +56,13 @@ pub enum WebRequest {
     /// Tell the client to execute console commands
     PostCommand(RequestedCommands),
 }
-impl StateUpdater<MACState> for WebRequest {
-    fn update_state(self, state: &mut MACState) {
-        match self {
-            WebRequest::GetGame(_) => {}
-            WebRequest::GetHistory(_, _) => {}
-            WebRequest::GetPlayerlist(_) => {}
-            WebRequest::GetPrefs(_) => {}
-            WebRequest::PostCommand(_) => {}
-            WebRequest::PostUser(_, _) => {}
-            WebRequest::PutUser(updates) => {
-                for (k, v) in updates {
-                    // Insert record if it didn't exist
-                    let record = state.players.records.entry(k).or_default();
-
-                    if let Some(custom_data) = v.custom_data {
-                        record.custom_data = custom_data;
-                    }
-
-                    if let Some(verdict) = v.local_verdict {
-                        record.verdict = verdict;
-                    }
-
-                    if record.is_empty() {
-                        state.players.records.remove(&k);
-                    }
-                }
-
-                state.players.records.save_ok();
-            }
-            WebRequest::PutPrefs(prefs) => {
-                if let Some(internal) = prefs.internal {
-                    if let Some(tf2_dir) = internal.tf2_directory {
-                        let path: PathBuf = tf2_dir.to_string().into();
-                        state.settings.set_tf2_directory(path);
-                    }
-                    if let Some(rcon_pwd) = internal.rcon_password {
-                        state.settings.set_rcon_password(rcon_pwd);
-                    }
-                    if let Some(rcon_port) = internal.rcon_port {
-                        state.settings.set_rcon_port(rcon_port);
-                    }
-                    if let Some(steam_api_key) = internal.steam_api_key {
-                        state.settings.set_steam_api_key(steam_api_key);
-                    }
-                    if let Some(friends_api_usage) = internal.friends_api_usage {
-                        state.settings.set_friends_api_usage(friends_api_usage);
-                    }
-                }
-
-                if let Some(external) = prefs.external {
-                    state.settings.update_external_preferences(external);
-                }
-
-                state.settings.save_ok();
-            }
-        }
-    }
-}
+impl StateUpdater<MACState> for WebRequest {}
 
 pub struct WebAPIHandler;
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for WebAPIHandler
 where
     IM: Is<WebRequest>,
-    OM: Is<Command>,
+    OM: Is<Command> + Is<Preferences> + Is<UserUpdates>,
 {
     fn handle_message(
         &mut self,
@@ -134,11 +76,15 @@ where
             WebRequest::PostUser(users, tx) => {
                 tx.send(post_user_response(state, users)).unwrap();
             }
-            WebRequest::PutUser(_users) => {}
+            WebRequest::PutUser(users) => {
+                return Handled::single(OM::from(UserUpdates(users.clone())));
+            }
             WebRequest::GetPrefs(tx) => {
                 tx.send(get_prefs_response(state)).unwrap();
             }
-            WebRequest::PutPrefs(_prefs) => {}
+            WebRequest::PutPrefs(prefs) => {
+                return Handled::single(OM::from(prefs.clone()));
+            }
             WebRequest::GetHistory(page, tx) => {
                 tx.send(get_history_response(state, page)).unwrap();
             }
@@ -321,14 +267,6 @@ fn post_user_response(_state: &MACState, _users: &UserRequest) -> String {
     "Not yet implemented".into()
 }
 
-#[derive(Debug, Deserialize)]
-pub struct UserUpdate {
-    #[serde(rename = "localVerdict")]
-    local_verdict: Option<Verdict>,
-    #[serde(rename = "customData")]
-    custom_data: Option<serde_json::Value>,
-}
-
 async fn put_user(
     State(state): State<WebState>,
     users: Json<HashMap<SteamID, UserUpdate>>,
@@ -339,22 +277,6 @@ async fn put_user(
 }
 
 // Preferences
-
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(rename_all = "camelCase")]
-pub struct InternalPreferences {
-    pub friends_api_usage: Option<FriendsAPIUsage>,
-    pub tf2_directory: Option<Arc<str>>,
-    pub rcon_password: Option<Arc<str>>,
-    pub steam_api_key: Option<Arc<str>>,
-    pub rcon_port: Option<u16>,
-}
-
-#[derive(Serialize, Deserialize, Debug)]
-pub struct Preferences {
-    pub internal: Option<InternalPreferences>,
-    pub external: Option<serde_json::Value>,
-}
 
 async fn get_prefs(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET prefs");
@@ -370,7 +292,7 @@ fn get_prefs_response(state: &MACState) -> String {
     let settings = &state.settings;
     let prefs = Preferences {
         internal: Some(InternalPreferences {
-            friends_api_usage: Some(*settings.get_friends_api_usage()),
+            friends_api_usage: Some(settings.get_friends_api_usage()),
             tf2_directory: Some(settings.get_tf2_directory().to_string_lossy().into()),
             rcon_password: Some(settings.get_rcon_password()),
             steam_api_key: Some(settings.get_steam_api_key()),
