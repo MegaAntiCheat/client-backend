@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     net::SocketAddr,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{
         mpsc::{Receiver, Sender},
         Arc, Mutex,
@@ -57,7 +57,64 @@ pub enum WebRequest {
     /// Tell the client to execute console commands
     PostCommand(RequestedCommands),
 }
-impl StateUpdater<MACState> for WebRequest {}
+impl StateUpdater<MACState> for WebRequest {
+    fn update_state(self, state: &mut MACState) {
+        match self {
+            WebRequest::GetGame(_) => {}
+            WebRequest::GetHistory(_, _) => {}
+            WebRequest::GetPlayerlist(_) => {}
+            WebRequest::GetPrefs(_) => {}
+            WebRequest::PostCommand(_) => {}
+            WebRequest::PostUser(_, _) => {}
+            WebRequest::PutUser(updates) => {
+                for (k, v) in updates {
+                    // Insert record if it didn't exist
+                    let record = state.players.records.entry(k).or_default();
+
+                    if let Some(custom_data) = v.custom_data {
+                        record.custom_data = custom_data;
+                    }
+
+                    if let Some(verdict) = v.local_verdict {
+                        record.verdict = verdict;
+                    }
+
+                    if record.is_empty() {
+                        state.players.records.remove(&k);
+                    }
+                }
+
+                state.players.records.save_ok();
+            }
+            WebRequest::PutPrefs(prefs) => {
+                if let Some(internal) = prefs.internal {
+                    if let Some(tf2_dir) = internal.tf2_directory {
+                        let path: PathBuf = tf2_dir.to_string().into();
+                        state.settings.set_tf2_directory(path);
+                    }
+                    if let Some(rcon_pwd) = internal.rcon_password {
+                        state.settings.set_rcon_password(rcon_pwd);
+                    }
+                    if let Some(rcon_port) = internal.rcon_port {
+                        state.settings.set_rcon_port(rcon_port);
+                    }
+                    if let Some(steam_api_key) = internal.steam_api_key {
+                        state.settings.set_steam_api_key(steam_api_key);
+                    }
+                    if let Some(friends_api_usage) = internal.friends_api_usage {
+                        state.settings.set_friends_api_usage(friends_api_usage);
+                    }
+                }
+
+                if let Some(external) = prefs.external {
+                    state.settings.update_external_preferences(external);
+                }
+
+                state.settings.save_ok();
+            }
+        }
+    }
+}
 
 pub struct WebAPIHandler;
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for WebAPIHandler
@@ -77,11 +134,11 @@ where
             WebRequest::PostUser(users, tx) => {
                 tx.send(post_user_response(state, users)).unwrap();
             }
-            WebRequest::PutUser(users) => {}
+            WebRequest::PutUser(_users) => {}
             WebRequest::GetPrefs(tx) => {
                 tx.send(get_prefs_response(state)).unwrap();
             }
-            WebRequest::PutPrefs(prefs) => {}
+            WebRequest::PutPrefs(_prefs) => {}
             WebRequest::GetHistory(page, tx) => {
                 tx.send(get_history_response(state, page)).unwrap();
             }
@@ -260,7 +317,7 @@ async fn post_user(State(state): State<WebState>, users: Json<UserRequest>) -> i
     }
 }
 
-fn post_user_response(state: &MACState, users: &UserRequest) -> String {
+fn post_user_response(_state: &MACState, _users: &UserRequest) -> String {
     "Not yet implemented".into()
 }
 
@@ -386,7 +443,7 @@ async fn get_playerlist(State(state): State<WebState>) -> impl IntoResponse {
     }
 }
 
-fn get_playerlist_response(state: &MACState) -> String {
+fn get_playerlist_response(_state: &MACState) -> String {
     "Not yet implemented".into()
 }
 
