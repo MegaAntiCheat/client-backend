@@ -160,7 +160,9 @@ fn main() {
                 .add_handler(WebAPIHandler);
 
             loop {
-                event_loop.execute_cycle(&mut state).await;
+                if event_loop.execute_cycle(&mut state).await.is_none() {
+                    tokio::time::sleep(Duration::from_millis(50)).await;
+                }
             }
         });
 }

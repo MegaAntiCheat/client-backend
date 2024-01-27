@@ -49,7 +49,7 @@ where
     /// # Panics
     /// If any of the async tasks executed as part of message resolution
     /// paniced.
-    pub async fn execute_cycle(&mut self, state: &mut S) {
+    pub async fn execute_cycle(&mut self, state: &mut S) -> Option<()> {
         let mut messages = Vec::new();
 
         // Check sources
@@ -72,6 +72,10 @@ where
         }
         for i in finished_tasks.into_iter().rev() {
             self.async_tasks.remove(i);
+        }
+
+        if messages.is_empty() {
+            return None;
         }
 
         // Run handlers
@@ -99,6 +103,8 @@ where
         for m in messages {
             m.update_state(state);
         }
+
+        Some(())
     }
 }
 
