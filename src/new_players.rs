@@ -1,9 +1,8 @@
 use event_loop::{try_get, Handled, HandlerStruct, Is, StateUpdater};
 use steamid_ng::SteamID;
 
-use crate::state::MACState;
-
 use super::console::ConsoleOutput;
+use crate::state::MACState;
 
 // Messages *********************
 

@@ -1,8 +1,15 @@
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+    time::Duration,
+};
+
 use args::Args;
 use clap::Parser;
 use demo::demo_loop;
-use event_loop::{define_handlers, define_messages, try_get, Is};
-use event_loop::{EventLoop, Handled, HandlerStruct, StateUpdater};
+use event_loop::{
+    define_handlers, define_messages, try_get, EventLoop, Handled, HandlerStruct, Is, StateUpdater,
+};
 use events::emit_on_timer;
 use include_dir::{include_dir, Dir};
 use launchoptions::LaunchOptions;
@@ -11,13 +18,10 @@ use player_records::PlayerRecords;
 use server::Server;
 use settings::Settings;
 use state::MACState;
-use std::path::{Path, PathBuf};
-use std::str::FromStr;
-use std::time::Duration;
 use tracing_appender::non_blocking::WorkerGuard;
-use tracing_subscriber::filter::Directive;
 use tracing_subscriber::{
-    fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, Layer,
+    filter::Directive, fmt::writer::MakeWriterExt, layer::SubscriberExt, util::SubscriberInitExt,
+    EnvFilter, Layer,
 };
 use web::{web_main, WebState};
 

@@ -11,9 +11,8 @@ use serde::Deserialize;
 use thiserror::Error;
 use tokio::{net::TcpStream, sync::Mutex, time::timeout};
 
-use crate::{events::Refresh, state::MACState};
-
 use super::console::RawConsoleOutput;
+use crate::{events::Refresh, state::MACState};
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -25,9 +24,7 @@ pub enum KickReason {
 }
 
 impl Default for KickReason {
-    fn default() -> Self {
-        Self::None
-    }
+    fn default() -> Self { Self::None }
 }
 
 impl Display for KickReason {
@@ -49,8 +46,9 @@ pub enum CommandManagerError {
     TimeOut(#[from] tokio::time::error::Elapsed),
 }
 
-/// Since we only _really_ care about differentiating the Rcon errors, those are the values we check more explicitly.
-/// For the timeout variant, comparing that they are both the same supertype is simply enough as they only downcast to
+/// Since we only _really_ care about differentiating the Rcon errors, those are
+/// the values we check more explicitly. For the timeout variant, comparing that
+/// they are both the same supertype is simply enough as they only downcast to
 /// one error type.
 impl PartialEq for CommandManagerError {
     fn eq(&self, other: &Self) -> bool {
@@ -69,8 +67,10 @@ impl PartialEq for CommandManagerError {
     }
 }
 
-/// On app launch, the connection error state for RCon will be initialised to 'Never'. Once we have achieved the first connection
-/// with the defined RCon properties, we can only ever have an error state of 'Okay' or Current(CommandManagerError)
+/// On app launch, the connection error state for RCon will be initialised to
+/// 'Never'. Once we have achieved the first connection with the defined RCon
+/// properties, we can only ever have an error state of 'Okay' or
+/// Current(CommandManagerError)
 #[derive(PartialEq)]
 enum ErrorState {
     /// Never had an error, never been connected to RCon
@@ -91,7 +91,8 @@ pub enum Command {
     Say(Arc<str>),
     SayTeam(Arc<str>),
     Kick {
-        /// The uid of the player as returned by [Command::Status] or [Command::G15]
+        /// The uid of the player as returned by [Command::Status] or
+        /// [Command::G15]
         player: Arc<str>,
         #[serde(default)]
         reason: KickReason,
@@ -142,12 +143,14 @@ impl CommandManagerInner {
             || port != self.port
             || match self.current_err_state {
                 ErrorState::Okay => false,
-                // Don't try to keep reconnecting on bad auth, otherwise TF2 will shunt the connection for spam
+                // Don't try to keep reconnecting on bad auth, otherwise TF2 will shunt the
+                // connection for spam
                 ErrorState::Current(CommandManagerError::Rcon(rcon::Error::Auth)) => false,
                 _ => true,
             };
 
-        // Known issue: if the user changes the rcon_password _in TF2_, this will not trigger a reconnect
+        // Known issue: if the user changes the rcon_password _in TF2_, this will not
+        // trigger a reconnect
         if needs_reconnect {
             self.port = port;
             self.password = password;
@@ -155,8 +158,9 @@ impl CommandManagerInner {
             match self.try_reconnect().await {
                 Ok(_) => {
                     // Current error state now presents a historical view
-                    // on what the error was. Since we are now connected, if the error state indicates
-                    // never connected, we can assume first time connect Otherwise this is a reconnect.
+                    // on what the error was. Since we are now connected, if the error state
+                    // indicates never connected, we can assume first time
+                    // connect Otherwise this is a reconnect.
                     match self.current_err_state {
                         ErrorState::Current(_) => {
                             tracing::info!("Succesfully reconnected to RCon")
@@ -175,7 +179,8 @@ impl CommandManagerInner {
 
                     if self.current_err_state != self.previous_err_state {
                         match &self.current_err_state {
-                            // If we have just launched/reset RCon state, and we get connection refused, just warn about it instead as TF2 likely isn't open
+                            // If we have just launched/reset RCon state, and we get connection
+                            // refused, just warn about it instead as TF2 likely isn't open
                             ErrorState::Current(
                                 e @ CommandManagerError::Rcon(rcon::Error::Io(err)),
                             ) if self.previous_err_state == ErrorState::Never
@@ -186,7 +191,8 @@ impl CommandManagerInner {
                                     e
                                 )
                             }
-                            // We have entered an error state from some other state, or the error state has changed. Report it!
+                            // We have entered an error state from some other state, or the error
+                            // state has changed. Report it!
                             ErrorState::Current(err) => {
                                 tracing::error!("{}", err);
                             }
@@ -226,8 +232,8 @@ impl CommandManagerInner {
 
         match timeout(
             // Windows will try and connect to an unbound port up to 3 times, with 500ms intervals
-            // 2000ms was too little time on the average system to accurately return the 'Connection Refused' error, and
-            // would instead return Elapsed.
+            // 2000ms was too little time on the average system to accurately return the
+            // 'Connection Refused' error, and would instead return Elapsed.
             Duration::from_millis(2500),
             Connection::connect(format!("127.0.0.1:{}", self.port), &self.password),
         )

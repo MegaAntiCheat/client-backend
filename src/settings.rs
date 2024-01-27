@@ -13,8 +13,7 @@ use serde_json::{Map, Value};
 use steamid_ng::SteamID;
 use thiserror::Error;
 
-use crate::args::Args;
-use crate::gamefinder;
+use crate::{args::Args, gamefinder};
 
 #[derive(Debug, Error)]
 pub enum ConfigFilesError {
@@ -37,9 +36,7 @@ pub enum FriendsAPIUsage {
 }
 
 impl FriendsAPIUsage {
-    pub fn lookup_user(&self) -> bool {
-        *self != FriendsAPIUsage::None
-    }
+    pub fn lookup_user(&self) -> bool { *self != FriendsAPIUsage::None }
 
     pub fn lookup_cheaters(&self) -> bool {
         if *self == FriendsAPIUsage::All || *self == FriendsAPIUsage::CheatersOnly {
@@ -48,9 +45,7 @@ impl FriendsAPIUsage {
         false
     }
 
-    pub fn lookup_others(&self) -> bool {
-        *self == FriendsAPIUsage::All
-    }
+    pub fn lookup_others(&self) -> bool { *self == FriendsAPIUsage::All }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -85,12 +80,13 @@ pub struct Settings {
 
 #[allow(dead_code)]
 impl Settings {
-    /// Attempts to load the [Settings] at the specified override location, or the default location.
-    /// If it cannot be found, new [Settings] will be created at that location.
+    /// Attempts to load the [Settings] at the specified override location, or
+    /// the default location. If it cannot be found, new [Settings] will be
+    /// created at that location.
     ///
     /// **Panic**:
-    /// This function will panic if the settings were found but could not be loaded or
-    /// some other unexpected error occurs to prevent data loss.
+    /// This function will panic if the settings were found but could not be
+    /// loaded or some other unexpected error occurs to prevent data loss.
     pub fn load_or_create(args: &Args) -> Settings {
         let settings_path: PathBuf = args
         .config
@@ -146,7 +142,8 @@ impl Settings {
         Self::load_from(Self::locate_config_file_path()?, args)
     }
 
-    /// Attempt to load settings from a provided configuration file, or just use default config
+    /// Attempt to load settings from a provided configuration file, or just use
+    /// default config
     pub fn load_from(path: PathBuf, args: &Args) -> Result<Settings, ConfigFilesError> {
         // Read config.yaml file if it exists, otherwise try to create a default file.
         let contents = std::fs::read_to_string(&path)
@@ -161,8 +158,8 @@ impl Settings {
         Ok(settings)
     }
 
-    /// Reads the Steam/config/loginusers.vdf file to find the currently logged in
-    /// steam ID.
+    /// Reads the Steam/config/loginusers.vdf file to find the currently logged
+    /// in steam ID.
     fn load_current_steam_user() -> Result<SteamID, anyhow::Error> {
         tracing::debug!("Loading steam user login data from Steam directory");
         let user_conf_path = gamefinder::locate_steam_logged_in_users()
@@ -232,7 +229,8 @@ impl Settings {
             );
             Arc::from(val.clone())
         });
-        // Override (and log if) the Steam API key. (No default value, but can be configured from config.yaml)
+        // Override (and log if) the Steam API key. (No default value, but can be
+        // configured from config.yaml)
         self.override_steam_api_key = args.api_key.as_ref().map(|val| {
             tracing::info!(
                 "Overrode configured Steam API key {:?}->{:?}",
@@ -241,7 +239,8 @@ impl Settings {
             );
             Arc::from(val.clone())
         });
-        // Override (and log if) the TF2 game directory. (Can be configured, but by default we search via steam library for it)
+        // Override (and log if) the TF2 game directory. (Can be configured, but by
+        // default we search via steam library for it)
         self.override_tf2_dir = args.tf2_dir.as_ref().map(|val| {
             tracing::info!(
                 "Overrode configured TF2 directory {:?}->{:?}",
@@ -288,18 +287,15 @@ impl Settings {
             tracing::error!("Failed to save settings: {:?}", e);
             return;
         }
-        // this will never fail to unwrap because the above error would have occured first and broken control flow.
+        // this will never fail to unwrap because the above error would have occured
+        // first and broken control flow.
         tracing::debug!("Settings saved to {:?}", self.config_path.clone().unwrap());
     }
 
     // Setters & Getters
-    pub fn get_steam_user(&self) -> Option<SteamID> {
-        self.steam_user
-    }
+    pub fn get_steam_user(&self) -> Option<SteamID> { self.steam_user }
 
-    pub fn get_config_path(&self) -> Option<&PathBuf> {
-        self.config_path.as_ref()
-    }
+    pub fn get_config_path(&self) -> Option<&PathBuf> { self.config_path.as_ref() }
     pub fn get_tf2_directory(&self) -> &Path {
         self.override_tf2_dir
             .as_ref()
@@ -311,61 +307,40 @@ impl Settings {
             .unwrap_or(&self.rcon_password)
             .clone()
     }
-    pub fn get_webui_port(&self) -> u16 {
-        self.override_webui_port.unwrap_or(self.webui_port)
-    }
+    pub fn get_webui_port(&self) -> u16 { self.override_webui_port.unwrap_or(self.webui_port) }
     pub fn get_steam_api_key(&self) -> Arc<str> {
         self.override_steam_api_key
             .as_ref()
             .unwrap_or(&self.steam_api_key)
             .clone()
     }
-    pub fn get_external_preferences(&self) -> &serde_json::Value {
-        &self.external
-    }
-    pub fn set_tf2_directory(&mut self, dir: PathBuf) {
-        self.tf2_directory = dir;
-    }
-    pub fn set_rcon_password(&mut self, pwd: Arc<str>) {
-        self.rcon_password = pwd;
-    }
-    pub fn set_webui_port(&mut self, port: u16) {
-        self.webui_port = port;
-    }
+    pub fn get_external_preferences(&self) -> &serde_json::Value { &self.external }
+    pub fn set_tf2_directory(&mut self, dir: PathBuf) { self.tf2_directory = dir; }
+    pub fn set_rcon_password(&mut self, pwd: Arc<str>) { self.rcon_password = pwd; }
+    pub fn set_webui_port(&mut self, port: u16) { self.webui_port = port; }
 
-    pub fn get_autolaunch_ui(&self) -> bool {
-        self.autolaunch_ui
-    }
+    pub fn get_autolaunch_ui(&self) -> bool { self.autolaunch_ui }
 
-    pub fn set_steam_api_key(&mut self, key: Arc<str>) {
-        self.steam_api_key = key;
-    }
+    pub fn set_steam_api_key(&mut self, key: Arc<str>) { self.steam_api_key = key; }
 
     pub fn update_external_preferences(&mut self, prefs: serde_json::Value) {
         merge_json_objects(&mut self.external, prefs);
     }
 
-    pub fn set_config_path(&mut self, config: PathBuf) {
-        self.config_path = Some(config);
-    }
+    pub fn set_config_path(&mut self, config: PathBuf) { self.config_path = Some(config); }
 
     pub fn set_friends_api_usage(&mut self, friends_api_usage: FriendsAPIUsage) {
         self.friends_api_usage = friends_api_usage;
     }
 
-    pub fn get_friends_api_usage(&self) -> FriendsAPIUsage {
-        self.friends_api_usage
-    }
+    pub fn get_friends_api_usage(&self) -> FriendsAPIUsage { self.friends_api_usage }
 
-    pub fn get_rcon_port(&self) -> u16 {
-        self.override_rcon_port.unwrap_or(self.rcon_port)
-    }
+    pub fn get_rcon_port(&self) -> u16 { self.override_rcon_port.unwrap_or(self.rcon_port) }
 
-    pub fn set_rcon_port(&mut self, port: u16) {
-        self.rcon_port = port;
-    }
+    pub fn set_rcon_port(&mut self, port: u16) { self.rcon_port = port; }
 
-    /// Attempts to find (and create) a directory to be used for configuration files
+    /// Attempts to find (and create) a directory to be used for configuration
+    /// files
     pub fn locate_config_directory() -> Result<PathBuf, ConfigFilesError> {
         let dirs = ProjectDirs::from("com.megascatterbomb", "MAC", "MACClient")
             .ok_or(ConfigFilesError::NoValidHome)?;
@@ -418,7 +393,8 @@ impl Default for Settings {
 
 // Useful
 
-/// Combines the second provided Json Object into the first. If the given [Value]s are not [Value::Object]s, this will do nothing.
+/// Combines the second provided Json Object into the first. If the given
+/// [Value]s are not [Value::Object]s, this will do nothing.
 fn merge_json_objects(a: &mut Value, b: Value) {
     if let Value::Object(a) = a {
         if let Value::Object(b) = b {

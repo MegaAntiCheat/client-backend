@@ -113,15 +113,11 @@ enum Action<M> {
 }
 
 impl<M> From<M> for Action<M> {
-    fn from(value: M) -> Self {
-        Action::Message(value)
-    }
+    fn from(value: M) -> Self { Action::Message(value) }
 }
 
 impl<M> Handled<M> {
-    pub const fn none() -> Option<Self> {
-        None
-    }
+    pub const fn none() -> Option<Self> { None }
 
     pub fn single(m: impl Into<M>) -> Option<Self> {
         Some(Self(Internal::Single(Action::Message(m.into()))))
@@ -189,9 +185,7 @@ impl<M, I: Into<M>> MessageSource<M> for tokio::sync::mpsc::Receiver<I> {
     }
 }
 
-pub fn try_get<T>(message: &impl Is<T>) -> Option<&T> {
-    message.try_get()
-}
+pub fn try_get<T>(message: &impl Is<T>) -> Option<&T> { message.try_get() }
 
 pub trait Is<T>: From<T> {
     fn is(&self) -> bool;

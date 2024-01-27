@@ -3,8 +3,7 @@
 
 use std::sync::Arc;
 
-use anyhow::Context;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use regex::Captures;
 use steamid_ng::SteamID;
 
@@ -24,27 +23,21 @@ pub const REGEX_HOSTNAME: &str = r#"^hostname: (.*)$"#;
 #[derive(Debug, Clone)]
 pub struct Hostname(pub Arc<str>);
 impl Hostname {
-    pub fn parse(caps: Captures) -> Hostname {
-        Hostname(caps[1].into())
-    }
+    pub fn parse(caps: Captures) -> Hostname { Hostname(caps[1].into()) }
 }
 
 pub const REGEX_IP: &str = r#"^udp/ip  : (.*)$"#;
 #[derive(Debug, Clone)]
 pub struct ServerIP(pub Arc<str>);
 impl ServerIP {
-    pub fn parse(caps: Captures) -> ServerIP {
-        ServerIP(caps[1].into())
-    }
+    pub fn parse(caps: Captures) -> ServerIP { ServerIP(caps[1].into()) }
 }
 
 pub const REGEX_MAP: &str = r#"^map     : (.+) at: .*$"#;
 #[derive(Debug, Clone)]
 pub struct Map(pub Arc<str>);
 impl Map {
-    pub fn parse(caps: Captures) -> Map {
-        Map(caps[1].into())
-    }
+    pub fn parse(caps: Captures) -> Map { Map(caps[1].into()) }
 }
 
 pub const REGEX_PLAYERCOUNT: &str = r#"^players : (\d+) humans, (\d+) bots \((\d+) max\)$"#;
@@ -58,8 +51,8 @@ pub struct PlayerCount {
 impl PlayerCount {
     pub fn parse(caps: Captures) -> PlayerCount {
         PlayerCount {
-            // Regex should guarantee the input is valid, but in the ridiculous case there's an invalid
-            // number I would prefer it has the incorrect value (0) than crash.
+            // Regex should guarantee the input is valid, but in the ridiculous case there's an
+            // invalid number I would prefer it has the incorrect value (0) than crash.
             players: caps[1].parse().unwrap_or(0),
             bots: caps[2].parse().unwrap_or(0),
             max: caps[3].parse().unwrap_or(0),
@@ -122,7 +115,8 @@ impl ChatMessage {
 
 // Reads lines from output of the "status" command
 // Includes players on server, player name, state, steamid, time connected
-// If no player exists on the server with a steamid from here, it creates a new player and adds it to the list
+// If no player exists on the server with a steamid from here, it creates a new
+// player and adds it to the list
 pub const REGEX_STATUS: &str =
     r#"^#\s*(\d+)\s"(.*)"\s+(\[U:\d:\d+\])\s+((?:[\ds]+:?)+)\s+(\d+)\s*(\d+)\s*(\w+).*$"#;
 
@@ -156,7 +150,8 @@ impl StatusLine {
     }
 }
 
-// Converts a given string time (e.g. 57:48 or 1:14:46) as an integer number of seconds
+// Converts a given string time (e.g. 57:48 or 1:14:46) as an integer number of
+// seconds
 fn get_time(input: &str) -> Option<u32> {
     let mut t: u32 = 0;
 
@@ -164,7 +159,8 @@ fn get_time(input: &str) -> Option<u32> {
     let n = splits.len();
 
     for (i, v) in splits.iter().enumerate() {
-        // let dt: u32 = v.parse::<u32>().expect(&format!("Had trouble parsing {} as u32", v));
+        // let dt: u32 = v.parse::<u32>().expect(&format!("Had trouble parsing {} as
+        // u32", v));
         let dt = v.parse::<u32>().ok()?;
         t += 60u32.pow((n - i - 1) as u32) * dt;
     }

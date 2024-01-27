@@ -1,9 +1,10 @@
-use serde::{Serialize, Serializer};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     ops::{Deref, DerefMut},
     sync::Arc,
 };
+
+use serde::{Serialize, Serializer};
 use steamid_ng::SteamID;
 
 use crate::{
@@ -74,7 +75,8 @@ impl Players {
 
     /// Updates friends lists of a user
     /// Propagates to all other friends lists to ensure two-way lookup possible.
-    /// Only call if friends list was obtained directly from Steam API (i.e. friends list is public)
+    /// Only call if friends list was obtained directly from Steam API (i.e.
+    /// friends list is public)
     pub fn update_friends_list(&mut self, steamid: SteamID, friendslist: Vec<Friend>) {
         // Propagate to all other hashmap entries
 
@@ -92,7 +94,8 @@ impl Players {
         self.update_user_friend_tag(steamid);
     }
 
-    /// Sets the friends list and friends list visibility, returning any old friends that have been removed
+    /// Sets the friends list and friends list visibility, returning any old
+    /// friends that have been removed
     fn set_friends(&mut self, steamid: SteamID, friends: Vec<Friend>) -> Vec<SteamID> {
         let friend_info = self.friend_info.entry(steamid).or_default();
 
@@ -110,7 +113,7 @@ impl Players {
         let friend_info = self.friend_info.entry(friend.steamid).or_default();
 
         friend_info.push(Friend {
-            steamid: steamid,
+            steamid,
             friend_since: friend.friend_since,
         });
 
@@ -186,7 +189,8 @@ impl Players {
                 return Some(true);
             }
 
-            // Friends list is public, so we should be able to see the other party regardless
+            // Friends list is public, so we should be able to see the other party
+            // regardless
             if friends.public.is_some_and(|p| p) {
                 return Some(false);
             }
@@ -205,8 +209,9 @@ impl Players {
         None
     }
 
-    /// Moves any old players from the server into history. Any console commands (status, g15_dumpplayer, etc)
-    /// should be run before calling this function again to prevent removing all players from the player list.
+    /// Moves any old players from the server into history. Any console commands
+    /// (status, g15_dumpplayer, etc) should be run before calling this
+    /// function again to prevent removing all players from the player list.
     pub fn refresh(&mut self) {
         // Get old players
         let unaccounted_players: Vec<SteamID> = self
@@ -237,12 +242,13 @@ impl Players {
             self.history.push_back(p);
         }
 
-        // Mark all remaining players as unaccounted, they will be marked as accounted again
-        // when they show up in status or another console command.
+        // Mark all remaining players as unaccounted, they will be marked as accounted
+        // again when they show up in status or another console command.
         self.game_info.values_mut().for_each(GameInfo::next_cycle);
     }
 
-    /// Gets a struct containing all the relevant data on a player in a serializable format
+    /// Gets a struct containing all the relevant data on a player in a
+    /// serializable format
     pub fn get_serializable_player(&self, steamid: &SteamID) -> Option<Player> {
         let game_info = self.game_info.get(steamid)?;
         let tags: Vec<&str> = self
@@ -461,9 +467,7 @@ impl Default for GameInfo {
 }
 
 impl GameInfo {
-    pub(crate) fn new() -> GameInfo {
-        Default::default()
-    }
+    pub(crate) fn new() -> GameInfo { Default::default() }
 
     pub(crate) fn new_from_g15(g15: G15Player) -> Option<GameInfo> {
         g15.userid.as_ref()?;
@@ -553,15 +557,11 @@ pub struct FriendInfo {
 impl Deref for FriendInfo {
     type Target = Vec<Friend>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.friends
-    }
+    fn deref(&self) -> &Self::Target { &self.friends }
 }
 
 impl DerefMut for FriendInfo {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.friends
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.friends }
 }
 
 // Useful

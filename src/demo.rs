@@ -1,19 +1,20 @@
+use std::{
+    fs::{metadata, File},
+    io::{Read, Seek},
+    path::{Path, PathBuf},
+    sync::mpsc,
+    time::Duration,
+};
+
 use bitbuffer::{BitError, BitRead, BitReadBuffer, BitReadStream, LittleEndian};
-use notify::event::ModifyKind;
-use notify::{Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use std::fs::{metadata, File};
-use std::io::{Read, Seek};
-use std::path::{Path, PathBuf};
-use std::sync::mpsc;
-use std::time::Duration;
-use tf_demo_parser::demo::gamevent::GameEvent;
-use tf_demo_parser::demo::header::Header;
-use tf_demo_parser::demo::message::gameevent::GameEventMessage;
-use tf_demo_parser::demo::message::Message;
-use tf_demo_parser::demo::packet::message::MessagePacket;
-use tf_demo_parser::demo::packet::Packet;
-use tf_demo_parser::demo::parser::gamestateanalyser::GameStateAnalyser;
-use tf_demo_parser::demo::parser::{DemoHandler, RawPacketStream};
+use notify::{event::ModifyKind, Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
+use tf_demo_parser::demo::{
+    gamevent::GameEvent,
+    header::Header,
+    message::{gameevent::GameEventMessage, Message},
+    packet::{message::MessagePacket, Packet},
+    parser::{gamestateanalyser::GameStateAnalyser, DemoHandler, RawPacketStream},
+};
 
 pub struct DemoManager {
     previous_demos: Vec<OpenDemo>,
@@ -37,7 +38,8 @@ impl DemoManager {
         }
     }
 
-    /// Start tracking a new demo file. A demo must be being tracked before bytes can be appended.
+    /// Start tracking a new demo file. A demo must be being tracked before
+    /// bytes can be appended.
     pub fn new_demo(&mut self, path: PathBuf) {
         if let Some(old) = self.current_demo.take() {
             self.previous_demos.push(old);
@@ -71,7 +73,8 @@ impl DemoManager {
 }
 
 impl OpenDemo {
-    /// Append the provided bytes to the current demo being watched, and handle any packets
+    /// Append the provided bytes to the current demo being watched, and handle
+    /// any packets
     pub fn read_next_bytes(&mut self) -> std::io::Result<()> {
         let current_metadata = metadata(&self.file_path)?;
 
@@ -253,8 +256,9 @@ pub fn demo_loop(demo_path: PathBuf) -> anyhow::Result<()> {
                         {
                             manager.read_next_bytes();
                         } else if path.extension().map_or(false, |ext| ext == "dem") {
-                            // A new demo can be started with the same name as a previous one, or the player can
-                            // be already connected to a server and recording a demo when the application is run.
+                            // A new demo can be started with the same name as a previous one, or
+                            // the player can be already connected to a
+                            // server and recording a demo when the application is run.
                             // This should catch those cases.
                             manager.new_demo(path.clone());
                             manager.read_next_bytes();

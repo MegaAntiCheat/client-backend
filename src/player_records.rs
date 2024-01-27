@@ -28,12 +28,14 @@ pub struct PlayerRecords {
 }
 
 impl PlayerRecords {
-    /// Attempts to load the playerlist from the overriden (if provided in [Args]) or default location.
-    /// If it cannot be found, then a new one is created at the location.
+    /// Attempts to load the playerlist from the overriden (if provided in
+    /// [Args]) or default location. If it cannot be found, then a new one
+    /// is created at the location.
     ///
     /// **Panics**:
-    /// This function can panic if the playerlist file was provided but could not be parsed, or another
-    /// unexpected error occurred to prevent data loss.
+    /// This function can panic if the playerlist file was provided but could
+    /// not be parsed, or another unexpected error occurred to prevent data
+    /// loss.
     pub fn load_or_create(args: &Args) -> PlayerRecords {
         // Playerlist
         let playerlist_path: PathBuf = args
@@ -81,9 +83,10 @@ impl PlayerRecords {
         // serializing/deserializing the records to prevent duplication in the
         // resulting file.
         for record in &mut playerlist.records.values_mut() {
-            // Some old versions had the custom_data set to `null` by default, but an empty object is preferable
-            // so I'm using this to fix it lol. It's really not necessary but at the time the UI wasn't
-            // a fan of nulls in the custom_data and this fixes it so whatever. :3
+            // Some old versions had the custom_data set to `null` by default, but an empty
+            // object is preferable so I'm using this to fix it lol. It's really
+            // not necessary but at the time the UI wasn't a fan of nulls in the
+            // custom_data and this fixes it so whatever. :3
             if record.custom_data.is_null() {
                 record.custom_data = serde_json::Value::Object(serde_json::Map::new());
             }
@@ -106,13 +109,12 @@ impl PlayerRecords {
             tracing::error!("Failed to save playerlist: {:?}", e);
             return;
         }
-        // this will never fail to unwrap because the above error would have occured first and broken control flow.
+        // this will never fail to unwrap because the above error would have occured
+        // first and broken control flow.
         tracing::debug!("Playerlist saved to {:?}", self.path);
     }
 
-    pub fn set_path(&mut self, path: PathBuf) {
-        self.path = path;
-    }
+    pub fn set_path(&mut self, path: PathBuf) { self.path = path; }
 
     pub fn locate_playerlist_file() -> Result<PathBuf, ConfigFilesError> {
         Settings::locate_config_directory().map(|dir| dir.join("playerlist.json"))
@@ -143,15 +145,11 @@ impl Default for PlayerRecords {
 impl Deref for PlayerRecords {
     type Target = HashMap<SteamID, PlayerRecord>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.records
-    }
+    fn deref(&self) -> &Self::Target { &self.records }
 }
 
 impl DerefMut for PlayerRecords {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.records
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.records }
 }
 
 // PlayerRecord
@@ -204,13 +202,9 @@ impl Default for PlayerRecord {
     }
 }
 
-pub fn default_custom_data() -> serde_json::Value {
-    serde_json::Value::Object(Map::new())
-}
+pub fn default_custom_data() -> serde_json::Value { serde_json::Value::Object(Map::new()) }
 
-pub fn default_date() -> DateTime<Utc> {
-    Utc::now()
-}
+pub fn default_date() -> DateTime<Utc> { Utc::now() }
 
 /// What a player is marked as in the personal playerlist
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -223,13 +217,9 @@ pub enum Verdict {
 }
 
 impl Display for Verdict {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{:?}", self) }
 }
 
 impl Default for Verdict {
-    fn default() -> Self {
-        Self::Player
-    }
+    fn default() -> Self { Self::Player }
 }

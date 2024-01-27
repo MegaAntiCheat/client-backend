@@ -1,5 +1,6 @@
-use serde::Serialize;
 use std::sync::Arc;
+
+use serde::Serialize;
 
 use crate::{
     console::ConsoleOutput,
@@ -41,37 +42,26 @@ impl Server {
 
     // **** Getters / Setters ****
 
-    pub fn map(&self) -> Option<Arc<str>> {
-        self.map.clone()
-    }
+    pub fn map(&self) -> Option<Arc<str>> { self.map.clone() }
 
-    pub fn ip(&self) -> Option<Arc<str>> {
-        self.ip.clone()
-    }
+    pub fn ip(&self) -> Option<Arc<str>> { self.ip.clone() }
 
-    pub fn hostname(&self) -> Option<Arc<str>> {
-        self.hostname.clone()
-    }
+    pub fn hostname(&self) -> Option<Arc<str>> { self.hostname.clone() }
 
-    pub fn max_players(&self) -> Option<u32> {
-        self.max_players
-    }
+    pub fn max_players(&self) -> Option<u32> { self.max_players }
 
-    pub fn num_players(&self) -> Option<u32> {
-        self.num_players
-    }
+    pub fn num_players(&self) -> Option<u32> { self.num_players }
 
-    pub fn gamemode(&self) -> Option<&Gamemode> {
-        self.gamemode.as_ref()
-    }
+    pub fn gamemode(&self) -> Option<&Gamemode> { self.gamemode.as_ref() }
 }
 
 impl Server {
     // **** Message handling ****
 
-    /// Handles any io output from running commands / reading the console log file.
-    /// Returns:
-    /// * Some<[SteamID]> of a player if they have been newly added to the server.
+    /// Handles any io output from running commands / reading the console log
+    /// file. Returns:
+    /// * Some<[SteamID]> of a player if they have been newly added to the
+    ///   server.
     pub fn handle_console_output(&mut self, response: ConsoleOutput) {
         use ConsoleOutput::*;
         match response {

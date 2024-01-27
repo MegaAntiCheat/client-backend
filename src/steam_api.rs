@@ -14,14 +14,13 @@ use tappet::{
 };
 use thiserror::Error;
 
+use super::new_players::NewPlayers;
 use crate::{
     player::{Friend, SteamInfo},
     player_records::Verdict,
     settings::FriendsAPIUsage,
     state::MACState,
 };
-
-use super::new_players::NewPlayers;
 
 const BATCH_SIZE: usize = 20; // adjust as needed
 
@@ -166,7 +165,8 @@ where
 {
     fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
         if let Some(NewPlayers(new_players)) = try_get(message) {
-            // Need all friends if there's a cheater/bot on the server with a private friends list
+            // Need all friends if there's a cheater/bot on the server with a private
+            // friends list
             let need_all_friends = state.players.connected.iter().any(|p| {
                 state
                     .players
@@ -224,7 +224,8 @@ where
 
 // Utility ***************************************
 
-/// Make a request to the Steam web API for the chosen player and return the important steam info.
+/// Make a request to the Steam web API for the chosen player and return the
+/// important steam info.
 pub async fn request_steam_info(
     client: &mut SteamAPI,
     playerids: &[SteamID],

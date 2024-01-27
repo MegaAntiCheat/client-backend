@@ -37,7 +37,8 @@ impl FileWatcher {
         (resp_rx, file_watcher)
     }
 
-    /// Start the file watcher loop. This will block until the channel is closed, so usually it should be spawned in a separate `tokio::task`
+    /// Start the file watcher loop. This will block until the channel is
+    /// closed, so usually it should be spawned in a separate `tokio::task`
     pub async fn file_watch_loop(&mut self) {
         if let Err(e) = self.first_file_open().await {
             tracing::error!("Failed to open file {:?}: {:?}", &self.file_path, e);
@@ -79,8 +80,9 @@ impl FileWatcher {
         Ok(self.open_file.as_mut().unwrap())
     }
 
-    /// Attempts to read the new contents of the observed file and updates the internal state
-    /// with any new lines that have been appended since last call.
+    /// Attempts to read the new contents of the observed file and updates the
+    /// internal state with any new lines that have been appended since last
+    /// call.
     async fn read_new_file_lines(&mut self) -> Result<()> {
         if self.open_file.is_none() {
             return Err(anyhow!(
@@ -116,7 +118,8 @@ impl FileWatcher {
 
         file.last_size += read_size as u64;
 
-        // If we expected there to be new data but we didn't read anything, reopen the file and try again.
+        // If we expected there to be new data but we didn't read anything, reopen the
+        // file and try again.
         if read_size == 0 {
             tracing::warn!("Expected to read bytes but didn't get any, the file may have been replaced. Reopening.");
             file = self
