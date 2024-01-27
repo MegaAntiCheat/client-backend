@@ -12,6 +12,7 @@ impl<S> StateUpdater<S> for NewPlayers {}
 
 // Handlers *********************
 
+#[allow(clippy::module_name_repetitions)]
 pub struct ExtractNewPlayers;
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for ExtractNewPlayers
 where
@@ -31,12 +32,12 @@ where
             ConsoleOutput::Status(s) => {
                 steamids.push(s.steamid);
             }
-            ConsoleOutput::Chat(_) => {}
-            ConsoleOutput::Kill(_) => {}
-            ConsoleOutput::Hostname(_) => {}
-            ConsoleOutput::ServerIP(_) => {}
-            ConsoleOutput::Map(_) => {}
-            ConsoleOutput::PlayerCount(_) => {}
+            ConsoleOutput::Chat(_)
+            | ConsoleOutput::Kill(_)
+            | ConsoleOutput::Hostname(_)
+            | ConsoleOutput::ServerIP(_)
+            | ConsoleOutput::Map(_)
+            | ConsoleOutput::PlayerCount(_) => {}
             ConsoleOutput::G15(ps) => {
                 steamids.extend(ps.iter().filter_map(|p| p.steamid));
             }

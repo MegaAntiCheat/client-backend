@@ -28,8 +28,9 @@ pub struct Gamemode {
 
 #[allow(dead_code)]
 impl Server {
-    pub fn new() -> Server {
-        Server {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
             map: None,
             ip: None,
             hostname: None,
@@ -42,17 +43,27 @@ impl Server {
 
     // **** Getters / Setters ****
 
+    #[must_use]
     pub fn map(&self) -> Option<Arc<str>> { self.map.clone() }
 
+    #[must_use]
     pub fn ip(&self) -> Option<Arc<str>> { self.ip.clone() }
 
+    #[must_use]
     pub fn hostname(&self) -> Option<Arc<str>> { self.hostname.clone() }
 
-    pub fn max_players(&self) -> Option<u32> { self.max_players }
+    #[must_use]
+    pub const fn max_players(&self) -> Option<u32> { self.max_players }
 
-    pub fn num_players(&self) -> Option<u32> { self.num_players }
+    #[must_use]
+    pub const fn num_players(&self) -> Option<u32> { self.num_players }
 
-    pub fn gamemode(&self) -> Option<&Gamemode> { self.gamemode.as_ref() }
+    #[must_use]
+    pub const fn gamemode(&self) -> Option<&Gamemode> { self.gamemode.as_ref() }
+}
+
+impl Default for Server {
+    fn default() -> Self { Self::new() }
 }
 
 impl Server {
@@ -60,10 +71,10 @@ impl Server {
 
     /// Handles any io output from running commands / reading the console log
     /// file. Returns:
-    /// * Some<[SteamID]> of a player if they have been newly added to the
+    /// * Some<`SteamID`> of a player if they have been newly added to the
     ///   server.
     pub fn handle_console_output(&mut self, response: ConsoleOutput) {
-        use ConsoleOutput::*;
+        use ConsoleOutput::{Chat, Hostname, Kill, Map, PlayerCount, ServerIP, Status, G15};
         match response {
             Chat(chat) => self.handle_chat(chat),
             Kill(kill) => self.handle_kill(kill),
@@ -84,11 +95,15 @@ impl Server {
         }
     }
 
+    #[allow(clippy::unused_self)]
+    #[allow(clippy::needless_pass_by_value)]
     fn handle_chat(&mut self, chat: ChatMessage) {
         // TODO
         tracing::debug!("Chat: {:?}", chat);
     }
 
+    #[allow(clippy::unused_self)]
+    #[allow(clippy::needless_pass_by_value)]
     fn handle_kill(&mut self, kill: PlayerKill) {
         // TODO
         tracing::debug!("Kill: {:?}", kill);

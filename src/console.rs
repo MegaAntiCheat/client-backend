@@ -7,7 +7,7 @@ use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver};
 use crate::{
     io::{
         filewatcher::FileWatcher,
-        g15::{G15Parser, G15Player},
+        g15::{G15Player, Parser},
         regexes::{
             ChatMessage, Hostname, Map, PlayerCount, PlayerKill, ServerIP, StatusLine, REGEX_CHAT,
             REGEX_HOSTNAME, REGEX_IP, REGEX_KILL, REGEX_MAP, REGEX_PLAYERCOUNT, REGEX_STATUS,
@@ -20,6 +20,7 @@ use crate::{
 pub struct RawConsoleOutput(pub Arc<str>);
 impl<S> StateUpdater<S> for RawConsoleOutput {}
 
+#[allow(clippy::module_name_repetitions)]
 pub struct ConsoleLog {
     recv: UnboundedReceiver<Arc<str>>,
 
@@ -41,13 +42,16 @@ impl<M: Is<RawConsoleOutput>> MessageSource<M> for ConsoleLog {
     }
 }
 impl ConsoleLog {
-    pub async fn new(log_file_path: PathBuf) -> ConsoleLog {
+    /// # Panics
+    /// If tokio fails to spawn the task.
+    #[allow(clippy::unused_async)]
+    pub async fn new(log_file_path: PathBuf) -> Self {
         let (console_rx, mut log_watcher) = FileWatcher::new(log_file_path);
         tokio::task::spawn(async move {
             log_watcher.file_watch_loop().await;
         });
 
-        ConsoleLog {
+        Self {
             recv: console_rx,
             logged_error: false,
         }
@@ -55,6 +59,7 @@ impl ConsoleLog {
 }
 
 #[derive(Debug, Clone)]
+#[allow(clippy::module_name_repetitions)]
 pub enum ConsoleOutput {
     Status(StatusLine),
     Chat(ChatMessage),
@@ -69,8 +74,9 @@ impl StateUpdater<MACState> for ConsoleOutput {
     fn update_state(self, state: &mut MACState) { state.handle_console_output(self); }
 }
 
+#[allow(clippy::module_name_repetitions)]
 pub struct ConsoleParser {
-    g15_parser: G15Parser,
+    g15_parser: Parser,
     regex_status: Regex,
     regex_chat: Regex,
     regex_kill: Regex,
@@ -82,8 +88,8 @@ pub struct ConsoleParser {
 
 impl Default for ConsoleParser {
     fn default() -> Self {
-        ConsoleParser {
-            g15_parser: G15Parser::new(),
+        Self {
+            g15_parser: Parser::new(),
             regex_status: Regex::new(REGEX_STATUS).expect("Compile static regex"),
             regex_chat: Regex::new(REGEX_CHAT).expect("Compile static regex"),
             regex_kill: Regex::new(REGEX_KILL).expect("Compile static regex"),
@@ -109,7 +115,7 @@ where
         for line in console_out.lines() {
             // Match status
             if let Some(caps) = self.regex_status.captures(line) {
-                match StatusLine::parse(caps) {
+                match StatusLine::parse(&caps) {
                     Ok(status) => {
                         let status = ConsoleOutput::Status(status);
                         out.push(Handled::single(status));
@@ -119,32 +125,32 @@ where
             }
             // Match chat message
             if let Some(caps) = self.regex_chat.captures(line) {
-                let chat = ChatMessage::parse(caps);
+                let chat = ChatMessage::parse(&caps);
                 out.push(Handled::single(ConsoleOutput::Chat(chat)));
             }
             // Match player kills
             if let Some(caps) = self.regex_kill.captures(line) {
-                let kill = PlayerKill::parse(caps);
+                let kill = PlayerKill::parse(&caps);
                 out.push(Handled::single(ConsoleOutput::Kill(kill)));
             }
             // Match server hostname
             if let Some(caps) = self.regex_hostname.captures(line) {
-                let hostname = Hostname::parse(caps);
+                let hostname = Hostname::parse(&caps);
                 out.push(Handled::single(ConsoleOutput::Hostname(hostname)));
             }
             // Match server IP
             if let Some(caps) = self.regex_ip.captures(line) {
-                let ip = ServerIP::parse(caps);
+                let ip = ServerIP::parse(&caps);
                 out.push(Handled::single(ConsoleOutput::ServerIP(ip)));
             }
             // Match server map
             if let Some(caps) = self.regex_map.captures(line) {
-                let map = Map::parse(caps);
+                let map = Map::parse(&caps);
                 out.push(Handled::single(ConsoleOutput::Map(map)));
             }
             // Match server player count
             if let Some(caps) = self.regex_playercount.captures(line) {
-                let playercount = PlayerCount::parse(caps);
+                let playercount = PlayerCount::parse(&caps);
                 out.push(Handled::single(ConsoleOutput::PlayerCount(playercount)));
             }
         }

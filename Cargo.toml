@@ -12,6 +12,9 @@ path = "src/main.rs"
 name = "client_backend"
 path = "src/lib.rs"
 
+[lints.rust]
+unsafe_code = "forbid"
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]

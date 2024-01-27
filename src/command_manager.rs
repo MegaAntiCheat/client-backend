@@ -30,16 +30,16 @@ impl Default for KickReason {
 impl Display for KickReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(match self {
-            KickReason::None => "other",
-            KickReason::Idle => "idle",
-            KickReason::Cheating => "cheating",
-            KickReason::Scamming => "scamming",
+            Self::None => "other",
+            Self::Idle => "idle",
+            Self::Cheating => "cheating",
+            Self::Scamming => "scamming",
         })
     }
 }
 
 #[derive(Debug, Error)]
-pub enum CommandManagerError {
+pub enum Error {
     #[error("RCon error {0}")]
     Rcon(#[from] rcon::Error),
     #[error("Rcon connection timeout: {0}")]
@@ -50,25 +50,23 @@ pub enum CommandManagerError {
 /// the values we check more explicitly. For the timeout variant, comparing that
 /// they are both the same supertype is simply enough as they only downcast to
 /// one error type.
-impl PartialEq for CommandManagerError {
+impl PartialEq for Error {
     fn eq(&self, other: &Self) -> bool {
         #[allow(clippy::match_like_matches_macro)]
         match (self, other) {
-            (Self::Rcon(rcon::Error::Auth), Self::Rcon(rcon::Error::Auth)) => true,
-            (Self::Rcon(rcon::Error::CommandTooLong), Self::Rcon(rcon::Error::CommandTooLong)) => {
-                true
-            }
+            (Self::Rcon(rcon::Error::CommandTooLong), Self::Rcon(rcon::Error::CommandTooLong))
+            | (Self::Rcon(rcon::Error::Auth), Self::Rcon(rcon::Error::Auth))
+            | (Self::TimeOut(_), Self::TimeOut(_)) => true,
             (Self::Rcon(rcon::Error::Io(lh)), Self::Rcon(rcon::Error::Io(rh))) => {
                 lh.kind() == rh.kind()
             }
-            (Self::TimeOut(_), Self::TimeOut(_)) => true,
             _ => false,
         }
     }
 }
 
-/// On app launch, the connection error state for RCon will be initialised to
-/// 'Never'. Once we have achieved the first connection with the defined RCon
+/// On app launch, the connection error state for `RCon` will be initialised to
+/// 'Never'. Once we have achieved the first connection with the defined `RCon`
 /// properties, we can only ever have an error state of 'Okay' or
 /// Current(CommandManagerError)
 #[derive(PartialEq)]
@@ -78,7 +76,7 @@ enum ErrorState {
     /// Currently connected to RCon, logged no error state
     Okay,
     /// No longer or never was connected to RCon due to the wrapped error
-    Current(CommandManagerError),
+    Current(Error),
 }
 
 // Messages ***************************
@@ -104,14 +102,14 @@ impl<S> StateUpdater<S> for Command {}
 impl Display for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Command::G15 => f.write_str("g15_dumpplayer"),
-            Command::Status => f.write_str("status"),
-            Command::Kick { player, reason } => {
-                write!(f, "callvote kick \"{} {}\"", player, reason)
+            Self::G15 => f.write_str("g15_dumpplayer"),
+            Self::Status => f.write_str("status"),
+            Self::Kick { player, reason } => {
+                write!(f, "callvote kick \"{player} {reason}\"")
             }
-            Command::Say(message) => write!(f, "say \"{}\"", message),
-            Command::SayTeam(message) => write!(f, "say_team \"{}\"", message),
-            Command::Custom(command) => write!(f, "{}", command),
+            Self::Say(message) => write!(f, "say \"{message}\""),
+            Self::SayTeam(message) => write!(f, "say_team \"{message}\""),
+            Self::Custom(command) => write!(f, "{command}"),
         }
     }
 }
@@ -142,10 +140,9 @@ impl CommandManagerInner {
         let needs_reconnect = password != self.password
             || port != self.port
             || match self.current_err_state {
-                ErrorState::Okay => false,
                 // Don't try to keep reconnecting on bad auth, otherwise TF2 will shunt the
                 // connection for spam
-                ErrorState::Current(CommandManagerError::Rcon(rcon::Error::Auth)) => false,
+                ErrorState::Current(Error::Rcon(rcon::Error::Auth)) | ErrorState::Okay => false,
                 _ => true,
             };
 
@@ -156,19 +153,19 @@ impl CommandManagerInner {
             self.password = password;
 
             match self.try_reconnect().await {
-                Ok(_) => {
+                Ok(()) => {
                     // Current error state now presents a historical view
                     // on what the error was. Since we are now connected, if the error state
                     // indicates never connected, we can assume first time
                     // connect Otherwise this is a reconnect.
                     match self.current_err_state {
                         ErrorState::Current(_) => {
-                            tracing::info!("Succesfully reconnected to RCon")
+                            tracing::info!("Succesfully reconnected to RCon");
                         }
                         ErrorState::Never => {
-                            tracing::info!("Succesfully established a connection with RCon")
+                            tracing::info!("Succesfully established a connection with RCon");
                         }
-                        _ => {}
+                        ErrorState::Okay => {}
                     };
                     std::mem::swap(&mut self.current_err_state, &mut self.previous_err_state);
                     self.current_err_state = ErrorState::Okay;
@@ -181,15 +178,13 @@ impl CommandManagerInner {
                         match &self.current_err_state {
                             // If we have just launched/reset RCon state, and we get connection
                             // refused, just warn about it instead as TF2 likely isn't open
-                            ErrorState::Current(
-                                e @ CommandManagerError::Rcon(rcon::Error::Io(err)),
-                            ) if self.previous_err_state == ErrorState::Never
-                                && err.kind() == ErrorKind::ConnectionRefused =>
+                            ErrorState::Current(e @ Error::Rcon(rcon::Error::Io(err)))
+                                if self.previous_err_state == ErrorState::Never
+                                    && err.kind() == ErrorKind::ConnectionRefused =>
                             {
                                 tracing::warn!(
-                                    "{} (This is expected behaviour if TF2 is not open)",
-                                    e
-                                )
+                                    "{e} (This is expected behaviour if TF2 is not open)"
+                                );
                             }
                             // We have entered an error state from some other state, or the error
                             // state has changed. Report it!
@@ -205,7 +200,7 @@ impl CommandManagerInner {
 
         if let Some(rcon) = &mut self.connection {
             tracing::debug!("Running command \"{}\"", cmd);
-            let result = rcon.cmd(&format!("{}", cmd)).await.map_err(|e| {
+            let result = rcon.cmd(&format!("{cmd}")).await.map_err(|e| {
                 self.connection = None;
                 e
             });
@@ -224,10 +219,11 @@ impl CommandManagerInner {
         None
     }
 
-    async fn try_reconnect(&mut self) -> Result<(), CommandManagerError> {
-        match self.current_err_state {
-            ErrorState::Never => tracing::debug!("Attempting to connect to RCon"),
-            _ => tracing::debug!("Attempting to reconnect to RCon"),
+    async fn try_reconnect(&mut self) -> Result<(), Error> {
+        if self.current_err_state == ErrorState::Never {
+            tracing::debug!("Attempting to connect to RCon");
+        } else {
+            tracing::debug!("Attempting to reconnect to RCon");
         };
 
         match timeout(
@@ -256,8 +252,8 @@ impl CommandManagerInner {
 }
 
 impl CommandManagerInner {
-    fn new() -> CommandManagerInner {
-        CommandManagerInner {
+    fn new() -> Self {
+        Self {
             connection: None,
             current_err_state: ErrorState::Never,
             previous_err_state: ErrorState::Never,
@@ -268,8 +264,9 @@ impl CommandManagerInner {
 }
 
 impl CommandManager {
-    pub fn new() -> CommandManager {
-        CommandManager {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
             inner: Arc::new(Mutex::new(CommandManagerInner::new())),
             refresh_status: false,
         }
@@ -290,6 +287,10 @@ impl CommandManager {
     }
 }
 
+impl Default for CommandManager {
+    fn default() -> Self { Self::new() }
+}
+
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for CommandManager
 where
     IM: Is<Command> + Is<Refresh>,
@@ -303,13 +304,12 @@ where
         let port = state.settings.get_rcon_port();
         let pwd = state.settings.get_rcon_password();
 
-        if let Some(_) = try_get::<Refresh>(message) {
+        if try_get::<Refresh>(message).is_some() {
             self.refresh_status = !self.refresh_status;
             if self.refresh_status {
                 return self.run_command(&Command::Status, port, pwd);
-            } else {
-                return self.run_command(&Command::G15, port, pwd);
             }
+            return self.run_command(&Command::G15, port, pwd);
         }
 
         self.run_command(try_get::<Command>(message)?, port, pwd)

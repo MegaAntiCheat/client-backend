@@ -46,6 +46,7 @@ impl StateUpdater<MACState> for UserUpdates {
     }
 }
 
+#[allow(clippy::unused_async)]
 pub async fn emit_on_timer<M: 'static + Send>(
     interval: Duration,
     emit: fn() -> M,
@@ -58,7 +59,7 @@ pub async fn emit_on_timer<M: 'static + Send>(
     tokio::task::spawn(async move {
         loop {
             interval.tick().await;
-            if let Ok(_) = tx.send(emit()).await {
+            if matches!(tx.send(emit()).await, Ok(())) {
                 continue;
             }
 

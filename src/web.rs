@@ -37,6 +37,7 @@ const HEADERS: [(header::HeaderName, &str); 2] = [
 ];
 
 #[derive(Debug)]
+#[allow(clippy::module_name_repetitions)]
 pub enum WebRequest {
     /// Retrieve info on the active game
     GetGame(Sender<String>),
@@ -57,6 +58,7 @@ pub enum WebRequest {
 }
 impl StateUpdater<MACState> for WebRequest {}
 
+#[allow(clippy::module_name_repetitions)]
 pub struct WebAPIHandler;
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for WebAPIHandler
 where
@@ -70,25 +72,30 @@ where
     ) -> Option<event_loop::Handled<OM>> {
         match try_get::<WebRequest>(message)? {
             WebRequest::GetGame(tx) => {
-                tx.send(get_game_response(state)).unwrap();
+                tx.send(get_game_response(state))
+                    .expect("Failed to send response");
             }
             WebRequest::PostUser(users, tx) => {
-                tx.send(post_user_response(state, users)).unwrap();
+                tx.send(post_user_response(state, users))
+                    .expect("Failed to send response");
             }
             WebRequest::PutUser(users) => {
                 return Handled::single(OM::from(UserUpdates(users.clone())));
             }
             WebRequest::GetPrefs(tx) => {
-                tx.send(get_prefs_response(state)).unwrap();
+                tx.send(get_prefs_response(state))
+                    .expect("Failed to send response");
             }
             WebRequest::PutPrefs(prefs) => {
                 return Handled::single(OM::from(prefs.clone()));
             }
             WebRequest::GetHistory(page, tx) => {
-                tx.send(get_history_response(state, page)).unwrap();
+                tx.send(get_history_response(state, page))
+                    .expect("Failed to send response");
             }
             WebRequest::GetPlayerlist(tx) => {
-                tx.send(get_playerlist_response(state)).unwrap();
+                tx.send(get_playerlist_response(state))
+                    .expect("Failed to send response");
             }
             WebRequest::PostCommand(cmds) => {
                 return Handled::multiple(
@@ -102,19 +109,25 @@ where
 }
 
 #[derive(Clone)]
+#[allow(clippy::module_name_repetitions)]
 pub struct WebState {
     pub request: Sender<WebRequest>,
     pub ui: Option<&'static Dir<'static>>,
 }
 
 impl WebState {
-    pub fn new(ui: Option<&'static Dir<'static>>) -> (WebState, Receiver<WebRequest>) {
+    #[must_use]
+    pub fn new(ui: Option<&'static Dir<'static>>) -> (Self, Receiver<WebRequest>) {
         let (tx, rx) = std::sync::mpsc::channel();
-        (WebState { request: tx, ui }, rx)
+        (Self { request: tx, ui }, rx)
     }
 }
 
 /// Start the web API server
+///
+/// # Panics
+/// If the web server could not be started
+#[allow(clippy::module_name_repetitions)]
 pub async fn web_main(web_state: WebState, port: u16) {
     let api = Router::new()
         .route("/", get(ui_redirect))
@@ -134,10 +147,13 @@ pub async fn web_main(web_state: WebState, port: u16) {
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     tracing::info!("Starting web interface at http://{addr}");
-    axum::Server::bind(&addr)
+    if let Err(e) = axum::Server::bind(&addr)
         .serve(api.into_make_service())
         .await
-        .expect("Failed to start web service");
+    {
+        tracing::error!("Failed to start web server: {e}");
+        panic!();
+    }
 }
 
 async fn ui_redirect() -> impl IntoResponse { Redirect::permanent("/ui/index.html") }
@@ -148,32 +164,37 @@ async fn get_ui(
     State(state): State<WebState>,
     axum::extract::Path(path): axum::extract::Path<String>,
 ) -> impl IntoResponse {
-    if let Some(ui) = state.ui {
-        match ui.get_file(&path) {
-            Some(file) => {
-                // Serve included file
-                let content_type = guess_content_type(file.path());
-                let headers = [
-                    (header::CONTENT_TYPE, content_type),
-                    (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
-                ];
-                (StatusCode::OK, headers, file.contents()).into_response()
-            }
-            None => (
-                StatusCode::NOT_FOUND,
-                ([(header::CONTENT_TYPE, "text/html")]),
-                "<body><h1>404 Not Found</h1></body>",
-            )
-                .into_response(),
-        }
-    } else {
-        (
+    state.ui.map_or_else(
+        || {
+            (
             StatusCode::NOT_FOUND,
             ([(header::CONTENT_TYPE, "text/html")]),
             "<body><h1>There is no UI bundled with this version of the application.</h1></body>",
         )
             .into_response()
-    }
+        },
+        |ui| {
+            ui.get_file(&path).map_or_else(
+                || {
+                    (
+                        StatusCode::NOT_FOUND,
+                        ([(header::CONTENT_TYPE, "text/html")]),
+                        "<body><h1>404 Not Found</h1></body>",
+                    )
+                        .into_response()
+                },
+                |file| {
+                    // Serve included file
+                    let content_type = guess_content_type(file.path());
+                    let headers = [
+                        (header::CONTENT_TYPE, content_type),
+                        (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+                    ];
+                    (StatusCode::OK, headers, file.contents()).into_response()
+                },
+            )
+        },
+    )
 }
 
 /// Attempts to guess the http MIME type of a given file extension.
@@ -206,10 +227,13 @@ fn guess_content_type(path: &Path) -> &'static str {
 async fn get_game(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET game");
     let (tx, rx) = std::sync::mpsc::channel();
-    state.request.send(WebRequest::GetGame(tx)).unwrap();
+    state
+        .request
+        .send(WebRequest::GetGame(tx))
+        .expect("Failed to send request to main thread");
     match rx.recv() {
         Ok(resp) => (StatusCode::OK, HEADERS, resp),
-        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{e}")),
     }
 }
 
@@ -236,7 +260,7 @@ fn get_game_response(state: &MACState) -> String {
         players: &state.players,
     };
 
-    serde_json::to_string(&game).unwrap()
+    serde_json::to_string(&game).expect("Epic serialization fail")
 }
 
 // User
@@ -253,10 +277,10 @@ async fn post_user(State(state): State<WebState>, users: Json<UserRequest>) -> i
     state
         .request
         .send(WebRequest::PostUser(users.0, tx))
-        .unwrap();
+        .expect("Failed to send request to main thread");
     match rx.recv() {
         Ok(resp) => (StatusCode::OK, HEADERS, resp),
-        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{e}")),
     }
 }
 
@@ -278,10 +302,13 @@ async fn put_user(
 async fn get_prefs(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET prefs");
     let (tx, rx) = std::sync::mpsc::channel();
-    state.request.send(WebRequest::GetPrefs(tx)).unwrap();
+    state
+        .request
+        .send(WebRequest::GetPrefs(tx))
+        .expect("Failed to send request to main thread.");
     match rx.recv() {
         Ok(resp) => (StatusCode::OK, HEADERS, resp),
-        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{e}")),
     }
 }
 
@@ -298,7 +325,7 @@ fn get_prefs_response(state: &MACState) -> String {
         external: Some(settings.get_external_preferences().clone()),
     };
 
-    serde_json::to_string(&prefs).unwrap()
+    serde_json::to_string(&prefs).expect("Epic serialization fail")
 }
 
 async fn put_prefs(State(state): State<WebState>, prefs: Json<Preferences>) -> impl IntoResponse {
@@ -317,7 +344,7 @@ pub struct Pagination {
 }
 
 impl Default for Pagination {
-    fn default() -> Self { Pagination { from: 0, to: 100 } }
+    fn default() -> Self { Self { from: 0, to: 100 } }
 }
 
 async fn get_history(State(state): State<WebState>, page: Query<Pagination>) -> impl IntoResponse {
@@ -326,10 +353,10 @@ async fn get_history(State(state): State<WebState>, page: Query<Pagination>) -> 
     state
         .request
         .send(WebRequest::GetHistory(page.0, tx))
-        .unwrap();
+        .expect("Could not communicate with main thread");
     match rx.recv() {
         Ok(resp) => (StatusCode::OK, HEADERS, resp),
-        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{e}")),
     }
 }
 
@@ -342,10 +369,10 @@ fn get_history_response(state: &MACState, page: &Pagination) -> String {
         .rev()
         .skip(page.from)
         .take(page.to - page.from)
-        .flat_map(|s| state.players.get_serializable_player(s))
+        .filter_map(|&s| state.players.get_serializable_player(s))
         .collect();
 
-    serde_json::to_string(&history).unwrap()
+    serde_json::to_string(&history).expect("Epic serialization fail")
 }
 
 // Playerlist
@@ -353,10 +380,13 @@ fn get_history_response(state: &MACState, page: &Pagination) -> String {
 async fn get_playerlist(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET playerlist");
     let (tx, rx) = std::sync::mpsc::channel();
-    state.request.send(WebRequest::GetPlayerlist(tx)).unwrap();
+    state
+        .request
+        .send(WebRequest::GetPlayerlist(tx))
+        .expect("Couldn't communicate with main thread");
     match rx.recv() {
         Ok(resp) => (StatusCode::OK, HEADERS, resp),
-        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{}", e)),
+        Err(e) => (StatusCode::SERVICE_UNAVAILABLE, HEADERS, format!("{e}")),
     }
 }
 
@@ -389,12 +419,14 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(16);
 
-    let mut subscribers = SUBSCRIBERS.lock().unwrap();
-    if subscribers.is_none() {
-        *subscribers = Some(Vec::new());
-    }
+    {
+        let mut subscribers = SUBSCRIBERS.lock().expect("Lock poisoned");
+        if subscribers.is_none() {
+            *subscribers = Some(Vec::new());
+        }
 
-    subscribers.as_mut().unwrap().push(tx);
+        subscribers.as_mut().expect("Just set it to Some").push(tx);
+    }
 
     Sse::new(ReceiverStream::new(rx))
 }

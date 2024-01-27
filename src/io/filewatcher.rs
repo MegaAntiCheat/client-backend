@@ -24,10 +24,11 @@ pub struct FileWatcher {
 }
 
 impl FileWatcher {
-    pub fn new(path: PathBuf) -> (UnboundedReceiver<Arc<str>>, FileWatcher) {
+    #[must_use]
+    pub fn new(path: PathBuf) -> (UnboundedReceiver<Arc<str>>, Self) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
-        let file_watcher = FileWatcher {
+        let file_watcher = Self {
             file_path: path,
             open_file: None,
 
@@ -77,7 +78,7 @@ impl FileWatcher {
 
         self.open_file = Some(OpenFile { last_size: 0, file });
 
-        Ok(self.open_file.as_mut().unwrap())
+        Ok(self.open_file.as_mut().expect("Just check set it to some."))
     }
 
     /// Attempts to read the new contents of the observed file and updates the
@@ -89,7 +90,7 @@ impl FileWatcher {
                 "read_new_file_lines wasn't meant to be called when self.file is None"
             ));
         }
-        let mut file = self.open_file.as_mut().unwrap();
+        let mut file = self.open_file.as_mut().expect("Just checked for Some");
 
         let meta =
             std::fs::metadata(&self.file_path).context("Failed to fetch metadata for log file.")?;

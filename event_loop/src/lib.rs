@@ -9,7 +9,7 @@ where
     M: Send + ConsumingStateUpdater<S> + 'static,
     H: HandlerStruct<S, M, M>,
 {
-    pub sources: Vec<Box<dyn MessageSource<M> + 'static>>,
+    pub sources: Vec<Box<dyn MessageSource<M> + 'static + Send>>,
     pub handlers: Vec<H>,
     pub queue: Vec<M>,
     pub async_tasks: Vec<JoinHandle<Option<M>>>,
@@ -21,10 +21,11 @@ impl<S, M, H> EventLoop<S, M, H>
 where
     S: Send,
     M: Send + ConsumingStateUpdater<S> + 'static,
-    H: HandlerStruct<S, M, M>,
+    H: Send + HandlerStruct<S, M, M>,
 {
-    pub fn new() -> EventLoop<S, M, H> {
-        EventLoop {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
             sources: Vec::new(),
             handlers: Vec::new(),
             queue: Vec::new(),
@@ -33,16 +34,21 @@ where
         }
     }
 
-    pub fn add_source(mut self, source: Box<dyn MessageSource<M>>) -> Self {
+    #[must_use]
+    pub fn add_source(mut self, source: Box<dyn MessageSource<M> + Send>) -> Self {
         self.sources.push(source);
         self
     }
 
+    #[must_use]
     pub fn add_handler(mut self, handler: impl Into<H>) -> Self {
         self.handlers.push(handler.into());
         self
     }
 
+    /// # Panics
+    /// If any of the async tasks executed as part of message resolution
+    /// paniced.
     pub async fn execute_cycle(&mut self, state: &mut S) {
         let mut messages = Vec::new();
 
@@ -59,7 +65,7 @@ where
         for (i, j) in self.async_tasks.iter_mut().enumerate() {
             if j.is_finished() {
                 finished_tasks.push(i);
-                if let Some(m) = j.await.unwrap() {
+                if let Some(m) = j.await.expect("Task paniced") {
                     messages.push(m);
                 }
             }
@@ -96,6 +102,15 @@ where
     }
 }
 
+impl<S, M, H> Default for EventLoop<S, M, H>
+where
+    S: Send,
+    M: Send + ConsumingStateUpdater<S> + 'static,
+    H: Send + HandlerStruct<S, M, M>,
+{
+    fn default() -> Self { Self::new() }
+}
+
 pub trait HandlerStruct<S, IM, OM> {
     fn handle_message(&mut self, state: &S, message: &IM) -> Option<Handled<OM>>;
 }
@@ -113,10 +128,11 @@ enum Action<M> {
 }
 
 impl<M> From<M> for Action<M> {
-    fn from(value: M) -> Self { Action::Message(value) }
+    fn from(value: M) -> Self { Self::Message(value) }
 }
 
 impl<M> Handled<M> {
+    #[must_use]
     pub const fn none() -> Option<Self> { None }
 
     pub fn single(m: impl Into<M>) -> Option<Self> {
@@ -127,14 +143,14 @@ impl<M> Handled<M> {
         Some(Self(Internal::Single(Action::Future(Box::pin(future)))))
     }
 
-    pub fn multiple(commands: impl IntoIterator<Item = Option<Handled<M>>>) -> Option<Self> {
+    pub fn multiple(commands: impl IntoIterator<Item = Option<Self>>) -> Option<Self> {
         let mut batch = Vec::new();
 
         for maybe_handled in commands {
             match maybe_handled {
                 None => {}
-                Some(Handled(Internal::Single(command))) => batch.push(command),
-                Some(Handled(Internal::Batch(commands))) => batch.extend(commands),
+                Some(Self(Internal::Single(command))) => batch.push(command),
+                Some(Self(Internal::Batch(commands))) => batch.extend(commands),
             }
         }
 
@@ -160,28 +176,19 @@ pub trait MessageSource<M> {
 
 impl<M, I: Into<M>> MessageSource<M> for UnboundedReceiver<I> {
     fn next_message(&mut self) -> Option<M> {
-        match self.try_recv() {
-            Ok(m) => Some(m.into()),
-            _ => None,
-        }
+        self.try_recv().map_or_else(|_| None, |m| Some(m.into()))
     }
 }
 
 impl<M, I: Into<M>> MessageSource<M> for std::sync::mpsc::Receiver<I> {
     fn next_message(&mut self) -> Option<M> {
-        match self.try_recv() {
-            Ok(m) => Some(m.into()),
-            _ => None,
-        }
+        self.try_recv().map_or_else(|_| None, |m| Some(m.into()))
     }
 }
 
 impl<M, I: Into<M>> MessageSource<M> for tokio::sync::mpsc::Receiver<I> {
     fn next_message(&mut self) -> Option<M> {
-        match self.try_recv() {
-            Ok(m) => Some(m.into()),
-            _ => None,
-        }
+        self.try_recv().map_or_else(|_| None, |m| Some(m.into()))
     }
 }
 

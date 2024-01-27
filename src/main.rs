@@ -8,7 +8,7 @@ use args::Args;
 use clap::Parser;
 use demo::demo_loop;
 use event_loop::{
-    define_handlers, define_messages, try_get, EventLoop, Handled, HandlerStruct, Is, StateUpdater,
+    define_handlers, define_messages, EventLoop, Handled, HandlerStruct, StateUpdater,
 };
 use events::emit_on_timer;
 use include_dir::{include_dir, Dir};
@@ -51,23 +51,6 @@ use steam_api::{
 };
 use web::{WebAPIHandler, WebRequest};
 
-struct DebugHandler;
-impl<S, IM, OM> HandlerStruct<S, IM, OM> for DebugHandler
-where
-    IM: std::fmt::Debug + Is<RawConsoleOutput> + Is<ProfileLookupBatchTick>,
-{
-    fn handle_message(&mut self, _: &S, message: &IM) -> Option<Handled<OM>> {
-        if let Some(_) = try_get::<RawConsoleOutput>(message) {
-            return Handled::none();
-        } else if let Some(_) = try_get::<ProfileLookupBatchTick>(message) {
-            return Handled::none();
-        }
-
-        tracing::debug!("New message {:?}", message);
-        Handled::none()
-    }
-}
-
 define_messages!(Message<MACState>:
     Refresh,
 
@@ -98,9 +81,7 @@ define_handlers!(Handler<MACState, Message>:
     LookupProfiles,
     LookupFriends,
 
-    WebAPIHandler,
-
-    DebugHandler
+    WebAPIHandler
 );
 
 static UI_DIR: Dir = include_dir!("ui");
@@ -130,11 +111,11 @@ fn main() {
     tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .build()
-        .unwrap()
+        .expect("Failed to build async runtime")
         .block_on(async {
             // Autolaunch UI
             if args.autolaunch_ui || state.settings.get_autolaunch_ui() {
-                if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", web_port))) {
+                if let Err(e) = open::that(Path::new(&format!("http://localhost:{web_port}"))) {
                     tracing::error!("Failed to open web browser: {:?}", e);
                 }
             }
@@ -145,7 +126,7 @@ fn main() {
                 tracing::info!("Demo path: {:?}", demo_path);
 
                 std::thread::spawn(move || {
-                    if let Err(e) = demo_loop(demo_path) {
+                    if let Err(e) = demo_loop(&demo_path) {
                         tracing::error!("Failed to start demo watcher: {:?}", e);
                     }
                 });
@@ -171,7 +152,6 @@ fn main() {
                 .add_source(refresh_timer)
                 .add_source(lookup_batch_timer)
                 .add_source(Box::new(web_requests))
-                .add_handler(DebugHandler)
                 .add_handler(CommandManager::new())
                 .add_handler(ConsoleParser::default())
                 .add_handler(ExtractNewPlayers)
@@ -182,177 +162,10 @@ fn main() {
             loop {
                 event_loop.execute_cycle(&mut state).await;
             }
-
-            // Setup web API server
-            /*
-            let settings = Arc::new(RwLock::new(settings));
-            let server = Arc::new(RwLock::new(server));
-
-            let shared_state = SharedState {
-                ui: Some(&UI_DIR),
-                io: io_send.clone(),
-                api: steam_api_send.clone(),
-                server: server.clone(),
-                settings: settings.clone(),
-            };
-            tokio::task::spawn(async move {
-                web_main(shared_state, webui_port).await;
-            });
-            */
-
-            // Main loop
-
-            /*
-            let mut refresh_interval = tokio::time::interval(Duration::from_secs(3));
-            refresh_interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            let mut refresh_iteration: u64 = 0;
-
-            let mut new_players = Vec::new();
-            let mut queued_friendlist_req: Vec<SteamID> = Vec::new();
-            let mut inprogress_friendlist_req: Vec<SteamID> = Vec::new();
-            let mut need_all_friends_lists = false;
-
-            loop {
-
-                select! {
-                    // IO output
-                    io_output_iter = io_recv.recv() => {
-                        for output in io_output_iter.unwrap() {
-                            for new_player in server.write().unwrap()
-                                .handle_io_output(output)
-                                .into_iter()
-                            {
-                                new_players.push(new_player);
-                            }
-                        }
-                    },
-
-                    // Steam API responses
-                    Some(response) = steam_api_recv.recv() => {
-                        match response {
-                            SteamAPIResponse::SteamInfo((player, Ok(info))) => {
-                                server.write().unwrap().players_mut().steam_info.insert(player, info);
-                            },
-                            SteamAPIResponse::SteamInfo((player, Err(e))) => {
-                                tracing::error!("Failed to get steam info for {}: {e}", u64::from(player));
-                            },
-                            SteamAPIResponse::FriendLists((steamid, result)) => {
-                                match result {
-                                    // Player has public friend list
-                                    Ok(friend_list) => {
-                                        server.write().unwrap().players_mut().update_friends_list(steamid, friend_list);
-                                    },
-                                    // Player has private friend list
-                                    Err(_) => {
-                                        let mut server = server.write().unwrap();
-                                        server.players_mut().mark_friends_list_private(&steamid);
-                                        if let Some(record) = server.players_mut().records.get(&steamid) {
-                                            if  record.verdict == Verdict::Cheater ||
-                                                record.verdict == Verdict::Bot {
-                                                need_all_friends_lists = true;
-                                            }
-                                        }
-                                    }
-                                };
-                                let i = inprogress_friendlist_req.iter().position(|id| *id == steamid);
-                                if i.is_some() {
-                                    inprogress_friendlist_req.remove(i.unwrap());
-                                }
-                            }
-                        }
-                    }
-
-                    // Refresh
-                    _ = refresh_interval.tick() => {
-                        if refresh_iteration % 2 == 0 {
-                            server.write().unwrap().players_mut().refresh();
-                            io_send.send(IOManagerMessage::RunCommand(Command::Status)).unwrap();
-                        } else {
-                            io_send.send(IOManagerMessage::RunCommand(Command::G15)).unwrap();
-                        }
-
-                        refresh_iteration += 1;
-                    }
-                }
-
-                // Request steam API stuff on new players
-                for player in &new_players {
-                    let verdict = server.read().unwrap()
-                        .players()
-                        .records.get(player)
-                        .map(|r| {
-                            r.verdict
-                        }).unwrap_or(Verdict::Player);
-                    steam_api_send
-                        .send(steamapi::SteamAPIMessage::Lookup(*player))
-                        .unwrap();
-                    let settings_read = settings.read().unwrap();
-                    let user = settings_read.get_steam_user();
-                    if user.is_some_and(|u| u == *player) {
-                        queued_friendlist_req.push(*player);
-                        continue;
-                    }
-                    match settings_read.get_friends_api_usage() {
-                        settings::FriendsAPIUsage::All => {
-                            queued_friendlist_req.push(*player);
-                        },
-                        settings::FriendsAPIUsage::CheatersOnly => {
-                            if !need_all_friends_lists && (verdict == Verdict::Cheater ||  verdict == Verdict::Bot) {
-                                queued_friendlist_req.push(*player);
-                            }
-                        },
-                        settings::FriendsAPIUsage::None => {
-
-                        }
-                    }
-                }
-
-                // Request friend lists of relevant players (depends on config)
-                if need_all_friends_lists || !queued_friendlist_req.is_empty() {
-                    // If a cheater's friends list is private, we need everyone's friends list.
-                    if need_all_friends_lists {
-                        need_all_friends_lists = false;
-                        let server_read: std::sync::RwLockReadGuard<'_, Server> = server.read().unwrap();
-                        queued_friendlist_req = server_read.players().connected.iter()
-                            .filter_map(|steamid| {
-                                if inprogress_friendlist_req.contains(steamid) {
-                                    return None;
-                                }
-                                // If friends list visibility is Some, we've looked up that user before.
-                                match server_read.players().friend_info.get(steamid).map(|fi| fi.public) {
-                                    Some(Some(true)) => {
-                                        None
-                                    }
-                                    Some(Some(false)) => {
-                                        let record = server_read.players().records.get(steamid);
-                                        if record.is_some_and(|r | {
-                                            r.verdict == Verdict::Cheater ||
-                                            r.verdict == Verdict::Bot
-                                         }) {
-                                            need_all_friends_lists = true;
-                                        }
-                                        None
-                                    }
-                                    _ => {
-                                        Some(*steamid)
-                                    }
-                                }
-                            }).collect();
-                    }
-
-                    steam_api_send
-                        .send(steamapi::SteamAPIMessage::CheckFriends(queued_friendlist_req.clone()))
-                        .unwrap();
-                    inprogress_friendlist_req.append(&mut queued_friendlist_req);
-                }
-
-                new_players.clear();
-                queued_friendlist_req.clear();
-            }
-            */
         });
 }
 
+#[allow(clippy::cognitive_complexity)]
 fn check_launch_options(settings: &Settings) {
     // Launch options and overrides
     let launch_opts = match LaunchOptions::new(
@@ -369,8 +182,7 @@ fn check_launch_options(settings: &Settings) {
 
     if let Some(opts) = launch_opts {
         // Warn about missing launch options for TF2
-        let missing = opts.check_missing_args();
-        match missing {
+        match opts.check_missing_args() {
             Ok(missing_opts) if !missing_opts.is_empty() => {
                 tracing::warn!(
                     "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
@@ -397,8 +209,8 @@ fn init_tracing() -> Option<WorkerGuard> {
         std::env::set_var("RUST_LOG", "info");
     }
 
-    let suppress_hyper = Directive::from_str("hyper=warn").unwrap();
-    let suppress_demo_parser = Directive::from_str("tf_demo_parser=warn").unwrap();
+    let suppress_hyper = Directive::from_str("hyper=warn").expect("Bad directive");
+    let suppress_demo_parser = Directive::from_str("tf_demo_parser=warn").expect("Bad directive");
     let subscriber = tracing_subscriber::registry().with(
         tracing_subscriber::fmt::layer()
             .with_writer(std::io::stderr)
@@ -420,7 +232,7 @@ fn init_tracing() -> Option<WorkerGuard> {
                         .with_filter(
                             EnvFilter::builder()
                                 .parse("debug")
-                                .unwrap()
+                                .expect("Bad env")
                                 .add_directive(suppress_hyper)
                                 .add_directive(suppress_demo_parser),
                         ),
