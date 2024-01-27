@@ -13,6 +13,7 @@ pub mod command_manager;
 pub mod console;
 pub mod new_players;
 pub mod steam_api;
+pub mod web;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Refresh;

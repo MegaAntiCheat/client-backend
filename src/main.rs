@@ -3,6 +3,7 @@ use clap::Parser;
 use demo::demo_loop;
 use event_loop::{define_handlers, define_messages};
 use event_loop::{EventLoop, Handled, HandlerStruct, StateUpdater};
+use events::web::{web_main, WebState};
 use events::{refresh_timer, ConsoleLog};
 use include_dir::{include_dir, Dir};
 use launchoptions::LaunchOptions;
@@ -42,12 +43,13 @@ use events::{
         FriendLookupResult, LookupFriends, LookupProfiles, ProfileLookupBatchTick,
         ProfileLookupResult,
     },
+    web::{WebAPIHandler, WebRequest},
     Refresh,
 };
 
 struct DebugHandler;
 impl<S, IM: std::fmt::Debug, OM> HandlerStruct<S, IM, OM> for DebugHandler {
-    fn handle_message(&mut self, state: &S, message: &IM) -> Option<Handled<OM>> {
+    fn handle_message(&mut self, _: &S, message: &IM) -> Option<Handled<OM>> {
         println!("New message {:?}", message);
         Handled::none()
     }
@@ -66,7 +68,9 @@ define_messages!(Message<MACState>:
 
     ProfileLookupBatchTick,
     ProfileLookupResult,
-    FriendLookupResult
+    FriendLookupResult,
+
+    WebRequest
 );
 
 define_handlers!(Handler<MACState, Message>:
@@ -78,6 +82,8 @@ define_handlers!(Handler<MACState, Message>:
 
     LookupProfiles,
     LookupFriends,
+
+    WebAPIHandler,
 
     DebugHandler
 );
@@ -103,7 +109,7 @@ fn main() {
 
     check_launch_options(&state.settings);
 
-    let webui_port = state.settings.get_webui_port();
+    let web_port = state.settings.get_webui_port();
 
     // The juicy part of the program
     tokio::runtime::Builder::new_multi_thread()
@@ -113,7 +119,7 @@ fn main() {
         .block_on(async {
             // Autolaunch UI
             if args.autolaunch_ui || state.settings.get_autolaunch_ui() {
-                if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", webui_port))) {
+                if let Err(e) = open::that(Path::new(&format!("http://localhost:{}", web_port))) {
                     tracing::error!("Failed to open web browser: {:?}", e);
                 }
             }
@@ -130,6 +136,12 @@ fn main() {
                 });
             }
 
+            // Web API
+            let (web_state, web_requests) = WebState::new(Some(&UI_DIR));
+            tokio::task::spawn(async move {
+                web_main(web_state, web_port).await;
+            });
+
             // Watch console log
             let log_file_path: PathBuf =
                 PathBuf::from(state.settings.get_tf2_directory()).join("tf/console.log");
@@ -140,12 +152,14 @@ fn main() {
             let mut event_loop: EventLoop<MACState, Message, Handler> = EventLoop::new()
                 .add_source(console_log)
                 .add_source(refresh_loop)
+                .add_source(Box::new(web_requests))
                 .add_handler(DebugHandler)
                 .add_handler(CommandManager::new())
                 .add_handler(ConsoleParser::default())
                 .add_handler(ExtractNewPlayers)
                 .add_handler(LookupProfiles::new())
-                .add_handler(LookupFriends::new(settings::FriendsAPIUsage::All));
+                .add_handler(LookupFriends::new(settings::FriendsAPIUsage::All))
+                .add_handler(WebAPIHandler);
 
             loop {
                 event_loop.execute_cycle(&mut state).await;
