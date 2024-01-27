@@ -9,7 +9,7 @@ use serde::Deserialize;
 use thiserror::Error;
 use tokio::{net::TcpStream, sync::Mutex};
 
-use super::Refresh;
+use super::{console::RawConsoleOutput, Refresh};
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -64,26 +64,6 @@ pub enum Command {
 }
 impl<S> StateUpdater<S> for Command {}
 
-pub enum CommandResponse {
-    Connection(Result<Connection<TcpStream>, CommandManagerError>),
-    Command(Result<Arc<str>, CommandManagerError>),
-}
-impl<S> StateUpdater<S> for CommandResponse {}
-
-impl Debug for CommandResponse {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            CommandResponse::Connection(Ok(_)) => {
-                write!(f, "CommandResponse(Connection(Connected!))")
-            }
-            CommandResponse::Connection(Err(e)) => {
-                write!(f, "CommandResponse(Connection(Err({:?})))", e)
-            }
-            CommandResponse::Command(c) => write!(f, "CommandResponse(Command({:?}))", c),
-        }
-    }
-}
-
 // Handlers ****************************
 
 pub struct CommandManager {
@@ -93,6 +73,13 @@ pub struct CommandManager {
 
 struct CommandManagerInner {
     pub connection: Option<Connection<TcpStream>>,
+}
+
+impl CommandManagerInner {
+    async fn run_command<M: Is<RawConsoleOutput>>(&mut self) -> M {
+        // TODO - run command
+        RawConsoleOutput("Cum".into()).into()
+    }
 }
 
 impl CommandManagerInner {
@@ -109,17 +96,19 @@ impl CommandManager {
         }
     }
 
-    fn run_command<OM: Is<CommandResponse>>(&mut self, command: &Command) -> Option<Handled<OM>> {
-        // TODO - Run command
-
-        None
+    fn run_command<OM: Is<RawConsoleOutput>>(&mut self, command: &Command) -> Option<Handled<OM>> {
+        let inner = self.inner.clone();
+        Handled::future(async move {
+            let mut inner = inner.lock().await;
+            inner.run_command().await
+        })
     }
 }
 
 impl<S, IM, OM> HandlerStruct<S, IM, OM> for CommandManager
 where
     IM: Is<Command> + Is<Refresh>,
-    OM: Is<CommandResponse>,
+    OM: Is<RawConsoleOutput>,
 {
     fn handle_message(&mut self, state: &S, message: &IM) -> Option<event_loop::Handled<OM>> {
         if let Some(_) = try_get::<Refresh>(message) {

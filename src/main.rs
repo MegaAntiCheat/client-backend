@@ -33,10 +33,9 @@ mod server;
 mod settings;
 mod state;
 mod steamapi;
-// mod web;
 
 use events::{
-    command_manager::{Command, CommandManager, CommandResponse},
+    command_manager::{Command, CommandManager},
     console::{ConsoleOutput, ConsoleParser, RawConsoleOutput},
     new_players::{ExtractNewPlayers, NewPlayers},
     steam_api::{
@@ -50,7 +49,7 @@ use events::{
 struct DebugHandler;
 impl<S, IM: std::fmt::Debug, OM> HandlerStruct<S, IM, OM> for DebugHandler {
     fn handle_message(&mut self, _: &S, message: &IM) -> Option<Handled<OM>> {
-        println!("New message {:?}", message);
+        tracing::debug!("New message {:?}", message);
         Handled::none()
     }
 }
@@ -59,7 +58,6 @@ define_messages!(Message<MACState>:
     Refresh,
 
     Command,
-    CommandResponse,
 
     RawConsoleOutput,
     ConsoleOutput,
