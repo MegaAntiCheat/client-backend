@@ -97,10 +97,12 @@ fn main() {
     let playerlist = PlayerRecords::load_or_create(&args);
     playerlist.save_ok();
 
+    let players = Players::new(playerlist, settings.get_steam_user());
+
     let mut state = MACState {
         server: Server::new(),
         settings,
-        players: Players::new(playerlist),
+        players,
     };
 
     check_launch_options(&state.settings);

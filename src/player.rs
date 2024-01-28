@@ -36,7 +36,8 @@ pub struct Players {
 
 #[allow(dead_code)]
 impl Players {
-    pub(crate) fn new(records: PlayerRecords) -> Self {
+    #[must_use]
+    pub fn new(records: PlayerRecords, user: Option<SteamID>) -> Self {
         Self {
             game_info: HashMap::new(),
             steam_info: HashMap::new(),
@@ -46,7 +47,7 @@ impl Players {
 
             connected: Vec::new(),
             history: VecDeque::with_capacity(MAX_HISTORY_LEN),
-            user: None,
+            user,
         }
     }
 
