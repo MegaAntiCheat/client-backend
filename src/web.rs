@@ -63,6 +63,7 @@ where
     IM: Is<WebRequest>,
     OM: Is<Command> + Is<Preferences> + Is<UserUpdates>,
 {
+    #[allow(clippy::cognitive_complexity)]
     fn handle_message(
         &mut self,
         state: &MACState,
@@ -70,30 +71,35 @@ where
     ) -> Option<event_loop::Handled<OM>> {
         match try_get::<WebRequest>(message)? {
             WebRequest::GetGame(tx) => {
-                tx.send(get_game_response(state))
-                    .expect("Failed to send response");
+                if tx.send(get_game_response(state)).is_err() {
+                    tracing::error!("Failed to send response to API task.");
+                }
             }
             WebRequest::PostUser(users, tx) => {
-                tx.send(post_user_response(state, users))
-                    .expect("Failed to send response");
+                if tx.send(post_user_response(state, users)).is_err() {
+                    tracing::error!("Failed to send response to API task.");
+                }
             }
             WebRequest::PutUser(users) => {
                 return Handled::single(OM::from(UserUpdates(users.clone())));
             }
             WebRequest::GetPrefs(tx) => {
-                tx.send(get_prefs_response(state))
-                    .expect("Failed to send response");
+                if tx.send(get_prefs_response(state)).is_err() {
+                    tracing::error!("Failed to send response to API task.");
+                }
             }
             WebRequest::PutPrefs(prefs) => {
                 return Handled::single(OM::from(prefs.clone()));
             }
             WebRequest::GetHistory(page, tx) => {
-                tx.send(get_history_response(state, page))
-                    .expect("Failed to send response");
+                if tx.send(get_history_response(state, page)).is_err() {
+                    tracing::error!("Failed to send response to API task.");
+                }
             }
             WebRequest::GetPlayerlist(tx) => {
-                tx.send(get_playerlist_response(state))
-                    .expect("Failed to send response");
+                if tx.send(get_playerlist_response(state)).is_err() {
+                    tracing::error!("Failed to send response to API task.");
+                }
             }
             WebRequest::PostCommand(cmds) => {
                 return Handled::multiple(
@@ -225,10 +231,9 @@ fn guess_content_type(path: &Path) -> &'static str {
 async fn get_game(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET game");
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    state
-        .request
-        .send(WebRequest::GetGame(tx))
-        .expect("Failed to send request to main thread");
+    if state.request.send(WebRequest::GetGame(tx)).is_err() {
+        tracing::error!("Couldn't send API request to main thread.");
+    }
     (rx.recv().await).map_or_else(
         || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
         |resp| (StatusCode::OK, HEADERS, resp),
@@ -272,10 +277,13 @@ pub struct UserRequest {
 async fn post_user(State(state): State<WebState>, users: Json<UserRequest>) -> impl IntoResponse {
     tracing::debug!("API: POST user");
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    state
+    if state
         .request
         .send(WebRequest::PostUser(users.0, tx))
-        .expect("Failed to send request to main thread");
+        .is_err()
+    {
+        tracing::error!("Couldn't send API request to main thread.");
+    }
     (rx.recv().await).map_or_else(
         || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
         |resp| (StatusCode::OK, HEADERS, resp),
@@ -300,10 +308,9 @@ async fn put_user(
 async fn get_prefs(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET prefs");
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    state
-        .request
-        .send(WebRequest::GetPrefs(tx))
-        .expect("Failed to send request to main thread.");
+    if state.request.send(WebRequest::GetPrefs(tx)).is_err() {
+        tracing::error!("Couldn't send API request to main thread.");
+    }
     (rx.recv().await).map_or_else(
         || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
         |resp| (StatusCode::OK, HEADERS, resp),
@@ -348,10 +355,13 @@ impl Default for Pagination {
 async fn get_history(State(state): State<WebState>, page: Query<Pagination>) -> impl IntoResponse {
     tracing::debug!("API: GET history");
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    state
+    if state
         .request
         .send(WebRequest::GetHistory(page.0, tx))
-        .expect("Could not communicate with main thread");
+        .is_err()
+    {
+        tracing::error!("Couldn't send API request to main thread.");
+    }
     (rx.recv().await).map_or_else(
         || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
         |resp| (StatusCode::OK, HEADERS, resp),
@@ -378,10 +388,9 @@ fn get_history_response(state: &MACState, page: &Pagination) -> String {
 async fn get_playerlist(State(state): State<WebState>) -> impl IntoResponse {
     tracing::debug!("API: GET playerlist");
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    state
-        .request
-        .send(WebRequest::GetPlayerlist(tx))
-        .expect("Couldn't communicate with main thread");
+    if state.request.send(WebRequest::GetPlayerlist(tx)).is_err() {
+        tracing::error!("Couldn't send API request to main thread.");
+    }
     (rx.recv().await).map_or_else(
         || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
         |resp| (StatusCode::OK, HEADERS, resp),
