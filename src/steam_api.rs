@@ -16,7 +16,7 @@ use thiserror::Error;
 
 use super::new_players::NewPlayers;
 use crate::{
-    events::{Preferences, UserUpdates},
+    events::{InternalPreferences, Preferences, UserUpdates},
     player::{Friend, SteamInfo},
     player_records::Verdict,
     settings::FriendsAPIUsage,
@@ -89,12 +89,14 @@ impl StateUpdater<MACState> for FriendLookupResult {
 
 pub struct LookupProfiles {
     batch_buffer: VecDeque<SteamID>,
+    in_progress: Vec<SteamID>,
 }
 
 impl LookupProfiles {
     pub const fn new() -> Self {
         Self {
             batch_buffer: VecDeque::new(),
+            in_progress: Vec::new(),
         }
     }
 }
@@ -105,6 +107,26 @@ where
     OM: Is<ProfileLookupResult>,
 {
     fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
+        if let Some(Preferences {
+            internal:
+                Some(InternalPreferences {
+                    friends_api_usage: _,
+                    tf2_directory: _,
+                    rcon_password: _,
+                    steam_api_key: Some(new_key),
+                    rcon_port: _,
+                }),
+            external: _,
+        }) = try_get(message)
+        {
+            if new_key.is_empty() {
+                self.batch_buffer.clear();
+                return Handled::none();
+            }
+
+            self.batch_buffer.extend(&state.players.connected);
+        }
+
         if state.settings.get_steam_api_key().is_empty() {
             return None;
         }
@@ -119,10 +141,15 @@ where
             }
 
             let key = state.settings.get_steam_api_key();
+            self.batch_buffer.retain(|s| {
+                !self.in_progress.contains(s) && !state.players.steam_info.contains_key(s)
+            });
             let batch: Vec<_> = self
                 .batch_buffer
                 .drain(0..BATCH_SIZE.min(self.batch_buffer.len()))
                 .collect();
+
+            self.in_progress.extend_from_slice(&batch);
 
             return Handled::future(async move {
                 let client = SteamAPI::new(key);
