@@ -151,12 +151,18 @@ pub async fn web_main(web_state: WebState, port: u16) {
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     tracing::info!("Starting web interface at http://{addr}");
-    if let Err(e) = axum::Server::bind(&addr)
-        .serve(api.into_make_service())
-        .await
-    {
-        tracing::error!("Failed to start web server: {e}");
-        panic!();
+    match axum::Server::try_bind(&addr) {
+        Ok(builder) => {
+            builder
+                .serve(api.into_make_service())
+                .await
+                .expect("Server wasn't meant to exit.");
+        }
+        Err(e) => {
+            tracing::error!("Failed to start web server: {e}");
+            tracing::error!("This may occur if the app is already running.");
+            std::process::exit(1);
+        }
     }
 }
 
