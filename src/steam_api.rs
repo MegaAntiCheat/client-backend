@@ -16,6 +16,7 @@ use thiserror::Error;
 
 use super::new_players::NewPlayers;
 use crate::{
+    events::{Preferences, UserUpdates},
     player::{Friend, SteamInfo},
     player_records::Verdict,
     settings::FriendsAPIUsage,
@@ -49,7 +50,7 @@ pub struct ProfileLookupResult(pub ProfileResult);
 impl StateUpdater<MACState> for ProfileLookupResult {
     fn update_state(self, state: &mut MACState) {
         if let Err(e) = &self.0 {
-            tracing::error!("Profile lookup failed: {}", e);
+            tracing::error!("Profile lookup failed: {e}");
             return;
         }
 
@@ -100,7 +101,7 @@ impl LookupProfiles {
 
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for LookupProfiles
 where
-    IM: Is<NewPlayers> + Is<ProfileLookupBatchTick>,
+    IM: Is<NewPlayers> + Is<ProfileLookupBatchTick> + Is<Preferences>,
     OM: Is<ProfileLookupResult>,
 {
     fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
@@ -133,59 +134,80 @@ where
     }
 }
 
-pub struct LookupFriends;
-
-fn lookup_players<M: Is<FriendLookupResult>>(
-    api_key: &Arc<str>,
-    players: &[SteamID],
-) -> Option<Handled<M>> {
-    let out = Handled::multiple(players.iter().map(|&p| {
-        let key = api_key.clone();
-        Handled::future(async move {
-            let client = SteamAPI::new(key);
-            Some(
-                FriendLookupResult {
-                    steamid: p,
-                    result: request_account_friends(&client, p).await,
-                }
-                .into(),
-            )
-        })
-    }));
-    out
+pub struct LookupFriends {
+    in_progess: Vec<SteamID>,
 }
 
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for LookupFriends
-where
-    IM: Is<NewPlayers>,
-    OM: Is<FriendLookupResult>,
-{
-    fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
-        let NewPlayers(new_players) = try_get(message)?;
+impl LookupFriends {
+    #[must_use]
+    pub const fn new() -> Self {
+        Self {
+            in_progess: Vec::new(),
+        }
+    }
+
+    fn lookup_players<'a, M: Is<FriendLookupResult>>(
+        &mut self,
+        key: &Arc<str>,
+        players: impl IntoIterator<Item = &'a SteamID>,
+    ) -> Option<Handled<M>> {
+        Handled::multiple(players.into_iter().map(|&p| {
+            self.in_progess.push(p);
+            let key = key.clone();
+            Handled::future(async move {
+                let client = SteamAPI::new(key);
+                Some(
+                    FriendLookupResult {
+                        steamid: p,
+                        result: request_account_friends(&client, p).await,
+                    }
+                    .into(),
+                )
+            })
+        }))
+    }
+
+    /// Takes a list of steamids and does friend lookups on the ones which fit
+    /// the current friend lookup policy and the circumstances deem it
+    /// necessary.
+    ///
+    /// Argument `force`: Force lookup of all players, e.g. if a cheater's
+    /// friend lookup failed but that has not yet been propagated to the
+    /// state
+    fn handle_players<'a, M: Is<FriendLookupResult>>(
+        &mut self,
+        state: &MACState,
+        players: impl IntoIterator<Item = &'a SteamID>,
+        policy: FriendsAPIUsage,
+        key: &Arc<str>,
+        force: bool,
+    ) -> Option<Handled<M>> {
         // Need all friends if there's a cheater/bot on the server with a private
         // friends list
-        let need_all_friends = state.players.connected.iter().any(|p| {
-            state
-                .players
-                .records
-                .get(p)
-                .is_some_and(|r| r.verdict == Verdict::Cheater || r.verdict == Verdict::Bot)
-                && state
+        let need_all_friends = force
+            || state.players.connected.iter().any(|p| {
+                state
                     .players
-                    .friend_info
+                    .records
                     .get(p)
-                    .is_some_and(|f| f.public == Some(false))
-        });
+                    .is_some_and(|r| r.verdict == Verdict::Cheater || r.verdict == Verdict::Bot)
+                    && state
+                        .players
+                        .friend_info
+                        .get(p)
+                        .is_some_and(|f| f.public == Some(false))
+            });
 
         let mut queued_friendlist_req: Vec<SteamID> = Vec::new();
 
-        for &p in new_players {
+        for &p in players {
+            // Lookup user regardless of policy
             if state.settings.get_steam_user().is_some_and(|s| p == s) {
                 queued_friendlist_req.push(p);
                 continue;
             }
 
-            match state.settings.get_friends_api_usage() {
+            match policy {
                 FriendsAPIUsage::CheatersOnly => {
                     let verdict = state
                         .players
@@ -204,10 +226,128 @@ where
             }
         }
 
-        if !queued_friendlist_req.is_empty() {
-            queued_friendlist_req.retain(|s| !state.players.friend_info.get(s).is_some());
+        queued_friendlist_req
+            .retain(|s| state.players.friend_info.get(s).is_none() && !self.in_progess.contains(s));
 
-            return lookup_players(&state.settings.get_steam_api_key(), &queued_friendlist_req);
+        if queued_friendlist_req.is_empty() {
+            return Handled::none();
+        }
+
+        self.lookup_players(key, &queued_friendlist_req)
+    }
+}
+
+impl Default for LookupFriends {
+    fn default() -> Self { Self::new() }
+}
+
+impl<IM, OM> HandlerStruct<MACState, IM, OM> for LookupFriends
+where
+    IM: Is<NewPlayers> + Is<FriendLookupResult> + Is<UserUpdates> + Is<Preferences>,
+    OM: Is<FriendLookupResult>,
+{
+    fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
+        if state.settings.get_steam_api_key().is_empty() {
+            return Handled::none();
+        }
+
+        if let Some(NewPlayers(new_players)) = try_get(message) {
+            return self.handle_players(
+                state,
+                new_players,
+                state.settings.get_friends_api_usage(),
+                &state.settings.get_steam_api_key(),
+                false,
+            );
+        }
+
+        // Lookup all players if it failed to get the friends list of a cheater and
+        // we're using CheatersOnly policy
+        if let Some(FriendLookupResult { steamid, result }) = try_get(message) {
+            let is_bot_or_cheater = state
+                .players
+                .records
+                .get(steamid)
+                .is_some_and(|r| r.verdict == Verdict::Bot || r.verdict == Verdict::Cheater);
+
+            let out = if is_bot_or_cheater && result.is_err() {
+                self.handle_players::<OM>(
+                    state,
+                    &state.players.connected,
+                    state.settings.get_friends_api_usage(),
+                    &state.settings.get_steam_api_key(),
+                    true,
+                )
+            } else {
+                Handled::none()
+            };
+
+            self.in_progess.retain(|s| s != steamid);
+            return out;
+        }
+
+        // Lookup any players that might need to be after a change to their verdicts
+        if let Some(UserUpdates(users)) = try_get(message) {
+            let policy = state.settings.get_friends_api_usage();
+            let mut out = Vec::new();
+
+            for (k, v) in users {
+                if let Some(new_verdict) = v.local_verdict {
+                    if !policy.lookup(new_verdict) {
+                        continue;
+                    }
+
+                    // Lookup all if player was marked as a bot or cheater and we've already failed
+                    // to get their info
+                    let lookup_all_players = policy == FriendsAPIUsage::CheatersOnly
+                        && state
+                            .players
+                            .friend_info
+                            .get(k)
+                            .is_some_and(|f| f.public.is_some_and(|i| !i));
+
+                    if lookup_all_players {
+                        out.push(self.handle_players(
+                            state,
+                            &state.players.connected,
+                            state.settings.get_friends_api_usage(),
+                            &state.settings.get_steam_api_key(),
+                            true,
+                        ));
+                    } else {
+                        out.push(self.handle_players(
+                            state,
+                            &state.players.connected,
+                            state.settings.get_friends_api_usage(),
+                            &state.settings.get_steam_api_key(),
+                            false,
+                        ));
+                    }
+                }
+            }
+
+            return Handled::multiple(out);
+        }
+
+        // Do any lookups we might need to because of changing policy or steam API key
+        if let Some(Preferences {
+            internal: Some(internal),
+            external: _,
+        }) = try_get(message)
+        {
+            if internal.friends_api_usage.is_none() && internal.steam_api_key.is_none() {
+                return Handled::none();
+            }
+
+            let policy = internal
+                .friends_api_usage
+                .unwrap_or_else(|| state.settings.get_friends_api_usage());
+            let key = internal
+                .steam_api_key
+                .clone()
+                .unwrap_or_else(|| state.settings.get_steam_api_key());
+
+            return self.handle_players(state, &state.players.connected, policy, &key, false);
         }
 
         Handled::none()

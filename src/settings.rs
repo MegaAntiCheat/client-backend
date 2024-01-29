@@ -13,7 +13,7 @@ use serde_json::{Map, Value};
 use steamid_ng::SteamID;
 use thiserror::Error;
 
-use crate::{args::Args, gamefinder};
+use crate::{args::Args, gamefinder, player_records::Verdict};
 
 #[derive(Debug, Error)]
 pub enum ConfigFilesError {
@@ -37,18 +37,12 @@ pub enum FriendsAPIUsage {
 
 impl FriendsAPIUsage {
     #[must_use]
-    pub fn lookup_user(self) -> bool { self != Self::None }
-
-    #[must_use]
-    pub fn lookup_cheaters(self) -> bool {
-        if self == Self::All || self == Self::CheatersOnly {
-            return true;
+    pub fn lookup(self, verdict: Verdict) -> bool {
+        match verdict {
+            Verdict::Player | Verdict::Suspicious | Verdict::Trusted => self == Self::All,
+            Verdict::Bot | Verdict::Cheater => self != Self::None,
         }
-        false
     }
-
-    #[must_use]
-    pub fn lookup_others(self) -> bool { self == Self::All }
 }
 
 #[derive(Debug, Serialize, Deserialize)]

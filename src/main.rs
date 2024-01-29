@@ -158,7 +158,7 @@ fn main() {
                 .add_handler(ConsoleParser::default())
                 .add_handler(ExtractNewPlayers)
                 .add_handler(LookupProfiles::new())
-                .add_handler(LookupFriends)
+                .add_handler(LookupFriends::new())
                 .add_handler(WebAPIHandler);
 
             loop {
