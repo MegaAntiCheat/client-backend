@@ -1,13 +1,17 @@
-use serde::{Serialize, Serializer};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     ops::{Deref, DerefMut},
     sync::Arc,
 };
+
+use serde::{Serialize, Serializer};
 use steamid_ng::SteamID;
 
 use crate::{
-    io::{g15::G15Player, regexes::StatusLine},
+    io::{
+        g15::{self, G15Player},
+        regexes::StatusLine,
+    },
     player_records::{default_custom_data, PlayerRecords, Verdict},
 };
 
@@ -32,8 +36,9 @@ pub struct Players {
 
 #[allow(dead_code)]
 impl Players {
-    pub(crate) fn new(records: PlayerRecords) -> Players {
-        Players {
+    #[must_use]
+    pub fn new(records: PlayerRecords, user: Option<SteamID>) -> Self {
+        Self {
             game_info: HashMap::new(),
             steam_info: HashMap::new(),
             friend_info: HashMap::new(),
@@ -42,16 +47,14 @@ impl Players {
 
             connected: Vec::new(),
             history: VecDeque::with_capacity(MAX_HISTORY_LEN),
-            user: None,
+            user,
         }
     }
 
     /// Check if a player has a particular tag set
+    #[must_use]
     pub fn has_tag(&self, steamid: SteamID, tag: &str) -> bool {
-        self.tags
-            .get(&steamid)
-            .map(|t| t.contains(tag))
-            .unwrap_or(false)
+        self.tags.get(&steamid).is_some_and(|t| t.contains(tag))
     }
 
     /// Set a particular tag on a player
@@ -71,25 +74,27 @@ impl Players {
 
     /// Updates friends lists of a user
     /// Propagates to all other friends lists to ensure two-way lookup possible.
-    /// Only call if friends list was obtained directly from Steam API (i.e. friends list is public)
+    /// Only call if friends list was obtained directly from Steam API (i.e.
+    /// friends list is public)
     pub fn update_friends_list(&mut self, steamid: SteamID, friendslist: Vec<Friend>) {
         // Propagate to all other hashmap entries
 
-        for friend in friendslist.iter() {
-            self.propagate_friend(steamid, friend.clone());
+        for friend in &friendslist {
+            self.propagate_friend(steamid, friend);
         }
 
         let oldfriends: Vec<SteamID> = self.set_friends(steamid, friendslist);
 
         // If a player's friend has been unfriended, remove player from friend's hashmap
         for oldfriend in oldfriends {
-            self.remove_from_friends_list(&oldfriend, &steamid);
+            self.remove_from_friends_list(oldfriend, steamid);
         }
 
         self.update_user_friend_tag(steamid);
     }
 
-    /// Sets the friends list and friends list visibility, returning any old friends that have been removed
+    /// Sets the friends list and friends list visibility, returning any old
+    /// friends that have been removed
     fn set_friends(&mut self, steamid: SteamID, friends: Vec<Friend>) -> Vec<SteamID> {
         let friend_info = self.friend_info.entry(steamid).or_default();
 
@@ -103,38 +108,38 @@ impl Players {
     }
 
     /// Helper function to add a friend to a friends list
-    fn propagate_friend(&mut self, steamid: SteamID, friend: Friend) {
+    fn propagate_friend(&mut self, steamid: SteamID, friend: &Friend) {
         let friend_info = self.friend_info.entry(friend.steamid).or_default();
-        
+
         friend_info.push(Friend {
-            steamid: steamid,
-            friend_since: friend.friend_since
+            steamid,
+            friend_since: friend.friend_since,
         });
 
         self.update_user_friend_tag(friend.steamid);
     }
 
     /// Helper function to remove a friend from a player's friendlist.
-    fn remove_from_friends_list(&mut self, steamid: &SteamID, friend_to_remove: &SteamID) {
-        if let Some(friends) = self.friend_info.get_mut(steamid) {
-            friends.retain(|f| f.steamid != *friend_to_remove);
+    fn remove_from_friends_list(&mut self, steamid: SteamID, friend_to_remove: SteamID) {
+        if let Some(friends) = self.friend_info.get_mut(&steamid) {
+            friends.retain(|f| f.steamid != friend_to_remove);
             if friends.len() == 0 && friends.public.is_none() {
-                self.friend_info.remove(steamid);
+                self.friend_info.remove(&steamid);
             }
         }
 
-        if let Some(friends) = self.friend_info.get_mut(friend_to_remove) {
-            friends.retain(|f| f.steamid != *steamid);
+        if let Some(friends) = self.friend_info.get_mut(&friend_to_remove) {
+            friends.retain(|f| f.steamid != steamid);
             if friends.len() == 0 && friends.public.is_none() {
-                self.friend_info.remove(friend_to_remove);
+                self.friend_info.remove(&friend_to_remove);
             }
         }
-        self.update_user_friend_tag(*friend_to_remove);
+        self.update_user_friend_tag(friend_to_remove);
     }
 
     /// Mark a friends list as being private, trim all now-stale information.
-    pub fn mark_friends_list_private(&mut self, steamid: &SteamID) {
-        let friends = self.friend_info.entry(*steamid).or_default();
+    pub fn mark_friends_list_private(&mut self, steamid: SteamID) {
+        let friends = self.friend_info.entry(steamid).or_default();
         let old_vis_state = friends.public;
         if old_vis_state.is_some_and(|public| !public) {
             return;
@@ -151,39 +156,38 @@ impl Players {
                     continue;
                 }
 
-                self.remove_from_friends_list(&friend.steamid, steamid);
+                self.remove_from_friends_list(friend.steamid, steamid);
             }
         }
     }
 
     fn update_user_friend_tag(&mut self, friend: SteamID) {
-        let is_friends_with_user: Option<bool> = self.is_friends_with_user(&friend);
+        let is_friends_with_user: Option<bool> = self.is_friends_with_user(friend);
         if is_friends_with_user.is_some_and(|friends| friends) {
             self.set_tag(friend, tags::FRIEND.into());
         } else {
             self.clear_tag(friend, tags::FRIEND);
-        } 
+        }
     }
 
     /// Check if an account is friends with the user.
     /// Returns None if we don't have enough information to tell.
-    pub fn is_friends_with_user(&self, friend: &SteamID) -> Option<bool> {
-        if let Some(user) = self.user {
-            self.are_friends(friend, &user)
-        } else {
-            None
-        }
+    #[must_use]
+    pub fn is_friends_with_user(&self, friend: SteamID) -> Option<bool> {
+        self.user.and_then(|user| self.are_friends(friend, user))
     }
 
     /// Check if two accounts are friends with each other.
     /// Returns None if we don't have enough information to tell.
-    pub fn are_friends(&self, friend1: &SteamID, friend2: &SteamID) -> Option<bool> {
-        if let Some(friends) = self.friend_info.get(friend1) {
-            if friends.iter().any(|f| f.steamid == *friend2) {
+    #[must_use]
+    pub fn are_friends(&self, friend1: SteamID, friend2: SteamID) -> Option<bool> {
+        if let Some(friends) = self.friend_info.get(&friend1) {
+            if friends.iter().any(|f| f.steamid == friend2) {
                 return Some(true);
             }
 
-            // Friends list is public, so we should be able to see the other party regardless
+            // Friends list is public, so we should be able to see the other party
+            // regardless
             if friends.public.is_some_and(|p| p) {
                 return Some(false);
             }
@@ -192,7 +196,7 @@ impl Players {
         // Other friends list is public, so 2-way lookup should have been possible
         if self
             .friend_info
-            .get(friend2)
+            .get(&friend2)
             .is_some_and(|f| f.public.is_some_and(|p| p))
         {
             return Some(false);
@@ -202,20 +206,16 @@ impl Players {
         None
     }
 
-    /// Moves any old players from the server into history. Any console commands (status, g15_dumpplayer, etc)
-    /// should be run before calling this function again to prevent removing all players from the player list.
+    /// Moves any old players from the server into history. Any console commands
+    /// (status, `g15_dumpplayer`, etc) should be run before calling this
+    /// function again to prevent removing all players from the player list.
     pub fn refresh(&mut self) {
         // Get old players
         let unaccounted_players: Vec<SteamID> = self
             .connected
             .iter()
-            .filter(|&s| {
-                self.game_info
-                    .get(s)
-                    .map(|gi| gi.should_prune())
-                    .unwrap_or(true)
-            })
-            .cloned()
+            .filter(|&s| self.game_info.get(s).map_or(true, GameInfo::should_prune))
+            .copied()
             .collect();
 
         self.connected.retain(|s| !unaccounted_players.contains(s));
@@ -234,54 +234,103 @@ impl Players {
             self.history.push_back(p);
         }
 
-        // Mark all remaining players as unaccounted, they will be marked as accounted again
-        // when they show up in status or another console command.
+        // Mark all remaining players as unaccounted, they will be marked as accounted
+        // again when they show up in status or another console command.
         self.game_info.values_mut().for_each(GameInfo::next_cycle);
     }
 
-    /// Gets a struct containing all the relevant data on a player in a serializable format
-    pub fn get_serializable_player(&self, steamid: &SteamID) -> Option<Player> {
-        let game_info = self.game_info.get(steamid)?;
+    /// Gets a struct containing all the relevant data on a player in a
+    /// serializable format
+    pub fn get_serializable_player(&self, steamid: SteamID) -> Option<Player> {
+        let game_info = self.game_info.get(&steamid)?;
         let tags: Vec<&str> = self
             .tags
-            .get(steamid)
-            .map(|tags| tags.iter().map(|t| t.as_ref()).collect())
+            .get(&steamid)
+            .map(|tags| tags.iter().map(AsRef::as_ref).collect())
             .unwrap_or_default();
 
-        let record = self.records.get(steamid);
+        let record = self.records.get(&steamid);
         let previous_names = record
             .as_ref()
-            .map(|r| r.previous_names.iter().map(|n| n.as_ref()).collect())
+            .map(|r| r.previous_names.iter().map(AsRef::as_ref).collect())
             .unwrap_or_default();
 
-        let friend_info = self.friend_info.get(steamid);
+        let friend_info = self.friend_info.get(&steamid);
         let friends: Vec<&Friend> = friend_info
             .as_ref()
             .map(|fi| fi.friends.iter().collect())
             .unwrap_or_default();
 
-        let local_verdict = record
-            .as_ref()
-            .map(|r| r.verdict)
-            .unwrap_or(Verdict::Player);
+        let local_verdict = record.as_ref().map_or(Verdict::Player, |r| r.verdict);
 
         Some(Player {
-            isSelf: self.user.is_some_and(|user| user == *steamid),
+            isSelf: self.user.is_some_and(|user| user == steamid),
             name: game_info.name.as_ref(),
-            steamID64: *steamid,
+            steamID64: steamid,
             localVerdict: local_verdict,
-            steamInfo: self.steam_info.get(steamid),
+            steamInfo: self.steam_info.get(&steamid),
             gameInfo: Some(game_info),
             customData: record
                 .as_ref()
-                .map(|r| r.custom_data.clone())
-                .unwrap_or_else(default_custom_data),
+                .map_or_else(default_custom_data, |r| r.custom_data.clone()),
             convicted: false,
             tags,
             previous_names,
             friends,
             friendsIsPublic: friend_info.and_then(|fi| fi.public),
         })
+    }
+
+    #[allow(clippy::missing_panics_doc)]
+    pub fn handle_g15(&mut self, players: Vec<g15::G15Player>) {
+        for g15 in players {
+            if g15.steamid.is_none() {
+                continue;
+            }
+            let steamid = g15.steamid.expect("Just checked it was some");
+
+            // Add to connected players if they aren't already
+            if !self.connected.contains(&steamid) {
+                self.connected.push(steamid);
+            }
+
+            // Update game info
+            if let Some(game_info) = self.game_info.get_mut(&steamid) {
+                if let Some(name) = g15.name.as_ref() {
+                    if *name != game_info.name {
+                        self.records.update_name(steamid, name.clone());
+                    }
+                }
+                game_info.update_from_g15(g15);
+            } else if let Some(game_info) = GameInfo::new_from_g15(g15) {
+                // Update name
+                self.records.update_name(steamid, game_info.name.clone());
+                self.game_info.insert(steamid, game_info);
+            }
+        }
+    }
+
+    pub fn handle_status_line(&mut self, status: StatusLine) {
+        let steamid = status.steamid;
+
+        // Add to connected players if they aren't already
+        if !self.connected.contains(&steamid) {
+            self.connected.push(steamid);
+        }
+
+        if let Some(game_info) = self.game_info.get_mut(&steamid) {
+            if status.name != game_info.name {
+                self.records.update_name(steamid, status.name.clone());
+            }
+
+            game_info.update_from_status(status);
+        } else {
+            let game_info = GameInfo::new_from_status(status);
+
+            // Update name
+            self.records.update_name(steamid, game_info.name.clone());
+            self.game_info.insert(steamid, game_info);
+        }
     }
 }
 
@@ -293,13 +342,14 @@ impl Serialize for Players {
         let players: Vec<Player> = self
             .connected
             .iter()
-            .flat_map(|s| self.get_serializable_player(s))
+            .filter_map(|&s| self.get_serializable_player(s))
             .collect();
         players.serialize(serializer)
     }
 }
 
 #[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[allow(clippy::module_name_repetitions)]
 pub enum PlayerState {
     Active,
     Spawning,
@@ -318,10 +368,10 @@ impl TryFrom<u32> for Team {
     type Error = &'static str;
     fn try_from(val: u32) -> Result<Self, Self::Error> {
         match val {
-            0 => Ok(Team::Unassigned),
-            1 => Ok(Team::Spectators),
-            2 => Ok(Team::Red),
-            3 => Ok(Team::Blu),
+            0 => Ok(Self::Unassigned),
+            1 => Ok(Self::Spectators),
+            2 => Ok(Self::Red),
+            3 => Ok(Self::Blu),
             _ => Err("Not a valid team value"),
         }
     }
@@ -363,10 +413,9 @@ pub enum ProfileVisibility {
 impl From<i32> for ProfileVisibility {
     fn from(value: i32) -> Self {
         match value {
-            1 => ProfileVisibility::Private,
-            2 => ProfileVisibility::FriendsOnly,
-            3 => ProfileVisibility::Public,
-            _ => ProfileVisibility::Private,
+            2 => Self::FriendsOnly,
+            3 => Self::Public,
+            _ => Self::Private,
         }
     }
 }
@@ -391,7 +440,7 @@ pub struct GameInfo {
 
 impl Default for GameInfo {
     fn default() -> Self {
-        GameInfo {
+        Self {
             name: "".into(),
             userid: "".into(),
             team: Team::Unassigned,
@@ -407,20 +456,18 @@ impl Default for GameInfo {
 }
 
 impl GameInfo {
-    pub(crate) fn new() -> GameInfo {
-        Default::default()
-    }
+    pub(crate) fn new() -> Self { Self::default() }
 
-    pub(crate) fn new_from_g15(g15: G15Player) -> Option<GameInfo> {
+    pub(crate) fn new_from_g15(g15: G15Player) -> Option<Self> {
         g15.userid.as_ref()?;
 
-        let mut game_info = GameInfo::new();
+        let mut game_info = Self::new();
         game_info.update_from_g15(g15);
         Some(game_info)
     }
 
-    pub(crate) fn new_from_status(status: StatusLine) -> GameInfo {
-        let mut game_info = GameInfo::new();
+    pub(crate) fn new_from_status(status: StatusLine) -> Self {
+        let mut game_info = Self::new();
         game_info.update_from_status(status);
         game_info
     }
@@ -468,7 +515,7 @@ impl GameInfo {
         }
     }
 
-    pub(crate) fn should_prune(&self) -> bool {
+    pub(crate) const fn should_prune(&self) -> bool {
         const CYCLE_LIMIT: u32 = 5;
         self.last_seen > CYCLE_LIMIT
     }
@@ -499,19 +546,16 @@ pub struct FriendInfo {
 impl Deref for FriendInfo {
     type Target = Vec<Friend>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.friends
-    }
+    fn deref(&self) -> &Self::Target { &self.friends }
 }
 
 impl DerefMut for FriendInfo {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.friends
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.friends }
 }
 
 // Useful
 
+#[allow(clippy::trivially_copy_pass_by_ref)]
 fn serialize_steamid_as_string<S: Serializer>(steamid: &SteamID, s: S) -> Result<S::Ok, S::Error> {
     format!("{}", u64::from(*steamid)).serialize(s)
 }

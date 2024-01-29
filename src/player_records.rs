@@ -28,23 +28,24 @@ pub struct PlayerRecords {
 }
 
 impl PlayerRecords {
-    /// Attempts to load the playerlist from the overriden (if provided in [Args]) or default location.
-    /// If it cannot be found, then a new one is created at the location.
+    /// Attempts to load the playerlist from the overriden (if provided in
+    /// [Args]) or default location. If it cannot be found, then a new one
+    /// is created at the location.
     ///
-    /// **Panics**:
-    /// This function can panic if the playerlist file was provided but could not be parsed, or another
-    /// unexpected error occurred to prevent data loss.
-    pub fn load_or_create(args: &Args) -> PlayerRecords {
+    /// # Panics
+    /// If the playerlist file was provided but could not be parsed, or another
+    /// unexpected error occurred, to prevent data loss.
+    #[allow(clippy::cognitive_complexity)]
+    pub fn load_or_create(args: &Args) -> Self {
         // Playerlist
         let playerlist_path: PathBuf = args
         .playerlist
         .as_ref()
-        .map(|i| Ok(i.into()))
-        .unwrap_or(PlayerRecords::locate_playerlist_file()).map_err(|e| {
+        .map_or_else(Self::locate_playerlist_file, |i| Ok(i.into())).map_err(|e| {
             tracing::error!("Could not find a suitable location for the playerlist: {} \nPlease specify a file path manually with --playerlist otherwise information may not be saved.", e); 
-        }).unwrap_or(PathBuf::from("playerlist.json"));
+        }).unwrap_or_else(|()| PathBuf::from("playerlist.json"));
 
-        match PlayerRecords::load_from(playerlist_path) {
+        match Self::load_from(playerlist_path) {
             Ok(playerlist) => playerlist,
             Err(ConfigFilesError::Json(path, e)) => {
                 tracing::error!("{} could not be loaded: {:?}", path, e);
@@ -55,7 +56,7 @@ impl PlayerRecords {
             }
             Err(ConfigFilesError::IO(path, e)) if e.kind() == ErrorKind::NotFound => {
                 tracing::warn!("Could not locate {}, creating new playerlist.", &path);
-                let mut playerlist = PlayerRecords::default();
+                let mut playerlist = Self::default();
                 playerlist.set_path(path.into());
                 playerlist
             }
@@ -69,11 +70,14 @@ impl PlayerRecords {
         }
     }
 
-    /// Attempt to load the [PlayerRecords] from the provided file
-    pub fn load_from(path: PathBuf) -> Result<PlayerRecords, ConfigFilesError> {
+    /// Attempt to load the `PlayerRecords` from the provided file
+    ///
+    /// # Errors
+    /// If the file could not be located, read, or parsed.
+    pub fn load_from(path: PathBuf) -> Result<Self, ConfigFilesError> {
         let contents = std::fs::read_to_string(&path)
             .map_err(|e| ConfigFilesError::IO(path.to_string_lossy().into(), e))?;
-        let mut playerlist: PlayerRecords = serde_json::from_str(&contents)
+        let mut playerlist: Self = serde_json::from_str(&contents)
             .map_err(|e| ConfigFilesError::Json(path.to_string_lossy().into(), e))?;
         playerlist.path = path;
 
@@ -81,9 +85,10 @@ impl PlayerRecords {
         // serializing/deserializing the records to prevent duplication in the
         // resulting file.
         for record in &mut playerlist.records.values_mut() {
-            // Some old versions had the custom_data set to `null` by default, but an empty object is preferable
-            // so I'm using this to fix it lol. It's really not necessary but at the time the UI wasn't
-            // a fan of nulls in the custom_data and this fixes it so whatever. :3
+            // Some old versions had the custom_data set to `null` by default, but an empty
+            // object is preferable so I'm using this to fix it lol. It's really
+            // not necessary but at the time the UI wasn't a fan of nulls in the
+            // custom_data and this fixes it so whatever. :3
             if record.custom_data.is_null() {
                 record.custom_data = serde_json::Value::Object(serde_json::Map::new());
             }
@@ -92,7 +97,10 @@ impl PlayerRecords {
         Ok(playerlist)
     }
 
-    /// Attempt to save the [PlayerRecords] to the file it was loaded from
+    /// Attempt to save the `PlayerRecords` to the file it was loaded from
+    ///
+    /// # Errors
+    /// If it failed to serialize or write back to the file.
     pub fn save(&self) -> Result<(), ConfigFilesError> {
         let contents = serde_json::to_string(self).context("Failed to serialize playerlist.")?;
         std::fs::write(&self.path, contents)
@@ -100,26 +108,28 @@ impl PlayerRecords {
         Ok(())
     }
 
-    /// Attempt to save the [PlayerRecords], log errors and ignore result
+    /// Attempt to save the `PlayerRecords`, log errors and ignore result
     pub fn save_ok(&self) {
         if let Err(e) = self.save() {
             tracing::error!("Failed to save playerlist: {:?}", e);
             return;
         }
-        // this will never fail to unwrap because the above error would have occured first and broken control flow.
+        // this will never fail to unwrap because the above error would have occured
+        // first and broken control flow.
         tracing::debug!("Playerlist saved to {:?}", self.path);
     }
 
-    pub fn set_path(&mut self, path: PathBuf) {
-        self.path = path;
-    }
+    pub fn set_path(&mut self, path: PathBuf) { self.path = path; }
 
+    /// # Errors
+    /// If the config directory could not be located (usually because no valid
+    /// home directory was found)
     pub fn locate_playerlist_file() -> Result<PathBuf, ConfigFilesError> {
         Settings::locate_config_directory().map(|dir| dir.join("playerlist.json"))
     }
 
-    pub fn update_name(&mut self, steamid: &SteamID, name: Arc<str>) {
-        if let Some(record) = self.records.get_mut(steamid) {
+    pub fn update_name(&mut self, steamid: SteamID, name: Arc<str>) {
+        if let Some(record) = self.records.get_mut(&steamid) {
             if !record.previous_names.contains(&name) {
                 record.previous_names.push(name);
             }
@@ -131,9 +141,9 @@ impl Default for PlayerRecords {
     fn default() -> Self {
         let path = Self::locate_playerlist_file()
             .map_err(|e| tracing::warn!("Failed to create config directory: {:?}", e))
-            .unwrap_or("playerlist.json".into());
+            .unwrap_or_else(|()| "playerlist.json".into());
 
-        PlayerRecords {
+        Self {
             path,
             records: HashMap::new(),
         }
@@ -143,15 +153,11 @@ impl Default for PlayerRecords {
 impl Deref for PlayerRecords {
     type Target = HashMap<SteamID, PlayerRecord>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.records
-    }
+    fn deref(&self) -> &Self::Target { &self.records }
 }
 
 impl DerefMut for PlayerRecords {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.records
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.records }
 }
 
 // PlayerRecord
@@ -170,31 +176,20 @@ pub struct PlayerRecord {
 
 impl PlayerRecord {
     /// Returns true if the record does not hold any meaningful information
+    #[must_use]
     pub fn is_empty(&self) -> bool {
         self.verdict == Verdict::Player && {
             self.custom_data.is_null()
-                || self
-                    .custom_data
-                    .as_object()
-                    .map(|o| o.is_empty())
-                    .unwrap_or(false)
-                || self
-                    .custom_data
-                    .as_array()
-                    .map(|a| a.is_empty())
-                    .unwrap_or(false)
-                || self
-                    .custom_data
-                    .as_str()
-                    .map(|s| s.is_empty())
-                    .unwrap_or(false)
+                || self.custom_data.as_object().is_some_and(Map::is_empty)
+                || self.custom_data.as_array().is_some_and(Vec::is_empty)
+                || self.custom_data.as_str().is_some_and(str::is_empty)
         }
     }
 }
 
 impl Default for PlayerRecord {
     fn default() -> Self {
-        PlayerRecord {
+        Self {
             custom_data: default_custom_data(),
             verdict: Verdict::default(),
             previous_names: Vec::new(),
@@ -204,13 +199,11 @@ impl Default for PlayerRecord {
     }
 }
 
-pub fn default_custom_data() -> serde_json::Value {
-    serde_json::Value::Object(Map::new())
-}
+#[must_use]
+pub fn default_custom_data() -> serde_json::Value { serde_json::Value::Object(Map::new()) }
 
-pub fn default_date() -> DateTime<Utc> {
-    Utc::now()
-}
+#[must_use]
+pub fn default_date() -> DateTime<Utc> { Utc::now() }
 
 /// What a player is marked as in the personal playerlist
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -223,13 +216,9 @@ pub enum Verdict {
 }
 
 impl Display for Verdict {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{self:?}") }
 }
 
 impl Default for Verdict {
-    fn default() -> Self {
-        Self::Player
-    }
+    fn default() -> Self { Self::Player }
 }

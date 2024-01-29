@@ -364,6 +364,8 @@ dependencies = [
  "clap",
  "clap_lex 0.5.1",
  "directories-next",
+ "event_loop",
+ "futures 0.3.30",
  "include_dir",
  "keyvalues-parser 0.1.0",
  "keyvalues-serde 0.1.0",
@@ -652,6 +654,14 @@ checksum = "a258e46cdc063eb8519c00b9fc845fc47bcfca4130e2f08e88665ceda8474245"
 dependencies = [
  "libc",
  "windows-sys 0.52.0",
+]
+
+[[package]]
+name = "event_loop"
+version = "0.1.0"
+dependencies = [
+ "futures 0.3.30",
+ "tokio",
 ]
 
 [[package]]

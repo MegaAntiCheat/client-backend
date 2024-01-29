@@ -1,3 +1,4 @@
+workspace = { members = ["event_loop"] }
 [package]
 name = "client-backend"
 version = "0.1.0"
@@ -10,6 +11,9 @@ path = "src/main.rs"
 [lib]
 name = "client_backend"
 path = "src/lib.rs"
+
+[lints.rust]
+unsafe_code = "forbid"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -29,7 +33,7 @@ serde_yaml = "0.9.22"
 steamid-ng = "1.0.0"
 tappet = { git = "https://github.com/saskenuba/SteamHelper-rs", rev = "208a6ad5e2484f9cea101110dc8e29d220475821"}
 thiserror = "1.0.43"
-tokio = { version = "1.29.1", features = ["full"] }
+tokio = { version = "1.29.1", features = ["full", "time"] }
 tokio-stream = "0.1.14"
 tracing = "0.1.37"
 tracing-appender = "0.2.2"
@@ -44,3 +48,5 @@ watchman_client ={ version = "0.8.0" }
 tf-demo-parser = { git = "https://github.com/MegaAntiCheat/parser" }
 bitbuffer = "0.10.9"
 chrono = { version = "0.4.32", features = ["serde"] }
+futures = "0.3.30"
+event_loop = { version = "0.1.0", path = "event_loop" }

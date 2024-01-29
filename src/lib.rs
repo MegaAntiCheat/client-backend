@@ -1,5 +1,8 @@
 pub mod args;
+pub mod command_manager;
+pub mod console;
 pub mod demo;
+pub mod events;
 pub mod gamefinder;
 pub mod io;
 pub mod launchoptions;
@@ -7,7 +10,7 @@ pub mod player;
 pub mod player_records;
 pub mod server;
 pub mod settings;
-pub mod steamapi;
+pub mod state;
 pub mod web;
 
 pub use clap;

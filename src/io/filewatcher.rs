@@ -5,12 +5,8 @@ use clap_lex::SeekFrom;
 use tokio::{
     fs::{File, OpenOptions},
     io::{AsyncReadExt, AsyncSeekExt},
-    sync::mpsc::{error::TryRecvError, unbounded_channel, UnboundedReceiver, UnboundedSender},
+    sync::mpsc::{unbounded_channel, UnboundedReceiver, UnboundedSender},
 };
-
-pub enum FileWatcherCommand {
-    SetWatchedFile(PathBuf),
-}
 
 struct OpenFile {
     /// Size of the file (in bytes) when it was last read
@@ -24,30 +20,26 @@ pub struct FileWatcher {
     file_path: PathBuf,
     /// The file currently being watched
     open_file: Option<OpenFile>,
-
-    request_recv: UnboundedReceiver<FileWatcherCommand>,
     response_send: UnboundedSender<Arc<str>>,
 }
 
 impl FileWatcher {
-    pub fn new(
-        path: PathBuf,
-        recv: UnboundedReceiver<FileWatcherCommand>,
-    ) -> (UnboundedReceiver<Arc<str>>, FileWatcher) {
+    #[must_use]
+    pub fn new(path: PathBuf) -> (UnboundedReceiver<Arc<str>>, Self) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
-        let file_watcher = FileWatcher {
+        let file_watcher = Self {
             file_path: path,
             open_file: None,
 
-            request_recv: recv,
             response_send: resp_tx,
         };
 
         (resp_rx, file_watcher)
     }
 
-    /// Start the file watcher loop. This will block until the channel is closed, so usually it should be spawned in a separate `tokio::task`
+    /// Start the file watcher loop. This will block until the channel is
+    /// closed, so usually it should be spawned in a separate `tokio::task`
     pub async fn file_watch_loop(&mut self) {
         if let Err(e) = self.first_file_open().await {
             tracing::error!("Failed to open file {:?}: {:?}", &self.file_path, e);
@@ -55,20 +47,6 @@ impl FileWatcher {
         }
 
         loop {
-            match self.request_recv.try_recv() {
-                Ok(FileWatcherCommand::SetWatchedFile(new_path)) => {
-                    self.file_path = new_path;
-                    if let Err(e) = self.reopen_file().await {
-                        tracing::error!("Failed to open new file {:?}: {:?}", self.file_path, e);
-                    }
-                }
-                Err(TryRecvError::Empty) => {}
-                Err(TryRecvError::Disconnected) => {
-                    tracing::error!("Lost connection to main thread. Shutting down.");
-                    break;
-                }
-            }
-
             match self.open_file {
                 Some(_) => {
                     self.read_new_file_lines().await.ok();
@@ -100,18 +78,19 @@ impl FileWatcher {
 
         self.open_file = Some(OpenFile { last_size: 0, file });
 
-        Ok(self.open_file.as_mut().unwrap())
+        Ok(self.open_file.as_mut().expect("Just check set it to some."))
     }
 
-    /// Attempts to read the new contents of the observed file and updates the internal state
-    /// with any new lines that have been appended since last call.
+    /// Attempts to read the new contents of the observed file and updates the
+    /// internal state with any new lines that have been appended since last
+    /// call.
     async fn read_new_file_lines(&mut self) -> Result<()> {
         if self.open_file.is_none() {
             return Err(anyhow!(
                 "read_new_file_lines wasn't meant to be called when self.file is None"
             ));
         }
-        let mut file = self.open_file.as_mut().unwrap();
+        let mut file = self.open_file.as_mut().expect("Just checked for Some");
 
         let meta =
             std::fs::metadata(&self.file_path).context("Failed to fetch metadata for log file.")?;
@@ -140,7 +119,8 @@ impl FileWatcher {
 
         file.last_size += read_size as u64;
 
-        // If we expected there to be new data but we didn't read anything, reopen the file and try again.
+        // If we expected there to be new data but we didn't read anything, reopen the
+        // file and try again.
         if read_size == 0 {
             tracing::warn!("Expected to read bytes but didn't get any, the file may have been replaced. Reopening.");
             file = self

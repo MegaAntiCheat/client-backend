@@ -3,8 +3,7 @@
 
 use std::sync::Arc;
 
-use anyhow::Context;
-use anyhow::Result;
+use anyhow::{Context, Result};
 use regex::Captures;
 use steamid_ng::SteamID;
 
@@ -20,34 +19,31 @@ use crate::player::PlayerState;
 
 */
 
-pub const REGEX_HOSTNAME: &str = r#"^hostname: (.*)$"#;
+pub const REGEX_HOSTNAME: &str = r"^hostname: (.*)$";
 #[derive(Debug, Clone)]
 pub struct Hostname(pub Arc<str>);
 impl Hostname {
-    pub fn parse(caps: Captures) -> Hostname {
-        Hostname(caps[1].into())
-    }
+    #[must_use]
+    pub fn parse(caps: &Captures) -> Self { Self(caps[1].into()) }
 }
 
-pub const REGEX_IP: &str = r#"^udp/ip  : (.*)$"#;
+pub const REGEX_IP: &str = r"^udp/ip  : (.*)$";
 #[derive(Debug, Clone)]
 pub struct ServerIP(pub Arc<str>);
 impl ServerIP {
-    pub fn parse(caps: Captures) -> ServerIP {
-        ServerIP(caps[1].into())
-    }
+    #[must_use]
+    pub fn parse(caps: &Captures) -> Self { Self(caps[1].into()) }
 }
 
-pub const REGEX_MAP: &str = r#"^map     : (.+) at: .*$"#;
+pub const REGEX_MAP: &str = r"^map     : (.+) at: .*$";
 #[derive(Debug, Clone)]
 pub struct Map(pub Arc<str>);
 impl Map {
-    pub fn parse(caps: Captures) -> Map {
-        Map(caps[1].into())
-    }
+    #[must_use]
+    pub fn parse(caps: &Captures) -> Self { Self(caps[1].into()) }
 }
 
-pub const REGEX_PLAYERCOUNT: &str = r#"^players : (\d+) humans, (\d+) bots \((\d+) max\)$"#;
+pub const REGEX_PLAYERCOUNT: &str = r"^players : (\d+) humans, (\d+) bots \((\d+) max\)$";
 #[derive(Debug, Clone)]
 pub struct PlayerCount {
     pub players: u32,
@@ -56,10 +52,11 @@ pub struct PlayerCount {
 }
 
 impl PlayerCount {
-    pub fn parse(caps: Captures) -> PlayerCount {
-        PlayerCount {
-            // Regex should guarantee the input is valid, but in the ridiculous case there's an invalid
-            // number I would prefer it has the incorrect value (0) than crash.
+    #[must_use]
+    pub fn parse(caps: &Captures) -> Self {
+        Self {
+            // Regex should guarantee the input is valid, but in the ridiculous case there's an
+            // invalid number I would prefer it has the incorrect value (0) than crash.
             players: caps[1].parse().unwrap_or(0),
             bots: caps[2].parse().unwrap_or(0),
             max: caps[3].parse().unwrap_or(0),
@@ -73,7 +70,7 @@ impl PlayerCount {
 ///    1: Victim
 ///    2: Weapon
 ///    3: Crit?
-pub const REGEX_KILL: &str = r#"^(.*)\skilled\s(.*)\swith\s(.*)\.(\s\(crit\))?$"#;
+pub const REGEX_KILL: &str = r"^(.*)\skilled\s(.*)\swith\s(.*)\.(\s\(crit\))?$";
 #[derive(Debug, Clone)]
 pub struct PlayerKill {
     pub killer_name: Arc<str>,
@@ -85,8 +82,9 @@ pub struct PlayerKill {
 }
 
 impl PlayerKill {
-    pub fn parse(caps: Captures) -> PlayerKill {
-        PlayerKill {
+    #[must_use]
+    pub fn parse(caps: &Captures) -> Self {
+        Self {
             killer_name: caps[1].into(),
             killer_steamid: None,
             victim_name: caps[2].into(),
@@ -101,7 +99,7 @@ impl PlayerKill {
 /// Matches:
 ///    0: Player
 ///    1: Message
-pub const REGEX_CHAT: &str = r#"^(?:\*DEAD\*)?(?:\(TEAM\))?\s?(.*)\s:\s\s(.*)$"#;
+pub const REGEX_CHAT: &str = r"^(?:\*DEAD\*)?(?:\(TEAM\))?\s?(.*)\s:\s\s(.*)$";
 
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
@@ -111,8 +109,9 @@ pub struct ChatMessage {
 }
 
 impl ChatMessage {
-    pub fn parse(caps: Captures) -> ChatMessage {
-        ChatMessage {
+    #[must_use]
+    pub fn parse(caps: &Captures) -> Self {
+        Self {
             player_name: caps[1].into(),
             steamid: None,
             message: caps[2].into(),
@@ -122,7 +121,8 @@ impl ChatMessage {
 
 // Reads lines from output of the "status" command
 // Includes players on server, player name, state, steamid, time connected
-// If no player exists on the server with a steamid from here, it creates a new player and adds it to the list
+// If no player exists on the server with a steamid from here, it creates a new
+// player and adds it to the list
 pub const REGEX_STATUS: &str =
     r#"^#\s*(\d+)\s"(.*)"\s+(\[U:\d:\d+\])\s+((?:[\ds]+:?)+)\s+(\d+)\s*(\d+)\s*(\w+).*$"#;
 
@@ -138,13 +138,16 @@ pub struct StatusLine {
 }
 
 impl StatusLine {
-    pub fn parse(caps: Captures) -> Result<StatusLine> {
-        let mut player_state = PlayerState::Active;
-        if caps[7].eq("spawning") {
-            player_state = PlayerState::Spawning;
-        }
+    /// # Errors
+    /// If it contains an invalid `SteamID`
+    pub fn parse(caps: &Captures) -> Result<Self> {
+        let player_state = if caps[7].eq("spawning") {
+            PlayerState::Spawning
+        } else {
+            PlayerState::Active
+        };
 
-        Ok(StatusLine {
+        Ok(Self {
             userid: caps[1].into(),
             name: caps[2].into(),
             steamid: SteamID::from_steam3(&caps[3]).context("Failed to decode steamid.")?,
@@ -156,7 +159,9 @@ impl StatusLine {
     }
 }
 
-// Converts a given string time (e.g. 57:48 or 1:14:46) as an integer number of seconds
+// Converts a given string time (e.g. 57:48 or 1:14:46) as an integer number of
+// seconds
+#[allow(clippy::cast_possible_truncation)]
 fn get_time(input: &str) -> Option<u32> {
     let mut t: u32 = 0;
 
@@ -164,7 +169,6 @@ fn get_time(input: &str) -> Option<u32> {
     let n = splits.len();
 
     for (i, v) in splits.iter().enumerate() {
-        // let dt: u32 = v.parse::<u32>().expect(&format!("Had trouble parsing {} as u32", v));
         let dt = v.parse::<u32>().ok()?;
         t += 60u32.pow((n - i - 1) as u32) * dt;
     }
