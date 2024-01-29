@@ -83,9 +83,8 @@ impl LaunchOptions {
             }
         }
 
-        let launch_options_regex =
-            Regex::new(r#"\t{6}"LaunchOptions"\t{2}"([(\-\w\%\!\@\^\&)\s]*)""#)
-                .expect("Constructing LaunchOptions regex");
+        let launch_options_regex = Regex::new(r#"\t{6}"LaunchOptions"\t{2}"([^"]*)""#)
+            .expect("Constructing launch options regex");
 
         Ok(Self {
             launch_args_regex: launch_options_regex,
