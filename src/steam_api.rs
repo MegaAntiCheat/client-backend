@@ -136,14 +136,14 @@ where
         }
 
         if try_get::<ProfileLookupBatchTick>(message).is_some() {
+            self.batch_buffer.retain(|s| {
+                !self.in_progress.contains(s) && !state.players.steam_info.contains_key(s)
+            });
             if self.batch_buffer.is_empty() {
                 return Handled::none();
             }
 
             let key = state.settings.get_steam_api_key();
-            self.batch_buffer.retain(|s| {
-                !self.in_progress.contains(s) && !state.players.steam_info.contains_key(s)
-            });
             let batch: Vec<_> = self
                 .batch_buffer
                 .drain(0..BATCH_SIZE.min(self.batch_buffer.len()))
@@ -243,8 +243,7 @@ impl LookupFriends {
                         .map(|r| r.verdict)
                         .unwrap_or_default();
 
-                    if !need_all_friends && (verdict == Verdict::Cheater || verdict == Verdict::Bot)
-                    {
+                    if need_all_friends || verdict == Verdict::Cheater || verdict == Verdict::Bot {
                         queued_friendlist_req.push(p);
                     }
                 }
@@ -253,8 +252,14 @@ impl LookupFriends {
             }
         }
 
-        queued_friendlist_req
-            .retain(|s| state.players.friend_info.get(s).is_none() && !self.in_progess.contains(s));
+        queued_friendlist_req.retain(|s| {
+            !state
+                .players
+                .friend_info
+                .get(s)
+                .is_some_and(|f| f.public.is_some())
+                && !self.in_progess.contains(s)
+        });
 
         if queued_friendlist_req.is_empty() {
             return Handled::none();
@@ -344,10 +349,10 @@ where
                     } else {
                         out.push(self.handle_players(
                             state,
-                            &state.players.connected,
+                            &vec![*k],
                             state.settings.get_friends_api_usage(),
                             &state.settings.get_steam_api_key(),
-                            false,
+                            true,
                         ));
                     }
                 }
