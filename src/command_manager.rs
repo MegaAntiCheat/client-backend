@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use event_loop::{try_get, Handled, HandlerStruct, Is, StateUpdater};
+use event_loop::{try_get, Handled, HandlerStruct, Is};
 use rcon::Connection;
 use serde::Deserialize;
 use thiserror::Error;
@@ -97,7 +97,6 @@ pub enum Command {
     },
     Custom(Arc<str>),
 }
-impl<S> StateUpdater<S> for Command {}
 
 impl Display for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
