@@ -13,7 +13,7 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
-use event_loop::{try_get, Handled, HandlerStruct, Is, StateUpdater};
+use event_loop::{try_get, Handled, HandlerStruct, Is};
 use futures::Stream;
 use include_dir::Dir;
 use serde::{Deserialize, Serialize};
@@ -54,7 +54,6 @@ pub enum WebRequest {
     /// Tell the client to execute console commands
     PostCommand(RequestedCommands),
 }
-impl StateUpdater<MACState> for WebRequest {}
 
 #[allow(clippy::module_name_repetitions)]
 pub struct WebAPIHandler;

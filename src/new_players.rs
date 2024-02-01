@@ -1,4 +1,4 @@
-use event_loop::{try_get, Handled, HandlerStruct, Is, StateUpdater};
+use event_loop::{try_get, Handled, HandlerStruct, Is};
 use steamid_ng::SteamID;
 
 use super::console::ConsoleOutput;
@@ -8,7 +8,6 @@ use crate::state::MACState;
 
 #[derive(Debug, Clone)]
 pub struct NewPlayers(pub Vec<SteamID>);
-impl<S> StateUpdater<S> for NewPlayers {}
 
 // Handlers *********************
 

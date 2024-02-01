@@ -41,7 +41,6 @@ pub enum SteamAPIError {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ProfileLookupBatchTick;
-impl<S> StateUpdater<S> for ProfileLookupBatchTick {}
 
 type ProfileResult = Result<Vec<(SteamID, Result<SteamInfo, SteamAPIError>)>, SteamAPIError>;
 

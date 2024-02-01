@@ -18,7 +18,6 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct RawConsoleOutput(pub Arc<str>);
-impl<S> StateUpdater<S> for RawConsoleOutput {}
 
 #[allow(clippy::module_name_repetitions)]
 pub struct ConsoleLog {

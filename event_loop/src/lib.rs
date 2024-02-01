@@ -166,6 +166,11 @@ impl<M> Handled<M> {
 
 #[allow(unused_variables)]
 pub trait StateUpdater<S>: Sized {
+    fn update_state(self, state: &mut S);
+}
+
+#[allow(unused_variables)]
+impl<M, S> StateUpdater<S> for &M {
     fn update_state(self, state: &mut S) {}
 }
 
