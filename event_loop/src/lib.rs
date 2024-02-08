@@ -46,9 +46,31 @@ where
         self
     }
 
-    /// # Panics
-    /// If any of the async tasks executed as part of message resolution
-    /// paniced.
+    pub fn handle_message(&mut self, message: M, state: &mut S) -> Vec<Action<M>> {
+        let mut out = Vec::new();
+
+        for h in &mut self.handlers {
+            match h.handle_message(state, &message) {
+                Some(Handled(Internal::Single(m))) => out.push(m),
+                Some(Handled(Internal::Batch(ms))) => out.extend(ms),
+                None => {}
+            }
+        }
+
+        message.update_state(state);
+
+        out
+    }
+
+    pub fn handle_messages(&mut self, messages: Vec<M>, state: &mut S) -> Vec<Action<M>> {
+        let mut out = Vec::new();
+
+        for m in messages {
+            out.extend(self.handle_message(m, state));
+        }
+        out
+    }
+
     pub async fn execute_cycle(&mut self, state: &mut S) -> Option<()> {
         let mut messages = Vec::new();
 
@@ -65,8 +87,12 @@ where
         for (i, j) in self.async_tasks.iter_mut().enumerate() {
             if j.is_finished() {
                 finished_tasks.push(i);
-                if let Some(m) = j.await.expect("Task paniced") {
-                    messages.push(m);
+                match j.await {
+                    Ok(Some(m)) => messages.push(m),
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::error!("Task paniced: {e}");
+                    }
                 }
             }
         }
@@ -74,34 +100,14 @@ where
             self.async_tasks.remove(i);
         }
 
-        if messages.is_empty() {
-            return None;
-        }
-
-        // Run handlers
-        for h in &mut self.handlers {
-            for m in &messages {
-                let mut actions = Vec::new();
-                match h.handle_message(state, m) {
-                    None => {}
-                    Some(Handled(Internal::Single(a))) => actions.push(a),
-                    Some(Handled(Internal::Batch(a))) => actions = a,
-                }
-
-                for a in actions {
-                    match a {
-                        Action::Message(m) => self.queue.push(m),
-                        Action::Future(f) => {
-                            self.async_tasks.push(tokio::task::spawn(f));
-                        }
-                    }
+        // Handle messages
+        for a in self.handle_messages(messages, state) {
+            match a {
+                Action::Message(m) => self.queue.push(m),
+                Action::Future(f) => {
+                    self.async_tasks.push(tokio::task::spawn(f));
                 }
             }
-        }
-
-        // Update state
-        for m in messages {
-            m.update_state(state);
         }
 
         Some(())
@@ -128,7 +134,7 @@ enum Internal<T> {
     Batch(Vec<T>),
 }
 
-enum Action<M> {
+pub enum Action<M> {
     Message(M),
     Future(BoxFuture<'static, Option<M>>),
 }
@@ -245,7 +251,14 @@ macro_rules! define_messages {
         // Define enum
         #[derive(Debug)]
         pub enum $enum {
+            None,
             $($message($message)),+
+        }
+
+        impl Default for $enum {
+            fn default() -> $enum {
+                $enum::None
+            }
         }
 
         // Impl update_state
@@ -253,6 +266,7 @@ macro_rules! define_messages {
             fn update_state(self, state: &mut $state) {
                 use $enum::*;
                 match self {
+                    None => {}
                     $($message(i) => i.update_state(state)),+
                 }
             }
