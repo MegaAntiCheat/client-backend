@@ -216,7 +216,7 @@ fn guess_content_type(path: &Path) -> &'static str {
     {
         "htm" | "html" => "text/html",
         "jpg" | "jpeg" => "image/jpeg",
-        "js" => "test/javascript",
+        "js" => "text/javascript",
         "json" => "application/json",
         "png" => "image/png",
         "weba" => "audio/weba",
@@ -227,6 +227,7 @@ fn guess_content_type(path: &Path) -> &'static str {
         "mp4" => "video/mp4",
         "ttf" => "font/ttf",
         "otf" => "font/otf",
+        "css" => "text/css",
         _ => "application/octet-stream",
     }
 }
