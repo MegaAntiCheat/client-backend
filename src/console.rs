@@ -21,8 +21,7 @@ pub struct RawConsoleOutput(pub Arc<str>);
 
 #[allow(clippy::module_name_repetitions)]
 pub struct ConsoleLog {
-    recv: UnboundedReceiver<Arc<str>>,
-
+    pub recv: UnboundedReceiver<Arc<str>>,
     logged_error: bool,
 }
 impl<M: Is<RawConsoleOutput>> MessageSource<M> for ConsoleLog {

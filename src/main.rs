@@ -7,9 +7,7 @@ use std::{
 use args::Args;
 use clap::Parser;
 use demo::demo_loop;
-use event_loop::{
-    define_handlers, define_messages, EventLoop, Handled, HandlerStruct, StateUpdater,
-};
+use event_loop::{define_events, EventLoop};
 use events::emit_on_timer;
 use include_dir::{include_dir, Dir};
 use launchoptions::LaunchOptions;
@@ -51,37 +49,39 @@ use steam_api::{
 };
 use web::{WebAPIHandler, WebRequest};
 
-define_messages!(Message<MACState>:
-    Refresh,
+define_events!(
+    MACState,
+    Message {
+        Refresh,
 
-    Command,
+        Command,
 
-    RawConsoleOutput,
-    ConsoleOutput,
+        RawConsoleOutput,
+        ConsoleOutput,
 
-    NewPlayers,
+        NewPlayers,
 
-    ProfileLookupBatchTick,
-    ProfileLookupResult,
-    FriendLookupResult,
+        ProfileLookupBatchTick,
+        ProfileLookupResult,
+        FriendLookupResult,
 
-    Preferences,
-    UserUpdates,
+        Preferences,
+        UserUpdates,
 
-    WebRequest
-);
+        WebRequest,
+    },
+    Handler {
+        CommandManager,
 
-define_handlers!(Handler<MACState, Message>:
-    CommandManager,
+        ConsoleParser,
 
-    ConsoleParser,
+        ExtractNewPlayers,
 
-    ExtractNewPlayers,
+        LookupProfiles,
+        LookupFriends,
 
-    LookupProfiles,
-    LookupFriends,
-
-    WebAPIHandler
+        WebAPIHandler,
+    },
 );
 
 static UI_DIR: Dir = include_dir!("ui");

@@ -6,14 +6,17 @@ pub mod events;
 pub mod gamefinder;
 pub mod io;
 pub mod launchoptions;
+pub mod new_players;
 pub mod player;
 pub mod player_records;
 pub mod server;
 pub mod settings;
 pub mod state;
+pub mod steam_api;
 pub mod web;
 
 pub use clap;
+pub use event_loop;
 pub use rcon;
 pub use serde_json;
 pub use steamid_ng;

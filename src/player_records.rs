@@ -97,6 +97,9 @@ impl PlayerRecords {
         Ok(playerlist)
     }
 
+    /// Removes all records that don't contain any info worth retaining.
+    pub fn prune(&mut self) { self.retain(|_, r| !r.is_empty()); }
+
     /// Attempt to save the `PlayerRecords` to the file it was loaded from
     ///
     /// # Errors

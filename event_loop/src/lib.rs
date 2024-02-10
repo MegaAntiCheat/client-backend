@@ -1,3 +1,103 @@
+//! An Event Loop abstraction that can be easily composed of message and handler
+//! types, then run over some state.
+//!
+//! Messages can be any type (implementing [`StateUpdater<S>`] will allow the
+//! message type to update the state once it has been appropriately handled),
+//! and can be handled by any type implementing [`HandlerStruct<S, IM, OM>`].
+//! Message sources are of the form `Box<dyn MessageSource<M>>` and are generaly
+//! something like a receiving channel for the message type, or one of the types
+//! that make it up.
+//!
+//! The message and handler enum types can be constructed with
+//! [`define_events!`] macro, where you spepcify the State type, the name of the
+//! message and handler enum types, and all of the types they are composed of.
+//!
+//! # Examples
+//!
+//! ```
+//! use std::sync::mpsc::{channel, Receiver, Sender};
+//!
+//! use event_loop::{define_events, try_get, EventLoop, HandlerStruct, Is, StateUpdater};
+//!
+//! struct State {
+//!     count: u32,
+//! }
+//!
+//! #[derive(Debug)]
+//! struct Refresh;
+//! impl StateUpdater<State> for Refresh {
+//!     fn update_state(self, state: &mut State) { state.count = 0; }
+//! }
+//!
+//! #[derive(Debug)]
+//! struct Increment;
+//! impl StateUpdater<State> for Increment {
+//!     fn update_state(self, state: &mut State) { state.count += 1; }
+//! }
+//!
+//! struct Alert;
+//! impl<IM, OM> HandlerStruct<State, IM, OM> for Alert
+//! where
+//!     IM: Is<Increment> + Is<Refresh>,
+//! {
+//!     fn handle_message(&mut self, state: &State, message: &IM) -> Option<event_loop::Handled<OM>> {
+//!         if try_get::<Increment>(message).is_some() {
+//!             println!("Incrementing!");
+//!         }
+//!
+//!         if try_get::<Refresh>(message).is_some() {
+//!             println!("Refreshing. Final count: {}", state.count);
+//!         }
+//!
+//!         None
+//!     }
+//! }
+//!
+//! define_events!(State, Message { Refresh, Increment }, Handler { Alert });
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let (refresh_send, refresh_recv): (Sender<Refresh>, Receiver<Refresh>) = channel();
+//!     let (sender, receiver): (Sender<Message>, Receiver<Message>) = channel();
+//!
+//!     let mut event_loop: EventLoop<State, Message, Handler> = EventLoop::new()
+//!         .add_source(Box::new(refresh_recv))
+//!         .add_source(Box::new(receiver))
+//!         .add_handler(Alert);
+//!
+//!     let mut state = State { count: 0 };
+//!
+//!     for i in 0..10 {
+//!         sender.send(Message::Increment(Increment)).ok();
+//!
+//!         if i % 3 == 0 {
+//!             refresh_send.send(Refresh).ok();
+//!         }
+//!
+//!         event_loop.execute_cycle(&mut state).await;
+//!     }
+//! }
+//! ```
+//!
+//! **Output:**
+//!
+//! ```
+//! Refreshing. Final count: 0
+//! Incrementing!
+//! Incrementing!
+//! Incrementing!
+//! Refreshing. Final count: 3
+//! Incrementing!
+//! Incrementing!
+//! Incrementing!
+//! Refreshing. Final count: 3
+//! Incrementing!
+//! Incrementing!
+//! Incrementing!
+//! Refreshing. Final count: 3
+//! Incrementing!
+//! ```
+
 use std::{future::Future, marker::PhantomData};
 
 use futures::future::BoxFuture;
@@ -6,8 +106,8 @@ use tokio::{sync::mpsc::UnboundedReceiver, task::JoinHandle};
 pub struct EventLoop<S, M, H>
 where
     S: Send,
-    M: Send + ConsumingStateUpdater<S> + 'static,
-    H: HandlerStruct<S, M, M>,
+    M: Send + StateUpdater<S> + 'static,
+    H: Send + HandlerStruct<S, M, M>,
 {
     pub sources: Vec<Box<dyn MessageSource<M> + 'static + Send>>,
     pub handlers: Vec<H>,
@@ -20,7 +120,7 @@ where
 impl<S, M, H> EventLoop<S, M, H>
 where
     S: Send,
-    M: Send + ConsumingStateUpdater<S> + 'static,
+    M: Send + StateUpdater<S> + 'static,
     H: Send + HandlerStruct<S, M, M>,
 {
     #[must_use]
@@ -46,9 +146,31 @@ where
         self
     }
 
-    /// # Panics
-    /// If any of the async tasks executed as part of message resolution
-    /// paniced.
+    pub fn handle_message(&mut self, message: M, state: &mut S) -> Vec<Action<M>> {
+        let mut out = Vec::new();
+
+        for h in &mut self.handlers {
+            match h.handle_message(state, &message) {
+                Some(Handled(Internal::Single(m))) => out.push(m),
+                Some(Handled(Internal::Batch(ms))) => out.extend(ms),
+                None => {}
+            }
+        }
+
+        message.update_state(state);
+
+        out
+    }
+
+    pub fn handle_messages(&mut self, messages: Vec<M>, state: &mut S) -> Vec<Action<M>> {
+        let mut out = Vec::new();
+
+        for m in messages {
+            out.extend(self.handle_message(m, state));
+        }
+        out
+    }
+
     pub async fn execute_cycle(&mut self, state: &mut S) -> Option<()> {
         let mut messages = Vec::new();
 
@@ -65,8 +187,12 @@ where
         for (i, j) in self.async_tasks.iter_mut().enumerate() {
             if j.is_finished() {
                 finished_tasks.push(i);
-                if let Some(m) = j.await.expect("Task paniced") {
-                    messages.push(m);
+                match j.await {
+                    Ok(Some(m)) => messages.push(m),
+                    Ok(None) => {}
+                    Err(e) => {
+                        tracing::error!("Task paniced: {e}");
+                    }
                 }
             }
         }
@@ -78,47 +204,35 @@ where
             return None;
         }
 
-        // Run handlers
-        for h in &mut self.handlers {
-            for m in &messages {
-                let mut actions = Vec::new();
-                match h.handle_message(state, m) {
-                    None => {}
-                    Some(Handled(Internal::Single(a))) => actions.push(a),
-                    Some(Handled(Internal::Batch(a))) => actions = a,
-                }
-
-                for a in actions {
-                    match a {
-                        Action::Message(m) => self.queue.push(m),
-                        Action::Future(f) => {
-                            self.async_tasks.push(tokio::task::spawn(f));
-                        }
-                    }
+        // Handle messages
+        for a in self.handle_messages(messages, state) {
+            match a {
+                Action::Message(m) => self.queue.push(m),
+                Action::Future(f) => {
+                    self.async_tasks.push(tokio::task::spawn(f));
                 }
             }
-        }
-
-        // Update state
-        for m in messages {
-            m.update_state(state);
         }
 
         Some(())
     }
 }
 
+pub trait HandlerStruct<S, IM, OM> {
+    fn handle_message(&mut self, state: &S, message: &IM) -> Option<Handled<OM>>;
+}
+
+impl<S, IM, OM, T> HandlerStruct<S, IM, OM> for &T {
+    fn handle_message(&mut self, _state: &S, _message: &IM) -> Option<Handled<OM>> { None }
+}
+
 impl<S, M, H> Default for EventLoop<S, M, H>
 where
     S: Send,
-    M: Send + ConsumingStateUpdater<S> + 'static,
+    M: Send + StateUpdater<S> + 'static,
     H: Send + HandlerStruct<S, M, M>,
 {
     fn default() -> Self { Self::new() }
-}
-
-pub trait HandlerStruct<S, IM, OM> {
-    fn handle_message(&mut self, state: &S, message: &IM) -> Option<Handled<OM>>;
 }
 
 pub struct Handled<M>(Internal<Action<M>>);
@@ -128,7 +242,7 @@ enum Internal<T> {
     Batch(Vec<T>),
 }
 
-enum Action<M> {
+pub enum Action<M> {
     Message(M),
     Future(BoxFuture<'static, Option<M>>),
 }
@@ -174,13 +288,6 @@ impl<M, S> StateUpdater<S> for &M {
     fn update_state(self, state: &mut S) {}
 }
 
-pub trait ConsumingStateUpdater<S>
-where
-    Self: Sized,
-{
-    fn update_state(self, _: &mut S) {}
-}
-
 pub trait MessageSource<M> {
     fn next_message(&mut self) -> Option<M>;
 }
@@ -210,49 +317,30 @@ pub trait Is<T>: From<T> {
     fn try_get(&self) -> Option<&T>;
 }
 
-// Define Handler struct
 #[macro_export]
-macro_rules! define_handlers {
-    ($enum:ident <$state:ty, $message:ty>: $($handler:ident),+) => {
-        // Define enum
-        pub enum $enum {
-            $($handler($handler)),+
-        }
+macro_rules! define_events {
+    (
+        $state:ty,
+        $message_enum:ident { $($message:ident),+ $(,)? },
+        $handler_enum:ident { $($handler:ident),+ $(,)? } $(,)?
+    ) => {
 
-        // Impl HandlerStruct<State, Message>
-        impl HandlerStruct<$state, $message, $message> for $enum {
-            fn handle_message(&mut self, state: &$state, message: &$message) -> Option<Handled<$message>> {
-                match self {
-                    $($enum::$handler(inner) => inner.handle_message(state, message)),+
-                }
-            }
-        }
+        // ---------- Messages ---------
 
-        $(
-            impl From<$handler> for $enum {
-                fn from(val: $handler) -> Self {
-                    Self::$handler(val)
-                }
-            }
-        )+
-    };
-}
-
-// Define Message struct
-#[macro_export]
-macro_rules! define_messages {
-    ($enum:ident <$state:ty>: $($message:ident),+) => {
         // Define enum
         #[derive(Debug)]
-        pub enum $enum {
+        pub enum $message_enum {
+            None,
             $($message($message)),+
         }
 
         // Impl update_state
-        impl event_loop::ConsumingStateUpdater<$state> for $enum {
+        impl event_loop::StateUpdater<$state> for $message_enum {
             fn update_state(self, state: &mut $state) {
-                use $enum::*;
+                use $message_enum::*;
+                use event_loop::StateUpdater;
                 match self {
+                    $message_enum::None => {},
                     $($message(i) => i.update_state(state)),+
                 }
             }
@@ -260,16 +348,16 @@ macro_rules! define_messages {
 
         // Impl Is
         $(
-            impl event_loop::Is<$message> for $enum {
+            impl event_loop::Is<$message> for $message_enum {
                 fn is(&self) -> bool {
                     match self {
-                        $enum::$message(_) => true,
+                        $message_enum::$message(_) => true,
                         _ => false,
                     }
                 }
                 fn try_get(&self) -> Option<&$message> {
                     match self {
-                        $enum::$message(a) => Some(a),
+                        $message_enum::$message(a) => Some(a),
                         _ => None,
                     }
                 }
@@ -278,22 +366,46 @@ macro_rules! define_messages {
 
         // Impl Into
         $(
-            impl From<$message> for $enum {
-                fn from(val: $message) -> $enum {
-                    $enum::$message(val)
+            impl From<$message> for $message_enum {
+                fn from(val: $message) -> $message_enum {
+                    $message_enum::$message(val)
                 }
             }
         )+
 
         // Impl TryInto
         $(
-            impl TryInto<$message> for $enum {
+            impl TryInto<$message> for $message_enum {
                 type Error = ();
                 fn try_into(self) -> Result<$message, Self::Error> {
                     match self {
-                        $enum::$message(out) => Ok(out),
+                        $message_enum::$message(out) => Ok(out),
                         _ => Err(())
                     }
+                }
+            }
+        )+
+
+        // -------------- Handlers ------------
+
+        // Handler enum
+        pub enum $handler_enum {
+            $($handler($handler)),+
+        }
+
+        // Impl HandlerStruct<State, Message>
+        impl event_loop::HandlerStruct<$state, $message_enum, $message_enum> for $handler_enum {
+            fn handle_message(&mut self, state: &$state, message: &$message_enum) -> Option<event_loop::Handled<$message_enum>> {
+                match self {
+                    $($handler_enum::$handler(inner) => inner.handle_message(state, message)),+
+                }
+            }
+        }
+
+        $(
+            impl From<$handler> for $handler_enum {
+                fn from(val: $handler) -> Self {
+                    Self::$handler(val)
                 }
             }
         )+
