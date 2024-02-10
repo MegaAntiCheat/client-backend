@@ -1,3 +1,103 @@
+//! An Event Loop abstraction that can be easily composed of message and handler
+//! types, then run over some state.
+//!
+//! Messages can be any type (implementing [`StateUpdater<S>`] will allow the
+//! message type to update the state once it has been appropriately handled),
+//! and can be handled by any type implementing [`HandlerStruct<S, IM, OM>`].
+//! Message sources are of the form `Box<dyn MessageSource<M>>` and are generaly
+//! something like a receiving channel for the message type, or one of the types
+//! that make it up.
+//!
+//! The message and handler enum types can be constructed with
+//! [`define_events!`] macro, where you spepcify the State type, the name of the
+//! message and handler enum types, and all of the types they are composed of.
+//!
+//! # Examples
+//!
+//! ```
+//! use std::sync::mpsc::{channel, Receiver, Sender};
+//!
+//! use event_loop::{define_events, try_get, EventLoop, HandlerStruct, Is, StateUpdater};
+//!
+//! struct State {
+//!     count: u32,
+//! }
+//!
+//! #[derive(Debug)]
+//! struct Refresh;
+//! impl StateUpdater<State> for Refresh {
+//!     fn update_state(self, state: &mut State) { state.count = 0; }
+//! }
+//!
+//! #[derive(Debug)]
+//! struct Increment;
+//! impl StateUpdater<State> for Increment {
+//!     fn update_state(self, state: &mut State) { state.count += 1; }
+//! }
+//!
+//! struct Alert;
+//! impl<IM, OM> HandlerStruct<State, IM, OM> for Alert
+//! where
+//!     IM: Is<Increment> + Is<Refresh>,
+//! {
+//!     fn handle_message(&mut self, state: &State, message: &IM) -> Option<event_loop::Handled<OM>> {
+//!         if try_get::<Increment>(message).is_some() {
+//!             println!("Incrementing!");
+//!         }
+//!
+//!         if try_get::<Refresh>(message).is_some() {
+//!             println!("Refreshing. Final count: {}", state.count);
+//!         }
+//!
+//!         None
+//!     }
+//! }
+//!
+//! define_events!(State, Message { Refresh, Increment }, Handler { Alert });
+//!
+//! #[tokio::main]
+//! async fn main() {
+//!     let (refresh_send, refresh_recv): (Sender<Refresh>, Receiver<Refresh>) = channel();
+//!     let (sender, receiver): (Sender<Message>, Receiver<Message>) = channel();
+//!
+//!     let mut event_loop: EventLoop<State, Message, Handler> = EventLoop::new()
+//!         .add_source(Box::new(refresh_recv))
+//!         .add_source(Box::new(receiver))
+//!         .add_handler(Alert);
+//!
+//!     let mut state = State { count: 0 };
+//!
+//!     for i in 0..10 {
+//!         sender.send(Message::Increment(Increment)).ok();
+//!
+//!         if i % 3 == 0 {
+//!             refresh_send.send(Refresh).ok();
+//!         }
+//!
+//!         event_loop.execute_cycle(&mut state).await;
+//!     }
+//! }
+//! ```
+//!
+//! **Output:**
+//!
+//! ```
+//! Refreshing. Final count: 0
+//! Incrementing!
+//! Incrementing!
+//! Incrementing!
+//! Refreshing. Final count: 3
+//! Incrementing!
+//! Incrementing!
+//! Incrementing!
+//! Refreshing. Final count: 3
+//! Incrementing!
+//! Incrementing!
+//! Incrementing!
+//! Refreshing. Final count: 3
+//! Incrementing!
+//! ```
+
 use std::{future::Future, marker::PhantomData};
 
 use futures::future::BoxFuture;
@@ -6,7 +106,7 @@ use tokio::{sync::mpsc::UnboundedReceiver, task::JoinHandle};
 pub struct EventLoop<S, M, H>
 where
     S: Send,
-    M: Send + ConsumingStateUpdater<S> + 'static,
+    M: Send + StateUpdater<S> + 'static,
     H: Send + HandlerStruct<S, M, M>,
 {
     pub sources: Vec<Box<dyn MessageSource<M> + 'static + Send>>,
@@ -20,7 +120,7 @@ where
 impl<S, M, H> EventLoop<S, M, H>
 where
     S: Send,
-    M: Send + ConsumingStateUpdater<S> + 'static,
+    M: Send + StateUpdater<S> + 'static,
     H: Send + HandlerStruct<S, M, M>,
 {
     #[must_use]
@@ -100,6 +200,10 @@ where
             self.async_tasks.remove(i);
         }
 
+        if messages.is_empty() {
+            return None;
+        }
+
         // Handle messages
         for a in self.handle_messages(messages, state) {
             match a {
@@ -125,7 +229,7 @@ impl<S, IM, OM, T> HandlerStruct<S, IM, OM> for &T {
 impl<S, M, H> Default for EventLoop<S, M, H>
 where
     S: Send,
-    M: Send + ConsumingStateUpdater<S> + 'static,
+    M: Send + StateUpdater<S> + 'static,
     H: Send + HandlerStruct<S, M, M>,
 {
     fn default() -> Self { Self::new() }
@@ -184,13 +288,6 @@ impl<M, S> StateUpdater<S> for &M {
     fn update_state(self, state: &mut S) {}
 }
 
-pub trait ConsumingStateUpdater<S>
-where
-    Self: Sized,
-{
-    fn update_state(self, _: &mut S) {}
-}
-
 pub trait MessageSource<M> {
     fn next_message(&mut self) -> Option<M>;
 }
@@ -238,7 +335,7 @@ macro_rules! define_events {
         }
 
         // Impl update_state
-        impl event_loop::ConsumingStateUpdater<$state> for $message_enum {
+        impl event_loop::StateUpdater<$state> for $message_enum {
             fn update_state(self, state: &mut $state) {
                 use $message_enum::*;
                 use event_loop::StateUpdater;
