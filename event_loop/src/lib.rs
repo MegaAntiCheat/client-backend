@@ -7,7 +7,7 @@ pub struct EventLoop<S, M, H>
 where
     S: Send,
     M: Send + ConsumingStateUpdater<S> + 'static,
-    H: HandlerStruct<S, M, M>,
+    H: Send + HandlerStruct<S, M, M>,
 {
     pub sources: Vec<Box<dyn MessageSource<M> + 'static + Send>>,
     pub handlers: Vec<H>,
@@ -114,6 +114,14 @@ where
     }
 }
 
+pub trait HandlerStruct<S, IM, OM> {
+    fn handle_message(&mut self, state: &S, message: &IM) -> Option<Handled<OM>>;
+}
+
+impl<S, IM, OM, T> HandlerStruct<S, IM, OM> for &T {
+    fn handle_message(&mut self, _state: &S, _message: &IM) -> Option<Handled<OM>> { None }
+}
+
 impl<S, M, H> Default for EventLoop<S, M, H>
 where
     S: Send,
@@ -121,10 +129,6 @@ where
     H: Send + HandlerStruct<S, M, M>,
 {
     fn default() -> Self { Self::new() }
-}
-
-pub trait HandlerStruct<S, IM, OM> {
-    fn handle_message(&mut self, state: &S, message: &IM) -> Option<Handled<OM>>;
 }
 
 pub struct Handled<M>(Internal<Action<M>>);
@@ -216,57 +220,30 @@ pub trait Is<T>: From<T> {
     fn try_get(&self) -> Option<&T>;
 }
 
-// Define Handler struct
 #[macro_export]
-macro_rules! define_handlers {
-    ($enum:ident <$state:ty, $message:ty>: $($handler:ident),+) => {
-        // Define enum
-        pub enum $enum {
-            $($handler($handler)),+
-        }
+macro_rules! define_events {
+    (
+        $state:ty,
+        $message_enum:ident { $($message:ident),+ $(,)? },
+        $handler_enum:ident { $($handler:ident),+ $(,)? } $(,)?
+    ) => {
 
-        // Impl HandlerStruct<State, Message>
-        impl HandlerStruct<$state, $message, $message> for $enum {
-            fn handle_message(&mut self, state: &$state, message: &$message) -> Option<Handled<$message>> {
-                match self {
-                    $($enum::$handler(inner) => inner.handle_message(state, message)),+
-                }
-            }
-        }
+        // ---------- Messages ---------
 
-        $(
-            impl From<$handler> for $enum {
-                fn from(val: $handler) -> Self {
-                    Self::$handler(val)
-                }
-            }
-        )+
-    };
-}
-
-// Define Message struct
-#[macro_export]
-macro_rules! define_messages {
-    ($enum:ident <$state:ty>: $($message:ident),+) => {
         // Define enum
         #[derive(Debug)]
-        pub enum $enum {
+        pub enum $message_enum {
             None,
             $($message($message)),+
         }
 
-        impl Default for $enum {
-            fn default() -> $enum {
-                $enum::None
-            }
-        }
-
         // Impl update_state
-        impl event_loop::ConsumingStateUpdater<$state> for $enum {
+        impl event_loop::ConsumingStateUpdater<$state> for $message_enum {
             fn update_state(self, state: &mut $state) {
-                use $enum::*;
+                use $message_enum::*;
+                use event_loop::StateUpdater;
                 match self {
-                    None => {}
+                    $message_enum::None => {},
                     $($message(i) => i.update_state(state)),+
                 }
             }
@@ -274,16 +251,16 @@ macro_rules! define_messages {
 
         // Impl Is
         $(
-            impl event_loop::Is<$message> for $enum {
+            impl event_loop::Is<$message> for $message_enum {
                 fn is(&self) -> bool {
                     match self {
-                        $enum::$message(_) => true,
+                        $message_enum::$message(_) => true,
                         _ => false,
                     }
                 }
                 fn try_get(&self) -> Option<&$message> {
                     match self {
-                        $enum::$message(a) => Some(a),
+                        $message_enum::$message(a) => Some(a),
                         _ => None,
                     }
                 }
@@ -292,22 +269,46 @@ macro_rules! define_messages {
 
         // Impl Into
         $(
-            impl From<$message> for $enum {
-                fn from(val: $message) -> $enum {
-                    $enum::$message(val)
+            impl From<$message> for $message_enum {
+                fn from(val: $message) -> $message_enum {
+                    $message_enum::$message(val)
                 }
             }
         )+
 
         // Impl TryInto
         $(
-            impl TryInto<$message> for $enum {
+            impl TryInto<$message> for $message_enum {
                 type Error = ();
                 fn try_into(self) -> Result<$message, Self::Error> {
                     match self {
-                        $enum::$message(out) => Ok(out),
+                        $message_enum::$message(out) => Ok(out),
                         _ => Err(())
                     }
+                }
+            }
+        )+
+
+        // -------------- Handlers ------------
+
+        // Handler enum
+        pub enum $handler_enum {
+            $($handler($handler)),+
+        }
+
+        // Impl HandlerStruct<State, Message>
+        impl event_loop::HandlerStruct<$state, $message_enum, $message_enum> for $handler_enum {
+            fn handle_message(&mut self, state: &$state, message: &$message_enum) -> Option<event_loop::Handled<$message_enum>> {
+                match self {
+                    $($handler_enum::$handler(inner) => inner.handle_message(state, message)),+
+                }
+            }
+        }
+
+        $(
+            impl From<$handler> for $handler_enum {
+                fn from(val: $handler) -> Self {
+                    Self::$handler(val)
                 }
             }
         )+
