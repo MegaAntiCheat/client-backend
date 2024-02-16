@@ -134,23 +134,26 @@ fn main() {
                     "User was previously in a masterbase session that has now been closed."
                 ),
                 Ok(r) if r.status().is_server_error() => tracing::error!(
-                    "Error when trying to close and previous masterbase sessions: {r:?}"
+                    "Error when trying to close any previous masterbase sessions: Status code {}",
+                    r.status()
                 ),
                 Ok(_) => {}
                 Err(e) => tracing::error!("Couldn't reach masterbase: {e}"),
             }
 
             // TODO - get rid of this
+            match masterbase::new_demo_session(
+                state.settings.masterbase_endpoint(),
+                state.settings.masterbase_key(),
+                "1.2.3.4".into(),
+                "koth_harvest_final".into(),
+            )
+            .await
             {
-                let result = masterbase::new_demo_session(
-                    state.settings.masterbase_endpoint(),
-                    state.settings.masterbase_key(),
-                    "1.2.3.4".into(),
-                    "koth_harvest_final".into(),
-                )
-                .await;
-
-                println!("Demo session: {result:?}");
+                Ok(session) => {
+                    tracing::info!("Successfully started masterbase session: {:?}", session)
+                }
+                Err(e) => tracing::error!("Couldn't start masterbase session: {}", e),
             }
 
             // Autolaunch UI
