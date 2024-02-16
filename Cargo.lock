@@ -2379,8 +2379,8 @@ dependencies = [
 
 [[package]]
 name = "tf-demo-parser"
-version = "0.4.0"
-source = "git+https://github.com/MegaAntiCheat/parser#3639cc8ce15abc3677c12e7ba1dbe488f2cff97b"
+version = "0.5.0"
+source = "git+https://github.com/MegaAntiCheat/parser#f4cc4df6df24b1ff6a5537fc811e4930ca57256a"
 dependencies = [
  "bitbuffer",
  "enumflags2",

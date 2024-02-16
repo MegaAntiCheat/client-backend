@@ -1,12 +1,13 @@
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
+    sync::mpsc::channel,
     time::Duration,
 };
 
 use args::Args;
 use clap::Parser;
-use demo::demo_loop;
+use demo::{demo_loop, DemoEventWatcher};
 use event_loop::{define_events, EventLoop};
 use events::emit_on_timer;
 use include_dir::{include_dir, Dir};
@@ -42,6 +43,7 @@ mod web;
 
 use command_manager::{Command, CommandManager};
 use console::{ConsoleLog, ConsoleOutput, ConsoleParser, RawConsoleOutput};
+use demo::DemoMessage;
 use events::{Preferences, Refresh, UserUpdates};
 use new_players::{ExtractNewPlayers, NewPlayers};
 use steam_api::{
@@ -69,6 +71,8 @@ define_events!(
         UserUpdates,
 
         WebRequest,
+
+        DemoMessage,
     },
     Handler {
         CommandManager,
@@ -81,6 +85,8 @@ define_events!(
         LookupFriends,
 
         WebAPIHandler,
+
+        DemoEventWatcher,
     },
 );
 
@@ -123,12 +129,13 @@ fn main() {
             }
 
             // Demo manager
+            let (demo_tx, demo_rx) = channel();
             if args.demo_monitoring {
                 let demo_path = state.settings.get_tf2_directory().join("tf");
                 tracing::info!("Demo path: {:?}", demo_path);
 
                 std::thread::spawn(move || {
-                    if let Err(e) = demo_loop(&demo_path) {
+                    if let Err(e) = demo_loop(&demo_path, demo_tx) {
                         tracing::error!("Failed to start demo watcher: {:?}", e);
                     }
                 });
@@ -153,13 +160,15 @@ fn main() {
                 .add_source(console_log)
                 .add_source(refresh_timer)
                 .add_source(lookup_batch_timer)
+                .add_source(Box::new(demo_rx))
                 .add_source(Box::new(web_requests))
                 .add_handler(CommandManager::new())
                 .add_handler(ConsoleParser::default())
                 .add_handler(ExtractNewPlayers)
                 .add_handler(LookupProfiles::new())
                 .add_handler(LookupFriends::new())
-                .add_handler(WebAPIHandler);
+                .add_handler(WebAPIHandler)
+                .add_handler(DemoEventWatcher {});
 
             loop {
                 if event_loop.execute_cycle(&mut state).await.is_none() {

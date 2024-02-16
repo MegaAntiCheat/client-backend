@@ -23,13 +23,11 @@
 //!     count: u32,
 //! }
 //!
-//! #[derive(Debug)]
 //! struct Refresh;
 //! impl StateUpdater<State> for Refresh {
 //!     fn update_state(self, state: &mut State) { state.count = 0; }
 //! }
 //!
-//! #[derive(Debug)]
 //! struct Increment;
 //! impl StateUpdater<State> for Increment {
 //!     fn update_state(self, state: &mut State) { state.count += 1; }
@@ -328,7 +326,6 @@ macro_rules! define_events {
         // ---------- Messages ---------
 
         // Define enum
-        #[derive(Debug)]
         pub enum $message_enum {
             None,
             $($message($message)),+
