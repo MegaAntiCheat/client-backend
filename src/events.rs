@@ -77,6 +77,7 @@ pub struct InternalPreferences {
     pub tf2_directory: Option<Arc<str>>,
     pub rcon_password: Option<Arc<str>>,
     pub steam_api_key: Option<Arc<str>>,
+    pub masterbase_key: Option<Arc<str>>,
     pub rcon_port: Option<u16>,
 }
 
@@ -104,6 +105,9 @@ impl StateUpdater<MACState> for Preferences {
             }
             if let Some(friends_api_usage) = internal.friends_api_usage {
                 state.settings.set_friends_api_usage(friends_api_usage);
+            }
+            if let Some(masterbase_key) = internal.masterbase_key {
+                state.settings.set_masterbase_key(masterbase_key);
             }
         }
 

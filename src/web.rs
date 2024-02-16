@@ -327,13 +327,14 @@ fn get_prefs_response(state: &MACState) -> String {
     let settings = &state.settings;
     let prefs = Preferences {
         internal: Some(InternalPreferences {
-            friends_api_usage: Some(settings.get_friends_api_usage()),
-            tf2_directory: Some(settings.get_tf2_directory().to_string_lossy().into()),
-            rcon_password: Some(settings.get_rcon_password()),
-            steam_api_key: Some(settings.get_steam_api_key()),
-            rcon_port: Some(settings.get_rcon_port()),
+            friends_api_usage: Some(settings.friends_api_usage()),
+            tf2_directory: Some(settings.tf2_directory().to_string_lossy().into()),
+            rcon_password: Some(settings.rcon_password()),
+            steam_api_key: Some(settings.steam_api_key()),
+            masterbase_key: Some(settings.masterbase_key()),
+            rcon_port: Some(settings.rcon_port()),
         }),
-        external: Some(settings.get_external_preferences().clone()),
+        external: Some(settings.external_preferences().clone()),
     };
 
     serde_json::to_string(&prefs).expect("Epic serialization fail")

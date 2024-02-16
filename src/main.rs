@@ -103,7 +103,7 @@ fn main() {
     let playerlist = PlayerRecords::load_or_create(&args);
     playerlist.save_ok();
 
-    let players = Players::new(playerlist, settings.get_steam_user());
+    let players = Players::new(playerlist, settings.steam_user());
 
     let mut state = MACState {
         server: Server::new(),
@@ -113,7 +113,7 @@ fn main() {
 
     check_launch_options(&state.settings);
 
-    let web_port = state.settings.get_webui_port();
+    let web_port = state.settings.webui_port();
 
     // The juicy part of the program
     tokio::runtime::Builder::new_multi_thread()
@@ -122,7 +122,7 @@ fn main() {
         .expect("Failed to build async runtime")
         .block_on(async {
             // Autolaunch UI
-            if args.autolaunch_ui || state.settings.get_autolaunch_ui() {
+            if args.autolaunch_ui || state.settings.autolaunch_ui() {
                 if let Err(e) = open::that(Path::new(&format!("http://localhost:{web_port}"))) {
                     tracing::error!("Failed to open web browser: {:?}", e);
                 }
@@ -131,7 +131,7 @@ fn main() {
             // Demo manager
             let (demo_tx, demo_rx) = channel();
             if args.demo_monitoring {
-                let demo_path = state.settings.get_tf2_directory().join("tf");
+                let demo_path = state.settings.tf2_directory().join("tf");
                 tracing::info!("Demo path: {:?}", demo_path);
 
                 std::thread::spawn(move || {
@@ -149,7 +149,7 @@ fn main() {
 
             // Watch console log
             let log_file_path: PathBuf =
-                PathBuf::from(state.settings.get_tf2_directory()).join("tf/console.log");
+                PathBuf::from(state.settings.tf2_directory()).join("tf/console.log");
             let console_log = Box::new(ConsoleLog::new(log_file_path).await);
 
             let lookup_batch_timer =
@@ -183,7 +183,7 @@ fn check_launch_options(settings: &Settings) {
     // Launch options and overrides
     let launch_opts = match LaunchOptions::new(
         settings
-            .get_steam_user()
+            .steam_user()
             .expect("Failed to identify the local steam user (failed to find `loginusers.vdf`)"),
     ) {
         Ok(val) => Some(val),

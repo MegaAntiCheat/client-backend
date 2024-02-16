@@ -348,6 +348,7 @@ pub fn demo_loop(demo_path: &Path, send: Sender<DemoMessage>) -> anyhow::Result<
     }
 }
 
+#[allow(clippy::module_name_repetitions)]
 pub struct DemoEventWatcher {}
 
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for DemoEventWatcher
@@ -362,7 +363,7 @@ where
         let DemoMessage { tick, event } = try_get(message)?;
 
         tracing::info!("{tick}: Got event {event:?}");
-        if let DemoEvent::VoteCast(e, Some(steamid)) = event {
+        if let DemoEvent::VoteCast(_e, Some(steamid)) = event {
             if let Some(gi) = state.players.game_info.get(steamid) {
                 tracing::info!("({})", gi.name);
             }
