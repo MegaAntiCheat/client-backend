@@ -58,6 +58,7 @@ pub struct Settings {
     rcon_password: Arc<str>,
     steam_api_key: Arc<str>,
     masterbase_key: Arc<str>,
+    masterbase_endpoint: Arc<str>,
     autolaunch_ui: bool,
     friends_api_usage: FriendsAPIUsage,
     webui_port: u16,
@@ -78,6 +79,8 @@ pub struct Settings {
     override_rcon_port: Option<u16>,
     #[serde(skip)]
     override_masterbase_api_key: Option<Arc<str>>,
+    #[serde(skip)]
+    override_masterbase_endpoint: Option<Arc<str>>,
 }
 
 #[allow(dead_code)]
@@ -269,10 +272,18 @@ impl Settings {
             val
         });
 
-        self.override_masterbase_api_key = args.masterbase_key.as_ref().map(|val| {
+        self.override_masterbase_api_key = args.mb_key.as_ref().map(|val| {
             tracing::info!(
-                "Override configured Masterbase key {}->{val}",
+                "Overrode configured Masterbase key {}->{val}",
                 self.masterbase_key
+            );
+            Arc::from(val.clone())
+        });
+
+        self.override_masterbase_endpoint = args.mb_endpoint.as_ref().map(|val| {
+            tracing::info!(
+                "Overrode configured Masterbase endpoint {}->{val}",
+                self.masterbase_endpoint
             );
             Arc::from(val.clone())
         });
@@ -377,6 +388,23 @@ impl Settings {
             .clone()
     }
 
+    pub fn set_masterbase_endpoint(&mut self, endpoint: Arc<str>) {
+        self.masterbase_endpoint = endpoint;
+    }
+    #[must_use]
+    pub fn borrow_masterbase_endpoint(&self) -> &str {
+        self.override_masterbase_endpoint
+            .as_ref()
+            .unwrap_or(&self.masterbase_endpoint)
+    }
+    #[must_use]
+    pub fn masterbase_endpoint(&self) -> Arc<str> {
+        self.override_masterbase_endpoint
+            .as_ref()
+            .unwrap_or(&self.masterbase_endpoint)
+            .clone()
+    }
+
     pub fn set_autolaunch_ui(&mut self, autolaunch: bool) { self.autolaunch_ui = autolaunch; }
     #[must_use]
     pub const fn autolaunch_ui(&self) -> bool { self.autolaunch_ui }
@@ -446,6 +474,7 @@ impl Default for Settings {
             rcon_password: "mac_rcon".into(),
             steam_api_key: "YOUR_API_KEY_HERE".into(),
             masterbase_key: "".into(),
+            masterbase_endpoint: "https://masterbase.chs.gg".into(),
             friends_api_usage: FriendsAPIUsage::CheatersOnly,
             webui_port: 3621,
             autolaunch_ui: false,
@@ -457,6 +486,7 @@ impl Default for Settings {
             override_steam_user: None,
             override_rcon_port: None,
             override_masterbase_api_key: None,
+            override_masterbase_endpoint: None,
             external: serde_json::Value::Object(Map::new()),
         }
     }

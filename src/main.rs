@@ -32,6 +32,7 @@ mod events;
 mod gamefinder;
 mod io;
 mod launchoptions;
+mod masterbase;
 mod new_players;
 mod player;
 mod player_records;
@@ -121,6 +122,37 @@ fn main() {
         .build()
         .expect("Failed to build async runtime")
         .block_on(async {
+            // Close any previous masterbase sessions that might not have finished up
+            // properly.
+            match masterbase::force_close_session(
+                state.settings.masterbase_endpoint(),
+                state.settings.masterbase_key(),
+            )
+            .await
+            {
+                Ok(r) if r.status().is_success() => tracing::warn!(
+                    "User was previously in a masterbase session that has now been closed."
+                ),
+                Ok(r) if r.status().is_server_error() => tracing::error!(
+                    "Error when trying to close and previous masterbase sessions: {r:?}"
+                ),
+                Ok(_) => {}
+                Err(e) => tracing::error!("Couldn't reach masterbase: {e}"),
+            }
+
+            // TODO - get rid of this
+            {
+                let result = masterbase::new_demo_session(
+                    state.settings.masterbase_endpoint(),
+                    state.settings.masterbase_key(),
+                    "1.2.3.4".into(),
+                    "koth_harvest_final".into(),
+                )
+                .await;
+
+                println!("Demo session: {result:?}");
+            }
+
             // Autolaunch UI
             if args.autolaunch_ui || state.settings.autolaunch_ui() {
                 if let Err(e) = open::that(Path::new(&format!("http://localhost:{web_port}"))) {
