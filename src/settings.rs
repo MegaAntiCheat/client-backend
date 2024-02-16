@@ -54,13 +54,16 @@ pub struct Settings {
     steam_user: Option<SteamID>,
     #[serde(skip)]
     tf2_directory: PathBuf,
-    friends_api_usage: FriendsAPIUsage,
+
     rcon_password: Arc<str>,
     steam_api_key: Arc<str>,
-    webui_port: u16,
+    masterbase_key: Arc<str>,
     autolaunch_ui: bool,
-    external: serde_json::Value,
+    friends_api_usage: FriendsAPIUsage,
+    webui_port: u16,
     rcon_port: u16,
+    external: serde_json::Value,
+
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
     #[serde(skip)]
@@ -73,6 +76,8 @@ pub struct Settings {
     override_steam_user: Option<SteamID>,
     #[serde(skip)]
     override_rcon_port: Option<u16>,
+    #[serde(skip)]
+    override_masterbase_api_key: Option<Arc<str>>,
 }
 
 #[allow(dead_code)]
@@ -263,6 +268,14 @@ impl Settings {
             );
             val
         });
+
+        self.override_masterbase_api_key = args.masterbase_key.as_ref().map(|val| {
+            tracing::info!(
+                "Override configured Masterbase key {}->{val}",
+                self.masterbase_key
+            );
+            Arc::from(val.clone())
+        });
     }
 
     /// Attempt to save the settings back to the loaded configuration file
@@ -305,61 +318,88 @@ impl Settings {
     }
 
     // Setters & Getters
+    pub fn set_config_path(&mut self, path: PathBuf) { self.config_path = Some(path); }
     #[must_use]
-    pub const fn get_steam_user(&self) -> Option<SteamID> { self.steam_user }
-
+    pub const fn config_path(&self) -> Option<&PathBuf> { self.config_path.as_ref() }
+    pub fn set_steam_user(&mut self, user: SteamID) { self.steam_user = Some(user); }
     #[must_use]
-    pub const fn get_config_path(&self) -> Option<&PathBuf> { self.config_path.as_ref() }
+    pub const fn steam_user(&self) -> Option<SteamID> { self.steam_user }
+    pub fn set_tf2_directory(&mut self, dir: PathBuf) { self.tf2_directory = dir; }
     #[must_use]
-    pub fn get_tf2_directory(&self) -> &Path {
+    pub fn tf2_directory(&self) -> &Path {
         self.override_tf2_dir
             .as_ref()
             .unwrap_or(&self.tf2_directory)
     }
+
+    pub fn set_rcon_password(&mut self, pwd: Arc<str>) { self.rcon_password = pwd; }
     #[must_use]
-    pub fn get_rcon_password(&self) -> Arc<str> {
+    pub fn borrow_rcon_password(&self) -> &str {
+        self.override_rcon_password
+            .as_ref()
+            .unwrap_or(&self.rcon_password)
+    }
+    #[must_use]
+    pub fn rcon_password(&self) -> Arc<str> {
         self.override_rcon_password
             .as_ref()
             .unwrap_or(&self.rcon_password)
             .clone()
     }
+
+    pub fn set_steam_api_key(&mut self, key: Arc<str>) { self.steam_api_key = key; }
     #[must_use]
-    pub fn get_webui_port(&self) -> u16 { self.override_webui_port.unwrap_or(self.webui_port) }
+    pub fn borrow_steam_api_key(&self) -> &str {
+        self.override_steam_api_key
+            .as_ref()
+            .unwrap_or(&self.steam_api_key)
+    }
     #[must_use]
-    pub fn get_steam_api_key(&self) -> Arc<str> {
+    pub fn steam_api_key(&self) -> Arc<str> {
         self.override_steam_api_key
             .as_ref()
             .unwrap_or(&self.steam_api_key)
             .clone()
     }
+
+    pub fn set_masterbase_key(&mut self, key: Arc<str>) { self.masterbase_key = key; }
     #[must_use]
-    pub const fn get_external_preferences(&self) -> &serde_json::Value { &self.external }
-    pub fn set_tf2_directory(&mut self, dir: PathBuf) { self.tf2_directory = dir; }
-    pub fn set_rcon_password(&mut self, pwd: Arc<str>) { self.rcon_password = pwd; }
+    pub fn borrow_masterbase_key(&self) -> &str {
+        self.override_masterbase_api_key
+            .as_ref()
+            .unwrap_or(&self.masterbase_key)
+    }
+    #[must_use]
+    pub fn masterbase_key(&self) -> Arc<str> {
+        self.override_masterbase_api_key
+            .as_ref()
+            .unwrap_or(&self.masterbase_key)
+            .clone()
+    }
+
+    pub fn set_autolaunch_ui(&mut self, autolaunch: bool) { self.autolaunch_ui = autolaunch; }
+    #[must_use]
+    pub const fn autolaunch_ui(&self) -> bool { self.autolaunch_ui }
+    pub fn set_friends_api_usage(&mut self, usage: FriendsAPIUsage) {
+        self.friends_api_usage = usage;
+    }
+    #[must_use]
+    pub const fn friends_api_usage(&self) -> FriendsAPIUsage { self.friends_api_usage }
+
     pub fn set_webui_port(&mut self, port: u16) { self.webui_port = port; }
-
     #[must_use]
-    pub const fn get_autolaunch_ui(&self) -> bool { self.autolaunch_ui }
+    pub fn webui_port(&self) -> u16 { self.override_webui_port.unwrap_or(self.webui_port) }
 
-    pub fn set_steam_api_key(&mut self, key: Arc<str>) { self.steam_api_key = key; }
+    pub fn set_rcon_port(&mut self, port: u16) { self.rcon_port = port; }
+    #[must_use]
+    pub fn rcon_port(&self) -> u16 { self.override_rcon_port.unwrap_or(self.rcon_port) }
 
     pub fn update_external_preferences(&mut self, prefs: serde_json::Value) {
         merge_json_objects(&mut self.external, prefs);
     }
-
-    pub fn set_config_path(&mut self, config: PathBuf) { self.config_path = Some(config); }
-
-    pub fn set_friends_api_usage(&mut self, friends_api_usage: FriendsAPIUsage) {
-        self.friends_api_usage = friends_api_usage;
-    }
-
     #[must_use]
-    pub const fn get_friends_api_usage(&self) -> FriendsAPIUsage { self.friends_api_usage }
-
-    #[must_use]
-    pub fn get_rcon_port(&self) -> u16 { self.override_rcon_port.unwrap_or(self.rcon_port) }
-
-    pub fn set_rcon_port(&mut self, port: u16) { self.rcon_port = port; }
+    pub const fn external_preferences(&self) -> &serde_json::Value { &self.external }
+    pub fn external_preferences_mut(&mut self) -> &mut serde_json::Value { &mut self.external }
 
     /// Attempts to find (and create) a directory to be used for configuration
     /// files
@@ -405,6 +445,7 @@ impl Default for Settings {
             tf2_directory: PathBuf::default(),
             rcon_password: "mac_rcon".into(),
             steam_api_key: "YOUR_API_KEY_HERE".into(),
+            masterbase_key: "".into(),
             friends_api_usage: FriendsAPIUsage::CheatersOnly,
             webui_port: 3621,
             autolaunch_ui: false,
@@ -415,6 +456,7 @@ impl Default for Settings {
             override_webui_port: None,
             override_steam_user: None,
             override_rcon_port: None,
+            override_masterbase_api_key: None,
             external: serde_json::Value::Object(Map::new()),
         }
     }

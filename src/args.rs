@@ -24,6 +24,9 @@ pub struct Args {
     /// Override the configured Steam API key,
     #[arg(short, long)]
     pub api_key: Option<String>,
+    /// Override the configured masterbase key
+    #[arg(long)]
+    pub masterbase_key: Option<String>,
     /// Launch the web-ui in the default browser on startup
     #[arg(long = "autolaunch_ui", action=ArgAction::SetTrue, default_value_t=false)]
     pub autolaunch_ui: bool,
