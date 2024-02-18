@@ -1,15 +1,11 @@
 use std::{
-    collections::HashMap,
-    fmt::Display,
-    io::ErrorKind,
-    ops::{Deref, DerefMut},
-    path::PathBuf,
-    sync::Arc,
+    collections::HashMap, fmt::Display, io::ErrorKind, ops::{Deref, DerefMut}, path::PathBuf, sync::Arc
 };
 
+use boon::{Compiler, Schemas, UrlLoader};
 use anyhow::Context;
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Serialize, ser::StdError};
 use serde_json::Map;
 use steamid_ng::SteamID;
 
@@ -18,12 +14,34 @@ use crate::{
     settings::{ConfigFilesError, Settings},
 };
 
-// PlayerList
+const EXPECTED_SCHEMA_URI_PROTO: &str = "https";
+const EXPECTED_SCHEMA_URI_DOMAIN: &str = "lilithwolf.vip/";
+const EXPECTED_SCHEMA_URI_PATH: &str = "schemas/";
 
+struct HttpUrlLoader;
+impl UrlLoader for HttpUrlLoader {
+    fn load(&self, url: &str) -> Result<serde_json::Value, Box<(dyn StdError + 'static)>> {
+        let schema = reqwest::blocking::get(url)
+                .expect("GET schema from web endpoint.")
+                .json()
+                .expect("Jsonschema served by endpoint");
+        Ok(schema)
+    }
+}
+
+// PlayerList
 #[derive(Serialize, Deserialize)]
+#[serde(default)]
 pub struct PlayerRecords {
     #[serde(skip)]
     path: PathBuf,
+    #[serde(rename = "$schema")]
+    schema: String,
+    #[serde(rename = "$id")]
+    id: String,
+    title: String,
+    description: String,
+    author: String,
     pub records: HashMap<SteamID, PlayerRecord>,
 }
 
@@ -81,17 +99,30 @@ impl PlayerRecords {
             .map_err(|e| ConfigFilesError::Json(path.to_string_lossy().into(), e))?;
         playerlist.path = path;
 
-        // Map all of the steamids to the records. They were not included when
-        // serializing/deserializing the records to prevent duplication in the
-        // resulting file.
-        for record in &mut playerlist.records.values_mut() {
-            // Some old versions had the custom_data set to `null` by default, but an empty
-            // object is preferable so I'm using this to fix it lol. It's really
-            // not necessary but at the time the UI wasn't a fan of nulls in the
-            // custom_data and this fixes it so whatever. :3
-            if record.custom_data.is_null() {
-                record.custom_data = serde_json::Value::Object(serde_json::Map::new());
-            }
+        if !playerlist.schema.starts_with(format!("{}://{}{}", EXPECTED_SCHEMA_URI_PROTO, EXPECTED_SCHEMA_URI_DOMAIN, EXPECTED_SCHEMA_URI_PATH).as_str()) {
+            tracing::error!(
+                "Jsonschema source domain security policy violation, schema URI not like '{}://{}{}...' (instead like '{}')", 
+                EXPECTED_SCHEMA_URI_PROTO, EXPECTED_SCHEMA_URI_DOMAIN, EXPECTED_SCHEMA_URI_PATH, playerlist.schema
+            );
+            panic!("Refusing to validate json against an unknown schema host.")
+        }
+        
+        let mut schemas = Schemas::new();
+        let mut compiler = Compiler::new();
+        compiler.register_url_loader("http", Box::new(HttpUrlLoader));
+        compiler.register_url_loader("https", Box::new(HttpUrlLoader));
+        let schema_idx = compiler.compile(playerlist.schema.as_str(), &mut schemas).expect("Unable to compile a valid schema from the provided source");
+        
+        let playerlist_file = std::fs::File::open(&playerlist.path).expect("Cannot open playerlist file");
+        let buf_reader = std::io::BufReader::new(playerlist_file);
+        let file_json: serde_json::Value = serde_json::from_reader(buf_reader).expect("Cannot deserialised playerlist file");
+
+        let res = schemas.validate(&file_json, schema_idx);
+        if let Err(error) = res {
+            tracing::error!("{}", error);
+            panic!("Please correct the errors in the playerlist file.")
+        } else {
+            tracing::info!("Playerlist file succesfully validated!");
         }
 
         Ok(playerlist)
@@ -149,6 +180,12 @@ impl Default for PlayerRecords {
         Self {
             path,
             records: HashMap::new(),
+            // TODO: Move this links into chs.gg
+            schema: "https://lilithwolf.vip/schemas/playerlist.schema.v1.json".into(),
+            id: "https://lilithwolf.vip/schemas/playerlist.schema.v1.json".into(),
+            title: "MAC PlayerRecords List".into(),
+            description: "A file containing the records of all tracked player objects via the MegaAntiCheat client app.".into(),
+            author: "MegaAntiCheat Org".into(),
         }
     }
 }
