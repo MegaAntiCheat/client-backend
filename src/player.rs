@@ -433,6 +433,7 @@ pub struct GameInfo {
     pub state: PlayerState,
     pub kills: u32,
     pub deaths: u32,
+    pub alive: bool,
     #[serde(skip)]
     /// How many cycles has passed since the player has been seen
     last_seen: u32,
@@ -451,6 +452,7 @@ impl Default for GameInfo {
             kills: 0,
             deaths: 0,
             last_seen: 0,
+            alive: false,
         }
     }
 }
@@ -491,6 +493,9 @@ impl GameInfo {
         if let Some(deaths) = g15.deaths {
             self.deaths = deaths;
         }
+        if let Some(alive) = g15.alive {
+            self.alive = alive;
+        }
 
         self.acknowledge();
     }
@@ -501,7 +506,16 @@ impl GameInfo {
         self.time = status.time;
         self.ping = status.ping;
         self.loss = status.loss;
-        self.state = status.state;
+
+        // Attach the spawning flag manually as it can be easily missed by the parsers due to timing.
+        if status.time > 0 && status.time < 30 && self.team == Team::Unassigned {
+            self.state = PlayerState::Spawning;
+        }
+        // Make the Spawning flag "sticky" until they either pick a class or join spectator.
+        // Makes it easy to spot bots taking up a player slot that can't be kicked.
+        else if self.state != PlayerState::Spawning || status.state != PlayerState::Active || self.alive || self.team == Team::Spectators {
+            self.state = status.state;
+        }
 
         self.acknowledge();
     }
