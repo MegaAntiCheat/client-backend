@@ -6,4 +6,5 @@
 *.log
 bundle/
 /ui/*
+!/ui/.gitkeep
 /ui_temp
