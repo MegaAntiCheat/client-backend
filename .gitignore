@@ -8,3 +8,4 @@ bundle/
 /ui/*
 !/ui/.gitkeep
 /ui_temp
+shell.sh
