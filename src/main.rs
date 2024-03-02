@@ -151,7 +151,7 @@ fn main() {
             .await
             {
                 Ok(session) => {
-                    tracing::info!("Successfully started masterbase session: {:?}", session)
+                    tracing::info!("Successfully started masterbase session: {:?}", session);
                 }
                 Err(e) => tracing::error!("Couldn't start masterbase session: {}", e),
             }

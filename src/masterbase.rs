@@ -1,4 +1,4 @@
-use std::sync::Arc;
+use std::{fmt::Display, sync::Arc};
 
 use reqwest::Response;
 use serde::Deserialize;
@@ -17,19 +17,25 @@ pub enum Error {
 
 #[derive(Debug, Clone, Deserialize)]
 struct SessionID {
-    session_id: Arc<str>,
+    session_id: u128,
+}
+
+impl Display for SessionID {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.session_id)
+    }
 }
 
 #[derive(Debug)]
 pub struct DemoSession {
     close: Sender<()>,
-    session_id: Arc<str>,
+    session_id: SessionID,
 }
 
 impl Drop for DemoSession {
     fn drop(&mut self) {
         self.close
-            .blocking_send(())
+            .try_send(())
             .map_err(|e| {
                 tracing::error!(
                     "Failed to request closing of session {}: {e}",
@@ -83,7 +89,7 @@ pub async fn new_demo_session(
 
     Ok(DemoSession {
         close: tx,
-        session_id: session_id.session_id,
+        session_id,
     })
 }
 
