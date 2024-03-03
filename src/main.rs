@@ -150,8 +150,14 @@ fn main() {
             )
             .await
             {
-                Ok(session) => {
+                Ok(mut session) => {
                     tracing::info!("Successfully started masterbase session: {:?}", session);
+
+                    session
+                        .send_bytes(vec![0xde, 0xad, 0xbe, 0xef])
+                        .await
+                        .expect("Failed to send bytes over websocket.");
+                    tracing::info!("Sent bytes via websocket.");
                 }
                 Err(e) => tracing::error!("Couldn't start masterbase session: {}", e),
             }
