@@ -2,12 +2,12 @@ use std::{
     fs::{metadata, File},
     io::{Read, Seek},
     path::{Path, PathBuf},
-    sync::mpsc::{self, Sender},
-    time::Duration,
+    sync::mpsc::{self, Receiver, TryRecvError},
+    time::{Duration, Instant},
 };
 
 use bitbuffer::{BitError, BitRead, BitReadBuffer, BitReadStream, LittleEndian};
-use event_loop::{try_get, HandlerStruct, Is};
+use event_loop::{try_get, Handled, HandlerStruct, Is, MessageSource};
 use notify::{event::ModifyKind, Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use steamid_ng::SteamID;
 use tf_demo_parser::demo::{
@@ -21,8 +21,9 @@ use tf_demo_parser::demo::{
         DemoHandler, RawPacketStream,
     },
 };
+use thiserror::Error;
 
-use crate::state::MACState;
+use crate::masterbase::DemoSession;
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
@@ -40,11 +41,173 @@ pub enum DemoEvent {
 }
 
 #[allow(clippy::module_name_repetitions)]
+#[derive(Debug, Error)]
+pub enum DemoWatcherError {
+    #[error("Notify error: {0}")]
+    Notify(#[from] notify::Error),
+}
+
+#[allow(clippy::module_name_repetitions)]
+pub struct DemoBytes {
+    pub path: PathBuf,
+    pub bytes: Vec<u8>,
+}
+
+#[allow(clippy::module_name_repetitions)]
+pub struct DemoWatcher {
+    recv: Receiver<Event>,
+    last_recv: Instant,
+    disconnected: bool,
+
+    current_demo: Option<PathBuf>,
+    offset: u64,
+
+    _watcher: RecommendedWatcher,
+}
+
+impl DemoWatcher {
+    /// # Errors
+    /// If the [`notify::Watcher`] could not be started.
+    pub fn new(demo_path: &Path) -> Result<Self, DemoWatcherError> {
+        let (tx, rx) = mpsc::channel();
+        let config = Config::default().with_poll_interval(Duration::from_secs(2));
+
+        let mut watcher: RecommendedWatcher = Watcher::new(
+            Box::new(move |res: Result<Event, notify::Error>| match res {
+                Ok(event) => {
+                    let _ = tx.send(event);
+                }
+                Err(err) => {
+                    tracing::error!("Error while watching for file changes: {}", err);
+                }
+            }),
+            config,
+        )?;
+
+        watcher.watch(demo_path, RecursiveMode::Recursive)?;
+
+        Ok(Self {
+            recv: rx,
+            last_recv: Instant::now(),
+            disconnected: false,
+            current_demo: None,
+            offset: 0,
+            _watcher: watcher,
+        })
+    }
+
+    /// Return the next chunk of bytes for the current demo being watched
+    ///
+    /// # Errors
+    /// On IO errors, or the demo unexpectedly shortening.
+    fn read_next_bytes(&mut self) -> std::io::Result<Option<Vec<u8>>> {
+        let Some(file_path) = self.current_demo.as_ref() else {
+            return Ok(None);
+        };
+
+        let current_metadata = metadata(file_path)?;
+
+        // Check there's actually data to read
+        match current_metadata.len().cmp(&(self.offset)) {
+            std::cmp::Ordering::Less => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::UnexpectedEof,
+                    "Demo has shortened. Something has gone wrong.",
+                ));
+            }
+            std::cmp::Ordering::Equal => {
+                return Ok(None);
+            }
+            std::cmp::Ordering::Greater => {}
+        }
+
+        let mut file = File::open(file_path)?;
+        let last_size = self.offset;
+
+        file.seek(std::io::SeekFrom::Start(last_size))?;
+        let mut out = Vec::new();
+        let read_bytes = file.read_to_end(&mut out)?;
+
+        if read_bytes > 0 {
+            tracing::debug!("Got {} demo bytes", read_bytes);
+            self.offset += read_bytes as u64;
+        }
+
+        Ok(Some(out))
+    }
+
+    fn next_bytes(&mut self) -> Option<DemoBytes> {
+        let Some(file_path) = self.current_demo.clone() else {
+            return None;
+        };
+
+        self.read_next_bytes()
+            .map_err(|e| tracing::error!("Failed reading bytes from demo {file_path:?}: {e}"))
+            .ok()
+            .flatten()
+            .map(|b| DemoBytes {
+                path: file_path,
+                bytes: b,
+            })
+    }
+}
+
+impl<M: Is<DemoBytes>> MessageSource<M> for DemoWatcher {
+    fn next_message(&mut self) -> Option<M> {
+        match self.recv.try_recv() {
+            Ok(e) => {
+                let path = &e.paths[0];
+                match e.kind {
+                    notify::event::EventKind::Create(_) => {
+                        if path.extension().map_or(false, |ext| ext == "dem") {
+                            self.current_demo = Some(path.clone());
+                            self.offset = 0;
+                        }
+                        return self.next_bytes().map(Into::into);
+                    }
+                    notify::event::EventKind::Modify(ModifyKind::Data(_)) => {
+                        if self.current_demo.as_ref().is_some_and(|p| p == path) {
+                            return self.next_bytes().map(Into::into);
+                        } else if path.extension().map_or(false, |ext| ext == "dem") {
+                            // A new demo can be started with the same name as a previous one, or
+                            // the player can be already connected to a
+                            // server and recording a demo when the application is run.
+                            // This should catch those cases.
+                            self.current_demo = Some(path.clone());
+                            self.offset = 0;
+                            return self.next_bytes().map(Into::into);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            Err(TryRecvError::Disconnected) => {
+                if self.disconnected {
+                    return None;
+                }
+
+                tracing::error!("Lost connection to demo watcher...");
+                self.disconnected = true;
+            }
+            _ => {}
+        }
+
+        if self.last_recv.elapsed().as_secs() > 3 {
+            self.last_recv = Instant::now();
+            return self.next_bytes().map(Into::into);
+        }
+
+        None
+    }
+}
+
+#[allow(clippy::module_name_repetitions)]
 pub struct DemoManager {
     previous_demos: Vec<OpenDemo>,
     current_demo: Option<OpenDemo>,
 
-    send: Sender<DemoMessage>,
+    upload_demos: bool,
+    session: Option<DemoSession>,
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -59,11 +222,13 @@ pub struct OpenDemo {
 impl DemoManager {
     /// Create a new `DemoManager`
     #[must_use]
-    pub const fn new(send: Sender<DemoMessage>) -> Self {
+    pub const fn new(upload_demos: bool) -> Self {
         Self {
             previous_demos: Vec::new(),
             current_demo: None,
-            send,
+
+            upload_demos,
+            session: None,
         }
     }
 
@@ -89,58 +254,60 @@ impl DemoManager {
     pub fn current_demo_path(&self) -> Option<&Path> {
         self.current_demo.as_ref().map(|d| d.file_path.as_path())
     }
+}
 
-    pub fn read_next_bytes(&mut self) {
-        if let Some(demo) = self.current_demo.as_mut() {
-            if let Err(e) = demo.read_next_bytes(&self.send) {
-                tracing::error!("Error when reading demo {:?}: {:?}", demo.file_path, e);
-                tracing::error!("Demo is being abandoned");
-                self.current_demo = None;
-            }
+impl<S, IM, OM> HandlerStruct<S, IM, OM> for DemoManager
+where
+    IM: Is<DemoBytes>,
+    OM: Is<DemoMessage>,
+{
+    fn handle_message(&mut self, _state: &S, message: &IM) -> Option<event_loop::Handled<OM>> {
+        let msg = try_get(message)?;
+
+        tracing::info!("Got {} bytes for demo {:?}", msg.bytes.len(), msg.path);
+
+        // TODO - Open sessions and stuff
+
+        // New or different demo
+        if self.current_demo.is_none()
+            || self
+                .current_demo
+                .as_ref()
+                .map(|d| d.file_path != msg.path)
+                .is_some_and(|b| b)
+        {
+            self.new_demo(msg.path.clone());
         }
+
+        Handled::multiple(
+            self.current_demo
+                .as_mut()
+                .expect("self.new_demo should have guaranteed a valid demo is present")
+                .append_bytes(&msg.bytes)
+                .into_iter()
+                .map(Handled::single),
+        )
     }
 }
 
 impl OpenDemo {
     /// Append the provided bytes to the current demo being watched, and handle
     /// any packets
-    ///
-    /// # Errors
-    /// On IO errors, or the demo unexpectedly shortening.
-    pub fn read_next_bytes(&mut self, send: &Sender<DemoMessage>) -> std::io::Result<()> {
-        let current_metadata = metadata(&self.file_path)?;
-
-        // Check there's actually data to read
-        match current_metadata.len().cmp(&(self.bytes.len() as u64)) {
-            std::cmp::Ordering::Less => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
-                    "Demo has shortened. Something has gone wrong.",
-                ));
-            }
-            std::cmp::Ordering::Equal => {
-                return Ok(());
-            }
-            std::cmp::Ordering::Greater => {}
+    pub fn append_bytes(&mut self, bytes: &[u8]) -> Vec<DemoMessage> {
+        if bytes.is_empty() {
+            return Vec::new();
         }
 
-        let mut file = File::open(&self.file_path)?;
-        let last_size = self.bytes.len();
-
-        file.seek(std::io::SeekFrom::Start(last_size as u64))?;
-        let read_bytes = file.read_to_end(&mut self.bytes)?;
-
-        if read_bytes > 0 {
-            tracing::debug!("Got {} demo bytes", read_bytes);
-            self.process_next_chunk(send);
-        }
-
-        Ok(())
+        self.bytes.extend_from_slice(bytes);
+        self.process_next_chunk()
     }
 
+    /// Attempt to parse any new bytes that have been added since the last call as packets
     #[allow(clippy::cognitive_complexity)]
-    fn process_next_chunk(&mut self, send: &Sender<DemoMessage>) {
+    fn process_next_chunk(&mut self) -> Vec<DemoMessage> {
         tracing::debug!("New demo length: {}", self.bytes.len());
+
+        let mut out = Vec::new();
 
         let buffer = BitReadBuffer::new(&self.bytes, LittleEndian);
         let mut stream = BitReadStream::new(buffer);
@@ -161,11 +328,11 @@ impl OpenDemo {
                     bits_left,
                 }) => {
                     tracing::warn!("Tried to read header but there were not enough bits. Requested: {}, Remaining: {}", requested, bits_left);
-                    return;
+                    return out;
                 }
                 Err(e) => {
                     tracing::error!("Error reading demo header: {}", e);
-                    return;
+                    return out;
                 }
             }
         }
@@ -175,7 +342,7 @@ impl OpenDemo {
         loop {
             match packets.next(&self.handler.state_handler) {
                 Ok(Some(packet)) => {
-                    handle_packet(&packet, self.handler.borrow_output(), send);
+                    out.append(&mut handle_packet(&packet, self.handler.borrow_output()));
                     self.handler
                         .handle_packet(packet)
                         .expect("Couldn't handle packet");
@@ -193,21 +360,19 @@ impl OpenDemo {
                 }
                 Err(e) => {
                     tracing::error!("Error reading demo packet: {}", e);
-                    return;
+                    return out;
                 }
             }
         }
 
-        send.send(DemoMessage {
-            tick: self.handler.borrow_output().tick.0,
-            event: DemoEvent::LastestTick,
-        })
-        .expect("Failed to send demo message.");
+        out
     }
 }
 
 #[allow(clippy::cognitive_complexity)]
-fn handle_packet(packet: &Packet, state: &GameState, send: &Sender<DemoMessage>) {
+fn handle_packet(packet: &Packet, state: &GameState) -> Vec<DemoMessage> {
+    let mut out = Vec::new();
+
     if let Packet::Message(MessagePacket {
         tick,
         messages,
@@ -228,31 +393,25 @@ fn handle_packet(packet: &Packet, state: &GameState, send: &Sender<DemoMessage>)
                 // GameEvent::VoteStarted(e) => {
                 //     tracing::info!("Vote started: {:?}", e);
                 // }
-                GameEvent::VoteOptions(e) => {
-                    send.send(DemoMessage {
-                        tick: tick.0,
-                        event: DemoEvent::VoteStarted(e.clone()),
-                    })
-                    .expect("Failed to send demo message.");
-                }
-                GameEvent::VoteCast(e) => {
-                    send.send(DemoMessage {
-                        tick: tick.0,
-                        event: DemoEvent::VoteCast(
-                            e.clone(),
-                            state.players.iter().find_map(|p| {
-                                p.info.as_ref().and_then(|i| {
-                                    if i.entity_id == e.entity_id {
-                                        SteamID::from_steam3(&i.steam_id).ok()
-                                    } else {
-                                        None
-                                    }
-                                })
-                            }),
-                        ),
-                    })
-                    .expect("Failed to send demo message.");
-                }
+                GameEvent::VoteOptions(e) => out.push(DemoMessage {
+                    tick: tick.0,
+                    event: DemoEvent::VoteStarted(e.clone()),
+                }),
+                GameEvent::VoteCast(e) => out.push(DemoMessage {
+                    tick: tick.0,
+                    event: DemoEvent::VoteCast(
+                        e.clone(),
+                        state.players.iter().find_map(|p| {
+                            p.info.as_ref().and_then(|i| {
+                                if i.entity_id == e.entity_id {
+                                    SteamID::from_steam3(&i.steam_id).ok()
+                                } else {
+                                    None
+                                }
+                            })
+                        }),
+                    ),
+                }),
                 // GameEvent::VoteEnded(e) => {
                 //     tracing::info!("Vote ended: {:?}", e);
                 // }
@@ -281,94 +440,6 @@ fn handle_packet(packet: &Packet, state: &GameState, send: &Sender<DemoMessage>)
             }
         }
     }
-}
 
-#[allow(clippy::module_name_repetitions)]
-/// # Errors
-/// If the `Watcher` for file operations could not be created.
-///
-/// # Panics
-/// If the `Watcher` monitoring file changes dies.
-pub fn demo_loop(demo_path: &Path, send: Sender<DemoMessage>) -> anyhow::Result<()> {
-    let (tx, rx) = mpsc::channel();
-    let config = Config::default().with_poll_interval(Duration::from_secs(2));
-
-    let mut watcher: RecommendedWatcher = Watcher::new(
-        Box::new(move |res: Result<Event, notify::Error>| match res {
-            Ok(event) => {
-                let _ = tx.send(event);
-            }
-            Err(err) => {
-                tracing::error!("Error while watching for file changes: {}", err);
-            }
-        }),
-        config,
-    )?;
-
-    watcher.watch(demo_path, RecursiveMode::Recursive)?;
-
-    // Create a tick interval to periodically check metadata
-    let metadata_tick = Duration::from_secs(5);
-
-    tracing::debug!("Demo loop started");
-
-    let mut manager = DemoManager::new(send);
-    loop {
-        match rx.recv_timeout(metadata_tick) {
-            Ok(event) => {
-                let path = &event.paths[0];
-                match event.kind {
-                    notify::event::EventKind::Create(_) => {
-                        if path.extension().map_or(false, |ext| ext == "dem") {
-                            manager.new_demo(path.clone());
-                        }
-                    }
-                    notify::event::EventKind::Modify(ModifyKind::Data(_)) => {
-                        if manager.current_demo_path().is_some_and(|p| p == path) {
-                            manager.read_next_bytes();
-                        } else if path.extension().map_or(false, |ext| ext == "dem") {
-                            // A new demo can be started with the same name as a previous one, or
-                            // the player can be already connected to a
-                            // server and recording a demo when the application is run.
-                            // This should catch those cases.
-                            manager.new_demo(path.clone());
-                            manager.read_next_bytes();
-                        }
-                    }
-                    _ => {}
-                }
-            }
-            Err(mpsc::RecvTimeoutError::Timeout) => {
-                manager.read_next_bytes();
-            }
-            Err(mpsc::RecvTimeoutError::Disconnected) => {
-                panic!("Couldn't receive demo updates. Watcher died.");
-            }
-        }
-    }
-}
-
-#[allow(clippy::module_name_repetitions)]
-pub struct DemoEventWatcher {}
-
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for DemoEventWatcher
-where
-    IM: Is<DemoMessage>,
-{
-    fn handle_message(
-        &mut self,
-        state: &MACState,
-        message: &IM,
-    ) -> Option<event_loop::Handled<OM>> {
-        let DemoMessage { tick, event } = try_get(message)?;
-
-        tracing::info!("{tick}: Got event {event:?}");
-        if let DemoEvent::VoteCast(_e, Some(steamid)) = event {
-            if let Some(gi) = state.players.game_info.get(steamid) {
-                tracing::info!("({})", gi.name);
-            }
-        }
-
-        None
-    }
+    out
 }
