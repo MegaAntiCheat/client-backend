@@ -1,17 +1,16 @@
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
-    sync::mpsc::channel,
     time::Duration,
 };
 
 use args::Args;
 use clap::Parser;
-use demo::{demo_loop, DemoEventWatcher};
 use event_loop::{define_events, EventLoop};
 use events::emit_on_timer;
 use include_dir::{include_dir, Dir};
 use launchoptions::LaunchOptions;
+use masterbase::MasterbaseHandler;
 use player::Players;
 use player_records::PlayerRecords;
 use server::Server;
@@ -44,7 +43,7 @@ mod web;
 
 use command_manager::{Command, CommandManager};
 use console::{ConsoleLog, ConsoleOutput, ConsoleParser, RawConsoleOutput};
-use demo::DemoMessage;
+use demo::{DemoBytes, DemoManager, DemoMessage, DemoWatcher};
 use events::{Preferences, Refresh, UserUpdates};
 use new_players::{ExtractNewPlayers, NewPlayers};
 use steam_api::{
@@ -73,6 +72,7 @@ define_events!(
 
         WebRequest,
 
+        DemoBytes,
         DemoMessage,
     },
     Handler {
@@ -87,7 +87,9 @@ define_events!(
 
         WebAPIHandler,
 
-        DemoEventWatcher,
+        DemoManager,
+
+        MasterbaseHandler,
     },
 );
 
@@ -169,18 +171,13 @@ fn main() {
                 }
             }
 
-            // Demo manager
-            let (demo_tx, demo_rx) = channel();
-            if args.demo_monitoring {
-                let demo_path = state.settings.tf2_directory().join("tf");
-                tracing::info!("Demo path: {:?}", demo_path);
-
-                std::thread::spawn(move || {
-                    if let Err(e) = demo_loop(&demo_path, demo_tx) {
-                        tracing::error!("Failed to start demo watcher: {:?}", e);
-                    }
-                });
-            }
+            // Demo watcher and manager
+            let demo_path = state.settings.tf2_directory().join("tf");
+            let demo_watcher = DemoWatcher::new(&demo_path)
+                .map_err(|e| {
+                    tracing::error!("Could not initialise demo watcher: {e}");
+                })
+                .ok();
 
             // Web API
             let (web_state, web_requests) = WebState::new(Some(&UI_DIR));
@@ -201,15 +198,19 @@ fn main() {
                 .add_source(console_log)
                 .add_source(refresh_timer)
                 .add_source(lookup_batch_timer)
-                .add_source(Box::new(demo_rx))
                 .add_source(Box::new(web_requests))
+                .add_handler(DemoManager::new(true))
                 .add_handler(CommandManager::new())
                 .add_handler(ConsoleParser::default())
                 .add_handler(ExtractNewPlayers)
                 .add_handler(LookupProfiles::new())
                 .add_handler(LookupFriends::new())
-                .add_handler(WebAPIHandler)
-                .add_handler(DemoEventWatcher {});
+                .add_handler(MasterbaseHandler::new())
+                .add_handler(WebAPIHandler);
+
+            if let Some(dw) = demo_watcher {
+                event_loop = event_loop.add_source(Box::new(dw));
+            }
 
             loop {
                 if event_loop.execute_cycle(&mut state).await.is_none() {

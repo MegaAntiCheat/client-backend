@@ -3,15 +3,12 @@ use std::{
     sync::Arc,
 };
 
-use event_loop::HandlerStruct;
 use futures::SinkExt;
 use reqwest::Response;
 use serde::Deserialize;
 use thiserror::Error;
 use tokio::{net::TcpStream, sync::mpsc::Sender};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
-
-use crate::state::MACState;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -159,19 +156,4 @@ pub async fn force_close_session(host: Arc<str>, key: Arc<str>) -> Result<Respon
     let url = reqwest::Url::parse_with_params(&format!("http://{host}/close_session"), params)?;
 
     Ok(reqwest::get(url).await?)
-}
-
-#[allow(clippy::module_name_repetitions)]
-pub struct MasterbaseHandler {}
-
-impl MasterbaseHandler {}
-
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for MasterbaseHandler {
-    fn handle_message(
-        &mut self,
-        state: &MACState,
-        message: &IM,
-    ) -> Option<event_loop::Handled<OM>> {
-        todo!()
-    }
 }
