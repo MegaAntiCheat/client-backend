@@ -1,13 +1,14 @@
 use std::{
     collections::HashMap,
     fmt::Display,
-    io::ErrorKind,
+    io::{ErrorKind, Write},
     ops::{Deref, DerefMut},
     path::PathBuf,
     sync::Arc,
 };
 
 use anyhow::Context;
+use atomic_write_file::AtomicWriteFile;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Map;
@@ -106,8 +107,13 @@ impl PlayerRecords {
     /// If it failed to serialize or write back to the file.
     pub fn save(&self) -> Result<(), ConfigFilesError> {
         let contents = serde_json::to_string(self).context("Failed to serialize playerlist.")?;
-        std::fs::write(&self.path, contents)
-            .map_err(|e| ConfigFilesError::IO(self.path.to_string_lossy().into(), e))?;
+
+        let err_map = |e| ConfigFilesError::IO(self.path.to_string_lossy().into(), e);
+
+        let mut file = AtomicWriteFile::open(&self.path).map_err(err_map)?;
+        write!(file, "{contents}").map_err(err_map)?;
+        file.commit().map_err(err_map)?;
+
         Ok(())
     }
 

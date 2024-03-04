@@ -53,3 +53,4 @@ event_loop = { version = "0.1.0", path = "event_loop" }
 reqwest = "0.11.24"
 url = "2.5.0"
 tokio-tungstenite = { version = "0.21.0", features = ["native-tls"] }
+atomic-write-file = "0.1.3"
