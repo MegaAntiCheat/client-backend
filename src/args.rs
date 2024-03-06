@@ -1,5 +1,6 @@
 use clap::{ArgAction, Parser};
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Parser, Debug)]
 #[command(author, version, about, long_about = None)]
 pub struct Args {
@@ -29,11 +30,21 @@ pub struct Args {
     pub mb_key: Option<String>,
     /// Override the default masterbase endpoint
     #[arg(long)]
-    pub mb_endpoint: Option<String>,
+    pub mb_host: Option<String>,
     /// Launch the web-ui in the default browser on startup
-    #[arg(long = "autolaunch_ui", action=ArgAction::SetTrue, default_value_t=false)]
+    #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
     pub autolaunch_ui: bool,
-    /// Enable monitoring of demo files
-    #[arg(long = "demo_monitoring", action=ArgAction::SetTrue, default_value_t=false)]
-    pub demo_monitoring: bool,
+
+    /// Only parse the bare minimum to allow demo uploads (may improve performance)
+    #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
+    pub minimal_demo_parsing: bool,
+    /// Don't monitor or parse demos (may improve performance, but also prevents demo uploads)
+    #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
+    pub dont_parse_demos: bool,
+    /// Don't upload demos to the masterbase
+    #[arg(long, action = ArgAction::SetTrue, default_value_t=false)]
+    pub dont_upload_demos: bool,
+    /// Use http (inscure) connections to the masterbase
+    #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
+    pub masterbase_http: bool,
 }

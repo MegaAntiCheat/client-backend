@@ -2,7 +2,10 @@ use std::{
     fs::{metadata, File},
     io::{Read, Seek},
     path::{Path, PathBuf},
-    sync::mpsc::{self, Receiver, TryRecvError},
+    sync::{
+        mpsc::{self, Receiver, TryRecvError},
+        Arc,
+    },
     time::{Duration, Instant},
 };
 
@@ -22,8 +25,12 @@ use tf_demo_parser::demo::{
     },
 };
 use thiserror::Error;
+use tokio::sync::Mutex;
 
-use crate::masterbase::DemoSession;
+use crate::{
+    masterbase::{new_demo_session, DemoSession},
+    state::MACState,
+};
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
@@ -201,13 +208,17 @@ impl<M: Is<DemoBytes>> MessageSource<M> for DemoWatcher {
     }
 }
 
+enum SessionMissingReason {
+    Uninit,
+    Error,
+}
+
 #[allow(clippy::module_name_repetitions)]
 pub struct DemoManager {
     previous_demos: Vec<OpenDemo>,
     current_demo: Option<OpenDemo>,
 
-    upload_demos: bool,
-    session: Option<DemoSession>,
+    session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -222,13 +233,12 @@ pub struct OpenDemo {
 impl DemoManager {
     /// Create a new `DemoManager`
     #[must_use]
-    pub const fn new(upload_demos: bool) -> Self {
+    pub fn new() -> Self {
         Self {
             previous_demos: Vec::new(),
             current_demo: None,
 
-            upload_demos,
-            session: None,
+            session: Arc::new(Mutex::new(Err(SessionMissingReason::Uninit))),
         }
     }
 
@@ -239,8 +249,7 @@ impl DemoManager {
             self.previous_demos.push(old);
         }
 
-        // TODO - Change to debug when demo monitoring defaults to on
-        tracing::info!("Watching new demo: {:?}", path);
+        tracing::debug!("Watching new demo: {:?}", path);
 
         self.current_demo = Some(OpenDemo {
             file_path: path,
@@ -249,6 +258,8 @@ impl DemoManager {
             bytes: Vec::new(),
             offset: 0,
         });
+
+        self.session = Arc::new(Mutex::new(Err(SessionMissingReason::Uninit)));
     }
 
     pub fn current_demo_path(&self) -> Option<&Path> {
@@ -256,15 +267,25 @@ impl DemoManager {
     }
 }
 
-impl<S, IM, OM> HandlerStruct<S, IM, OM> for DemoManager
+impl Default for DemoManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<IM, OM> HandlerStruct<MACState, IM, OM> for DemoManager
 where
     IM: Is<DemoBytes>,
     OM: Is<DemoMessage>,
 {
-    fn handle_message(&mut self, _state: &S, message: &IM) -> Option<event_loop::Handled<OM>> {
+    fn handle_message(
+        &mut self,
+        state: &MACState,
+        message: &IM,
+    ) -> Option<event_loop::Handled<OM>> {
         let msg = try_get(message)?;
 
-        tracing::info!("Got {} bytes for demo {:?}", msg.bytes.len(), msg.path);
+        tracing::debug!("Got {} bytes for demo {:?}", msg.bytes.len(), msg.path);
 
         // TODO - Open sessions and stuff
 
@@ -279,14 +300,88 @@ where
             self.new_demo(msg.path.clone());
         }
 
-        Handled::multiple(
-            self.current_demo
-                .as_mut()
-                .expect("self.new_demo should have guaranteed a valid demo is present")
-                .append_bytes(&msg.bytes)
-                .into_iter()
-                .map(Handled::single),
-        )
+        let demo = self
+            .current_demo
+            .as_mut()
+            .expect("self.new_demo should have guaranteed a valid demo is present.");
+
+        let parsed_header = demo.header.is_some();
+
+        let mut events = Vec::new();
+
+        // Don't parse contents if the user only wants minimal parsing, except
+        // if we still need to extract the headers.
+        if !(parsed_header && state.settings.minimal_demo_parsing()) {
+            events.extend(
+                demo.append_bytes(&msg.bytes)
+                    .into_iter()
+                    .map(Handled::single),
+            );
+        }
+
+        if !state.settings.upload_demos() {
+            return Handled::multiple(events);
+        }
+
+        // Open new demo session if we've extracted the header
+        if let Some(header) = demo.header.as_ref() {
+            if !parsed_header {
+                let session = self.session.clone();
+                let host = state.settings.masterbase_host();
+                let key = state.settings.masterbase_key();
+                let map = header.map.clone();
+                let fake_ip = header.server.clone();
+                let http = state.settings.use_masterbase_http();
+                events.push(Handled::future(async move {
+                    let session = session;
+                    let mut guard = session.lock().await;
+                    assert!(guard.is_err());
+
+                    // Create session
+                    match new_demo_session(host, key, &fake_ip, &map, http).await {
+                        Ok(session) => {
+                            tracing::info!("Opened new demo session {session:?}");
+                            *guard = Ok(session);
+                        }
+                        Err(e) => {
+                            tracing::error!("Could not open new demo session: {e}");
+                            *guard = Err(SessionMissingReason::Error);
+                        }
+                    }
+
+                    None
+                }));
+            }
+        }
+
+        // Upload bytes
+        let session = self.session.clone();
+        let bytes = msg.bytes.clone();
+        events.push(Handled::future(async move {
+            // Loop while session is uninit
+            loop {
+                let mut guard = session.lock().await;
+                match &mut *guard {
+                    Ok(session) => {
+                        let len = bytes.len();
+                        if let Err(e) = session.send_bytes(bytes).await {
+                            tracing::error!("Failed to upload demo chunk: {e}");
+                            *guard = Err(SessionMissingReason::Error);
+                            std::mem::drop(guard);
+                        } else {
+                            tracing::info!("Uploaded {len} bytes to masterbase.");
+                        }
+                        break;
+                    }
+                    Err(SessionMissingReason::Uninit) => continue,
+                    _ => break,
+                }
+            }
+
+            None
+        }));
+
+        Handled::multiple(events)
     }
 }
 

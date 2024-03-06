@@ -10,7 +10,6 @@ use event_loop::{define_events, EventLoop};
 use events::emit_on_timer;
 use include_dir::{include_dir, Dir};
 use launchoptions::LaunchOptions;
-use masterbase::MasterbaseHandler;
 use player::Players;
 use player_records::PlayerRecords;
 use server::Server;
@@ -88,13 +87,12 @@ define_events!(
         WebAPIHandler,
 
         DemoManager,
-
-        MasterbaseHandler,
     },
 );
 
 static UI_DIR: Dir = include_dir!("ui");
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     let _guard = init_tracing();
 
@@ -126,42 +124,24 @@ fn main() {
         .block_on(async {
             // Close any previous masterbase sessions that might not have finished up
             // properly.
-            match masterbase::force_close_session(
-                state.settings.masterbase_endpoint(),
-                state.settings.masterbase_key(),
-            )
-            .await
-            {
-                Ok(r) if r.status().is_success() => tracing::warn!(
-                    "User was previously in a masterbase session that has now been closed."
-                ),
-                Ok(r) if r.status().is_server_error() => tracing::error!(
+            if state.settings.upload_demos() {
+                match masterbase::force_close_session(
+                    state.settings.masterbase_host(),
+                    state.settings.masterbase_key(),
+                    state.settings.use_masterbase_http(),
+                )
+                .await
+                {
+                    Ok(r) if r.status().is_success() => tracing::warn!(
+                        "User was previously in a masterbase session that has now been closed."
+                    ),
+                    Ok(r) if r.status().is_server_error() => tracing::error!(
                     "Error when trying to close any previous masterbase sessions: Status code {}",
                     r.status()
                 ),
-                Ok(_) => {}
-                Err(e) => tracing::error!("Couldn't reach masterbase: {e}"),
-            }
-
-            // TODO - get rid of this
-            match masterbase::new_demo_session(
-                state.settings.masterbase_endpoint(),
-                state.settings.masterbase_key(),
-                "1.2.3.4".into(),
-                "koth_harvest_final".into(),
-            )
-            .await
-            {
-                Ok(mut session) => {
-                    tracing::info!("Successfully started masterbase session: {:?}", session);
-
-                    session
-                        .send_bytes(vec![0xde, 0xad, 0xbe, 0xef])
-                        .await
-                        .expect("Failed to send bytes over websocket.");
-                    tracing::info!("Sent bytes via websocket.");
+                    Ok(_) => tracing::info!("Successfully connected to masterbase."),
+                    Err(e) => tracing::error!("Couldn't reach masterbase: {e}"),
                 }
-                Err(e) => tracing::error!("Couldn't start masterbase session: {}", e),
             }
 
             // Autolaunch UI
@@ -173,11 +153,11 @@ fn main() {
 
             // Demo watcher and manager
             let demo_path = state.settings.tf2_directory().join("tf");
-            let demo_watcher = DemoWatcher::new(&demo_path)
+            let demo_watcher = if args.dont_parse_demos { None } else { DemoWatcher::new(&demo_path)
                 .map_err(|e| {
                     tracing::error!("Could not initialise demo watcher: {e}");
                 })
-                .ok();
+                .ok()};
 
             // Web API
             let (web_state, web_requests) = WebState::new(Some(&UI_DIR));
@@ -199,16 +179,17 @@ fn main() {
                 .add_source(refresh_timer)
                 .add_source(lookup_batch_timer)
                 .add_source(Box::new(web_requests))
-                .add_handler(DemoManager::new(true))
+                .add_handler(DemoManager::new())
                 .add_handler(CommandManager::new())
                 .add_handler(ConsoleParser::default())
                 .add_handler(ExtractNewPlayers)
                 .add_handler(LookupProfiles::new())
                 .add_handler(LookupFriends::new())
-                .add_handler(MasterbaseHandler::new())
                 .add_handler(WebAPIHandler);
 
-            if let Some(dw) = demo_watcher {
+            if args.dont_parse_demos {
+                tracing::info!("Demo parsing has been disabled. This also prevents uploading demos to the masterbase.");
+            } else if let Some(dw) = demo_watcher {
                 event_loop = event_loop.add_source(Box::new(dw));
             }
 

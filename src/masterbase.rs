@@ -93,13 +93,20 @@ impl Debug for DemoSession {
 pub async fn new_demo_session(
     host: Arc<str>,
     key: Arc<str>,
-    fake_ip: Arc<str>,
-    map: Arc<str>,
+    fake_ip: &str,
+    map: &str,
+    http: bool,
 ) -> Result<DemoSession, Error> {
-    let params = [("api_key", &key), ("fake_ip", &fake_ip), ("map", &map)];
+    let params: [(&str, &str); 3] = [("api_key", &key), ("fake_ip", &fake_ip), ("map", &map)];
 
     // Request to start session
-    let url = reqwest::Url::parse_with_params(&format!("http://{host}/session_id"), params)?;
+
+    let endpoint = if http {
+        format!("http://{host}/session_id")
+    } else {
+        format!("https://{host}/session_id")
+    };
+    let url = reqwest::Url::parse_with_params(&endpoint, params)?;
     let response = reqwest::get(url).await?;
 
     if !response.status().is_success() {
@@ -122,14 +129,12 @@ pub async fn new_demo_session(
                 .await
                 .expect("Didn't get closing message from DemoSession.");
 
-            match force_close_session(host, key).await {
+            match force_close_session(host, key, http).await {
                 Ok(_) => tracing::info!("Closed session {id}."),
                 Err(e) => tracing::error!("Failed to close session: {e:?}"),
             }
         });
     }
-
-    tracing::info!("Opening websocket");
 
     // Open Websocket
     let params: [(&str, &str); 2] = [("api_key", &key), ("session_id", &session_id.to_string())];
@@ -150,10 +155,19 @@ pub async fn new_demo_session(
 /// # Errors
 /// * Fails to parse Url (usually indicating a bad host or key was provided)
 /// * Web request failed
-pub async fn force_close_session(host: Arc<str>, key: Arc<str>) -> Result<Response, Error> {
+pub async fn force_close_session(
+    host: Arc<str>,
+    key: Arc<str>,
+    http: bool,
+) -> Result<Response, Error> {
     let params = [("api_key", &key)];
 
-    let url = reqwest::Url::parse_with_params(&format!("http://{host}/close_session"), params)?;
+    let endpoint = if http {
+        format!("http://{host}/close_session")
+    } else {
+        format!("https://{host}/close_session")
+    };
+    let url = reqwest::Url::parse_with_params(&endpoint, params)?;
 
     Ok(reqwest::get(url).await?)
 }
