@@ -532,7 +532,7 @@ impl Default for Settings {
             rcon_password: "mac_rcon".into(),
             steam_api_key: "YOUR_API_KEY_HERE".into(),
             masterbase_key: "".into(),
-            masterbase_host: "https://masterbase.chs.gg".into(),
+            masterbase_host: "masterbase.chs.gg".into(),
             friends_api_usage: FriendsAPIUsage::CheatersOnly,
             webui_port: 3621,
             autolaunch_ui: false,
