@@ -24,7 +24,9 @@ pub const REGEX_HOSTNAME: &str = r"^hostname: (.*)$";
 pub struct Hostname(pub Arc<str>);
 impl Hostname {
     #[must_use]
-    pub fn parse(caps: &Captures) -> Self { Self(caps[1].into()) }
+    pub fn parse(caps: &Captures) -> Self {
+        Self(caps[1].into())
+    }
 }
 
 pub const REGEX_IP: &str = r"^udp/ip  : (.*)$";
@@ -32,7 +34,9 @@ pub const REGEX_IP: &str = r"^udp/ip  : (.*)$";
 pub struct ServerIP(pub Arc<str>);
 impl ServerIP {
     #[must_use]
-    pub fn parse(caps: &Captures) -> Self { Self(caps[1].into()) }
+    pub fn parse(caps: &Captures) -> Self {
+        Self(caps[1].into())
+    }
 }
 
 pub const REGEX_MAP: &str = r"^map     : (.+) at: .*$";
@@ -40,7 +44,9 @@ pub const REGEX_MAP: &str = r"^map     : (.+) at: .*$";
 pub struct Map(pub Arc<str>);
 impl Map {
     #[must_use]
-    pub fn parse(caps: &Captures) -> Self { Self(caps[1].into()) }
+    pub fn parse(caps: &Captures) -> Self {
+        Self(caps[1].into())
+    }
 }
 
 pub const REGEX_PLAYERCOUNT: &str = r"^players : (\d+) humans, (\d+) bots \((\d+) max\)$";
