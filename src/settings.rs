@@ -416,11 +416,11 @@ impl Settings {
             .clone()
     }
 
-    pub fn set_masterbase_endpoint(&mut self, endpoint: Arc<str>) {
+    pub fn set_masterbase_host(&mut self, endpoint: Arc<str>) {
         self.masterbase_host = endpoint;
     }
     #[must_use]
-    pub fn borrow_masterbase_endpoint(&self) -> &str {
+    pub fn borrow_masterbase_host(&self) -> &str {
         self.override_masterbase_host
             .as_ref()
             .unwrap_or(&self.masterbase_host)

@@ -340,7 +340,7 @@ where
                     // Create session
                     match new_demo_session(host, key, &fake_ip, &map, http).await {
                         Ok(session) => {
-                            tracing::info!("Opened new demo session {session:?}");
+                            tracing::info!("Opened new demo session with Masterbase: {session:?}");
                             *guard = Ok(session);
                         }
                         Err(e) => {
@@ -369,7 +369,7 @@ where
                             *guard = Err(SessionMissingReason::Error);
                             std::mem::drop(guard);
                         } else {
-                            tracing::info!("Uploaded {len} bytes to masterbase.");
+                            tracing::debug!("Uploaded {len} bytes to masterbase.");
                         }
                         break;
                     }

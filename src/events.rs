@@ -10,7 +10,9 @@ use crate::{player_records::Verdict, settings::FriendsAPIUsage, state::MACState}
 #[derive(Debug, Clone, Copy)]
 pub struct Refresh;
 impl StateUpdater<MACState> for Refresh {
-    fn update_state(self, state: &mut MACState) { state.players.refresh(); }
+    fn update_state(self, state: &mut MACState) {
+        state.players.refresh();
+    }
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -78,6 +80,7 @@ pub struct InternalPreferences {
     pub rcon_password: Option<Arc<str>>,
     pub steam_api_key: Option<Arc<str>>,
     pub masterbase_key: Option<Arc<str>>,
+    pub masterbase_host: Option<Arc<str>>,
     pub rcon_port: Option<u16>,
 }
 
@@ -108,6 +111,9 @@ impl StateUpdater<MACState> for Preferences {
             }
             if let Some(masterbase_key) = internal.masterbase_key {
                 state.settings.set_masterbase_key(masterbase_key);
+            }
+            if let Some(masterbase_host) = internal.masterbase_host {
+                state.settings.set_masterbase_host(masterbase_host);
             }
         }
 

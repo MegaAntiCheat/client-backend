@@ -115,6 +115,7 @@ where
                     rcon_password: _,
                     steam_api_key: Some(new_key),
                     masterbase_key: _,
+                    masterbase_host: _,
                     rcon_port: _,
                 }),
             external: _,
@@ -271,7 +272,9 @@ impl LookupFriends {
 }
 
 impl Default for LookupFriends {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for LookupFriends
