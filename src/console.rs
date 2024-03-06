@@ -69,7 +69,9 @@ pub enum ConsoleOutput {
     G15(Vec<G15Player>),
 }
 impl StateUpdater<MACState> for ConsoleOutput {
-    fn update_state(self, state: &mut MACState) { state.handle_console_output(self); }
+    fn update_state(self, state: &mut MACState) {
+        state.handle_console_output(self);
+    }
 }
 
 #[allow(clippy::module_name_repetitions)]

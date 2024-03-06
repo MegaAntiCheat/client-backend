@@ -219,7 +219,9 @@ impl G15Player {
     }
 }
 impl Default for G15Player {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 /// The `G15Parser` struct contains a vector of compiled Regex automata to parse
@@ -279,5 +281,7 @@ impl Parser {
 }
 
 impl Default for Parser {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
