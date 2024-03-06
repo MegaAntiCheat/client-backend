@@ -45,6 +45,7 @@ impl FriendsAPIUsage {
     }
 }
 
+#[allow(clippy::struct_excessive_bools)]
 #[derive(Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -58,7 +59,7 @@ pub struct Settings {
     rcon_password: Arc<str>,
     steam_api_key: Arc<str>,
     masterbase_key: Arc<str>,
-    masterbase_endpoint: Arc<str>,
+    masterbase_host: Arc<str>,
     autolaunch_ui: bool,
     friends_api_usage: FriendsAPIUsage,
     webui_port: u16,
@@ -80,7 +81,14 @@ pub struct Settings {
     #[serde(skip)]
     override_masterbase_api_key: Option<Arc<str>>,
     #[serde(skip)]
-    override_masterbase_endpoint: Option<Arc<str>>,
+    override_masterbase_host: Option<Arc<str>>,
+
+    #[serde(skip)]
+    upload_demos: bool,
+    #[serde(skip)]
+    minimal_demo_parsing: bool,
+    #[serde(skip)]
+    masterbase_http: bool,
 }
 
 #[allow(dead_code)]
@@ -114,7 +122,7 @@ impl Settings {
                 tracing::warn!("Could not locate {}, creating new configuration.", &path);
                 let mut settings = Self::default();
                 settings.set_config_path(path.into());
-                settings.set_overrides(args);
+                settings.apply_args(args);
                 settings
             }
             Err(e) => {
@@ -167,7 +175,7 @@ impl Settings {
         settings.config_path = Some(path);
 
         tracing::debug!("Successfully loaded settings.");
-        settings.set_overrides(args);
+        settings.apply_args(args);
         Ok(settings)
     }
 
@@ -223,7 +231,7 @@ impl Settings {
 
     /// Pull all values from the args struct and set to our override values,
     /// make sure to add tracing for any values overridden!
-    pub fn set_overrides(&mut self, args: &Args) {
+    pub fn apply_args(&mut self, args: &Args) {
         // Override (and log if) the Port used to host the middleware API (default 3621)
         self.override_webui_port = args.port.map(|val| {
             tracing::info!(
@@ -280,13 +288,17 @@ impl Settings {
             Arc::from(val.clone())
         });
 
-        self.override_masterbase_endpoint = args.mb_endpoint.as_ref().map(|val| {
+        self.override_masterbase_host = args.mb_host.as_ref().map(|val| {
             tracing::info!(
                 "Overrode configured Masterbase endpoint {}->{val}",
-                self.masterbase_endpoint
+                self.masterbase_host
             );
             Arc::from(val.clone())
         });
+
+        self.minimal_demo_parsing = args.minimal_demo_parsing;
+        self.upload_demos = !args.dont_upload_demos;
+        self.masterbase_http = args.masterbase_http;
     }
 
     /// Attempt to save the settings back to the loaded configuration file
@@ -329,13 +341,23 @@ impl Settings {
     }
 
     // Setters & Getters
-    pub fn set_config_path(&mut self, path: PathBuf) { self.config_path = Some(path); }
+    pub fn set_config_path(&mut self, path: PathBuf) {
+        self.config_path = Some(path);
+    }
     #[must_use]
-    pub const fn config_path(&self) -> Option<&PathBuf> { self.config_path.as_ref() }
-    pub fn set_steam_user(&mut self, user: SteamID) { self.steam_user = Some(user); }
+    pub const fn config_path(&self) -> Option<&PathBuf> {
+        self.config_path.as_ref()
+    }
+    pub fn set_steam_user(&mut self, user: SteamID) {
+        self.steam_user = Some(user);
+    }
     #[must_use]
-    pub const fn steam_user(&self) -> Option<SteamID> { self.steam_user }
-    pub fn set_tf2_directory(&mut self, dir: PathBuf) { self.tf2_directory = dir; }
+    pub const fn steam_user(&self) -> Option<SteamID> {
+        self.steam_user
+    }
+    pub fn set_tf2_directory(&mut self, dir: PathBuf) {
+        self.tf2_directory = dir;
+    }
     #[must_use]
     pub fn tf2_directory(&self) -> &Path {
         self.override_tf2_dir
@@ -343,7 +365,9 @@ impl Settings {
             .unwrap_or(&self.tf2_directory)
     }
 
-    pub fn set_rcon_password(&mut self, pwd: Arc<str>) { self.rcon_password = pwd; }
+    pub fn set_rcon_password(&mut self, pwd: Arc<str>) {
+        self.rcon_password = pwd;
+    }
     #[must_use]
     pub fn borrow_rcon_password(&self) -> &str {
         self.override_rcon_password
@@ -358,7 +382,9 @@ impl Settings {
             .clone()
     }
 
-    pub fn set_steam_api_key(&mut self, key: Arc<str>) { self.steam_api_key = key; }
+    pub fn set_steam_api_key(&mut self, key: Arc<str>) {
+        self.steam_api_key = key;
+    }
     #[must_use]
     pub fn borrow_steam_api_key(&self) -> &str {
         self.override_steam_api_key
@@ -373,7 +399,9 @@ impl Settings {
             .clone()
     }
 
-    pub fn set_masterbase_key(&mut self, key: Arc<str>) { self.masterbase_key = key; }
+    pub fn set_masterbase_key(&mut self, key: Arc<str>) {
+        self.masterbase_key = key;
+    }
     #[must_use]
     pub fn borrow_masterbase_key(&self) -> &str {
         self.override_masterbase_api_key
@@ -389,45 +417,75 @@ impl Settings {
     }
 
     pub fn set_masterbase_endpoint(&mut self, endpoint: Arc<str>) {
-        self.masterbase_endpoint = endpoint;
+        self.masterbase_host = endpoint;
     }
     #[must_use]
     pub fn borrow_masterbase_endpoint(&self) -> &str {
-        self.override_masterbase_endpoint
+        self.override_masterbase_host
             .as_ref()
-            .unwrap_or(&self.masterbase_endpoint)
+            .unwrap_or(&self.masterbase_host)
     }
     #[must_use]
-    pub fn masterbase_endpoint(&self) -> Arc<str> {
-        self.override_masterbase_endpoint
+    pub fn masterbase_host(&self) -> Arc<str> {
+        self.override_masterbase_host
             .as_ref()
-            .unwrap_or(&self.masterbase_endpoint)
+            .unwrap_or(&self.masterbase_host)
             .clone()
     }
 
-    pub fn set_autolaunch_ui(&mut self, autolaunch: bool) { self.autolaunch_ui = autolaunch; }
+    pub fn set_autolaunch_ui(&mut self, autolaunch: bool) {
+        self.autolaunch_ui = autolaunch;
+    }
     #[must_use]
-    pub const fn autolaunch_ui(&self) -> bool { self.autolaunch_ui }
+    pub const fn autolaunch_ui(&self) -> bool {
+        self.autolaunch_ui
+    }
     pub fn set_friends_api_usage(&mut self, usage: FriendsAPIUsage) {
         self.friends_api_usage = usage;
     }
     #[must_use]
-    pub const fn friends_api_usage(&self) -> FriendsAPIUsage { self.friends_api_usage }
+    pub const fn friends_api_usage(&self) -> FriendsAPIUsage {
+        self.friends_api_usage
+    }
 
-    pub fn set_webui_port(&mut self, port: u16) { self.webui_port = port; }
+    pub fn set_webui_port(&mut self, port: u16) {
+        self.webui_port = port;
+    }
     #[must_use]
-    pub fn webui_port(&self) -> u16 { self.override_webui_port.unwrap_or(self.webui_port) }
+    pub fn webui_port(&self) -> u16 {
+        self.override_webui_port.unwrap_or(self.webui_port)
+    }
 
-    pub fn set_rcon_port(&mut self, port: u16) { self.rcon_port = port; }
+    pub fn set_rcon_port(&mut self, port: u16) {
+        self.rcon_port = port;
+    }
     #[must_use]
-    pub fn rcon_port(&self) -> u16 { self.override_rcon_port.unwrap_or(self.rcon_port) }
+    pub fn rcon_port(&self) -> u16 {
+        self.override_rcon_port.unwrap_or(self.rcon_port)
+    }
 
     pub fn update_external_preferences(&mut self, prefs: serde_json::Value) {
         merge_json_objects(&mut self.external, prefs);
     }
     #[must_use]
-    pub const fn external_preferences(&self) -> &serde_json::Value { &self.external }
-    pub fn external_preferences_mut(&mut self) -> &mut serde_json::Value { &mut self.external }
+    pub const fn external_preferences(&self) -> &serde_json::Value {
+        &self.external
+    }
+    pub fn external_preferences_mut(&mut self) -> &mut serde_json::Value {
+        &mut self.external
+    }
+    #[must_use]
+    pub const fn minimal_demo_parsing(&self) -> bool {
+        self.minimal_demo_parsing
+    }
+    #[must_use]
+    pub const fn upload_demos(&self) -> bool {
+        self.upload_demos
+    }
+    #[must_use]
+    pub const fn use_masterbase_http(&self) -> bool {
+        self.masterbase_http
+    }
 
     /// Attempts to find (and create) a directory to be used for configuration
     /// files
@@ -474,7 +532,7 @@ impl Default for Settings {
             rcon_password: "mac_rcon".into(),
             steam_api_key: "YOUR_API_KEY_HERE".into(),
             masterbase_key: "".into(),
-            masterbase_endpoint: "https://masterbase.chs.gg".into(),
+            masterbase_host: "https://masterbase.chs.gg".into(),
             friends_api_usage: FriendsAPIUsage::CheatersOnly,
             webui_port: 3621,
             autolaunch_ui: false,
@@ -486,8 +544,11 @@ impl Default for Settings {
             override_steam_user: None,
             override_rcon_port: None,
             override_masterbase_api_key: None,
-            override_masterbase_endpoint: None,
+            override_masterbase_host: None,
             external: serde_json::Value::Object(Map::new()),
+            upload_demos: true,
+            minimal_demo_parsing: false,
+            masterbase_http: false,
         }
     }
 }
