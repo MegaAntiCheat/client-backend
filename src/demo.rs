@@ -56,7 +56,8 @@ pub enum DemoWatcherError {
 
 #[allow(clippy::module_name_repetitions)]
 pub struct DemoBytes {
-    pub path: PathBuf,
+    pub file_path: PathBuf,
+    pub id: usize,
     pub bytes: Vec<u8>,
 }
 
@@ -66,6 +67,7 @@ pub struct DemoWatcher {
     last_recv: Instant,
     disconnected: bool,
 
+    current_id: usize,
     current_demo: Option<PathBuf>,
     offset: u64,
 
@@ -97,6 +99,7 @@ impl DemoWatcher {
             recv: rx,
             last_recv: Instant::now(),
             disconnected: false,
+            current_id: 0,
             current_demo: None,
             offset: 0,
             _watcher: watcher,
@@ -117,10 +120,9 @@ impl DemoWatcher {
         // Check there's actually data to read
         match current_metadata.len().cmp(&(self.offset)) {
             std::cmp::Ordering::Less => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::UnexpectedEof,
-                    "Demo has shortened. Something has gone wrong.",
-                ));
+                tracing::warn!("Demo has shortened. Assuming a new demo has been recorded over the existing one.");
+                self.current_id += 1;
+                self.offset = 0;
             }
             std::cmp::Ordering::Equal => {
                 return Ok(None);
@@ -153,7 +155,8 @@ impl DemoWatcher {
             .ok()
             .flatten()
             .map(|b| DemoBytes {
-                path: file_path,
+                id: self.current_id,
+                file_path,
                 bytes: b,
             })
     }
@@ -224,10 +227,17 @@ pub struct DemoManager {
 #[allow(clippy::module_name_repetitions)]
 pub struct OpenDemo {
     pub file_path: PathBuf,
+    pub id: usize,
     pub header: Option<Header>,
     pub handler: DemoHandler<GameStateAnalyser>,
     pub bytes: Vec<u8>,
     pub offset: usize,
+}
+
+impl PartialEq for OpenDemo {
+    fn eq(&self, other: &Self) -> bool {
+        self.file_path == other.file_path && self.id == other.id
+    }
 }
 
 impl DemoManager {
@@ -244,7 +254,7 @@ impl DemoManager {
 
     /// Start tracking a new demo file. A demo must be being tracked before
     /// bytes can be appended.
-    pub fn new_demo(&mut self, path: PathBuf) {
+    pub fn new_demo(&mut self, path: PathBuf, id: usize) {
         if let Some(old) = self.current_demo.take() {
             self.previous_demos.push(old);
         }
@@ -253,6 +263,7 @@ impl DemoManager {
 
         self.current_demo = Some(OpenDemo {
             file_path: path,
+            id,
             header: None,
             handler: DemoHandler::with_analyser(GameStateAnalyser::new()),
             bytes: Vec::new(),
@@ -285,19 +296,15 @@ where
     ) -> Option<event_loop::Handled<OM>> {
         let msg = try_get(message)?;
 
-        tracing::debug!("Got {} bytes for demo {:?}", msg.bytes.len(), msg.path);
-
-        // TODO - Open sessions and stuff
+        tracing::debug!("Got {} bytes for demo {:?}", msg.bytes.len(), msg.file_path);
 
         // New or different demo
-        if self.current_demo.is_none()
-            || self
-                .current_demo
-                .as_ref()
-                .map(|d| d.file_path != msg.path)
-                .is_some_and(|b| b)
+        if self
+            .current_demo
+            .as_ref()
+            .map_or(true, |d| !(d.file_path == msg.file_path && d.id == msg.id))
         {
-            self.new_demo(msg.path.clone());
+            self.new_demo(msg.file_path.clone(), msg.id);
         }
 
         let demo = self
