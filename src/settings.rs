@@ -424,7 +424,7 @@ impl Default for Settings {
 
 /// Combines the second provided Json Object into the first. If the given
 /// [Value]s are not `Value::Object`s, this will do nothing.
-fn merge_json_objects(a: &mut Value, b: Value) {
+pub fn merge_json_objects(a: &mut Value, b: Value) {
     if let Value::Object(a) = a {
         if let Value::Object(b) = b {
             for (k, v) in b {
