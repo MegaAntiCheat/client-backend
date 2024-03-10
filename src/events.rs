@@ -5,7 +5,11 @@ use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
 use tokio::sync::mpsc::Receiver;
 
-use crate::{player_records::Verdict, settings::FriendsAPIUsage, state::MACState};
+use crate::{
+    player_records::Verdict,
+    settings::{merge_json_objects, FriendsAPIUsage},
+    state::MACState,
+};
 
 #[derive(Debug, Clone, Copy)]
 pub struct Refresh;
@@ -30,7 +34,7 @@ impl StateUpdater<MACState> for UserUpdates {
             let record = state.players.records.entry(k).or_default();
 
             if let Some(custom_data) = v.custom_data {
-                record.custom_data = custom_data;
+                merge_json_objects(&mut record.custom_data, custom_data);
             }
 
             if let Some(verdict) = v.local_verdict {
