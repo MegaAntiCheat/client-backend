@@ -88,7 +88,7 @@ impl Server {
     /// * Some<`SteamID`> of a player if they have been newly added to the
     ///   server.
     pub fn handle_console_output(&mut self, response: ConsoleOutput) {
-        use ConsoleOutput::{Chat, Hostname, Kill, Map, PlayerCount, ServerIP, Status, G15};
+        use ConsoleOutput::{Chat, Hostname, Kill, Map, PlayerCount, ServerIP, Status, G15, DemoStop};
         match response {
             Chat(chat) => self.handle_chat(chat),
             Kill(kill) => self.handle_kill(kill),
@@ -105,7 +105,7 @@ impl Server {
                 self.max_players = Some(playercount.max);
                 self.num_players = Some(playercount.players);
             }
-            G15(_) | Status(_) => {}
+            G15(_) | Status(_) | DemoStop(_) => {}
         }
     }
 

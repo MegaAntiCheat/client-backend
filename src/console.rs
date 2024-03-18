@@ -9,8 +9,8 @@ use crate::{
         filewatcher::FileWatcher,
         g15::{G15Player, Parser},
         regexes::{
-            ChatMessage, Hostname, Map, PlayerCount, PlayerKill, ServerIP, StatusLine, REGEX_CHAT,
-            REGEX_HOSTNAME, REGEX_IP, REGEX_KILL, REGEX_MAP, REGEX_PLAYERCOUNT, REGEX_STATUS,
+            ChatMessage, Hostname, Map, PlayerCount, PlayerKill, ServerIP, StatusLine, DemoStop, 
+            REGEX_CHAT, REGEX_HOSTNAME, REGEX_IP, REGEX_KILL, REGEX_MAP, REGEX_PLAYERCOUNT, REGEX_STATUS, REGEX_DEMOSTOP
         },
     },
     state::MACState,
@@ -67,6 +67,7 @@ pub enum ConsoleOutput {
     Map(Map),
     PlayerCount(PlayerCount),
     G15(Vec<G15Player>),
+    DemoStop(DemoStop),
 }
 impl StateUpdater<MACState> for ConsoleOutput {
     fn update_state(self, state: &mut MACState) {
@@ -84,6 +85,7 @@ pub struct ConsoleParser {
     regex_ip: Regex,
     regex_map: Regex,
     regex_playercount: Regex,
+    regex_demostop: Regex
 }
 
 impl Default for ConsoleParser {
@@ -97,6 +99,7 @@ impl Default for ConsoleParser {
             regex_ip: Regex::new(REGEX_IP).expect("Compile static regex"),
             regex_map: Regex::new(REGEX_MAP).expect("Compile static regex"),
             regex_playercount: Regex::new(REGEX_PLAYERCOUNT).expect("Compile static regex"),
+            regex_demostop: Regex::new(REGEX_DEMOSTOP).expect("Compile static regex"),
         }
     }
 }
@@ -152,6 +155,11 @@ where
             if let Some(caps) = self.regex_playercount.captures(line) {
                 let playercount = PlayerCount::parse(&caps);
                 out.push(Handled::single(ConsoleOutput::PlayerCount(playercount)));
+            }
+            // Match demo recording end
+            if let Some(caps) = self.regex_demostop.captures(line) {
+                let demostop = DemoStop::parse(&caps);
+                out.push(Handled::single(ConsoleOutput::DemoStop(demostop)));
             }
         }
 

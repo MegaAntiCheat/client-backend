@@ -9,11 +9,11 @@ pub struct MACState {
 
 impl MACState {
     pub fn handle_console_output(&mut self, output: ConsoleOutput) {
-        use ConsoleOutput::{Chat, Hostname, Kill, Map, PlayerCount, ServerIP, Status, G15};
+        use ConsoleOutput::{Chat, Hostname, Kill, Map, PlayerCount, ServerIP, Status, G15, DemoStop};
         match output {
             Status(inner) => self.players.handle_status_line(inner),
             G15(inner) => self.players.handle_g15(inner),
-            Chat(_) | Kill(_) | Hostname(_) | ServerIP(_) | Map(_) | PlayerCount(_) => {
+            Chat(_) | Kill(_) | Hostname(_) | ServerIP(_) | Map(_) | PlayerCount(_) | DemoStop(_) => {
                 self.server.handle_console_output(output);
             }
         }
