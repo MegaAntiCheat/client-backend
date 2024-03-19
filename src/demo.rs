@@ -28,7 +28,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
-    masterbase::{new_demo_session, DemoSession},
+    masterbase::{new_demo_session, DemoSession, force_close_session},
     state::MACState,
 };
 
@@ -141,6 +141,55 @@ impl DemoWatcher {
             tracing::debug!("Got {} demo bytes", read_bytes);
             self.offset += read_bytes as u64;
         }
+
+        Ok(Some(out))
+    }
+
+    /// Reads the bytes that are only written at the end of the demo recording.
+    ///
+    /// # Errors
+    /// On IO errors
+    fn read_late_bytes(&mut self) -> std::io::Result<Option<Vec<u8>>> {
+        let Some(file_path) = self.current_demo.as_ref() else {
+            return Ok(None);
+        };
+
+        let start_address: u64 = 0x420;
+        let bytes_to_read: u64 = 16;
+        let min_valid_filelen: u64 =  start_address + bytes_to_read;
+
+        let current_metadata = metadata(file_path)?;
+
+        // Check the file is long enough to have data at the late byte address
+        match current_metadata.len().cmp(&min_valid_filelen) {
+            std::cmp::Ordering::Less => {
+                return Ok(None);
+            }
+            std::cmp::Ordering::Equal |
+            std::cmp::Ordering::Greater => {}
+        }
+
+        let mut file = File::open(file_path)?;
+
+        file.seek(std::io::SeekFrom::Start(start_address))?;
+        let mut out = vec![0; bytes_to_read.try_into().unwrap()];
+        file.read_exact(&mut out)?;
+
+        // Check if the late bytes have been written to
+        // The first 8 bytes are always all zeroes until written to.
+        let mut written = false;
+        for i in 0..8 {
+            if out[i] != 0 {
+                written = true;
+                break;
+            }
+        }
+
+        if !written {
+            return Ok(None);
+        }
+
+        // TODO: We have the late bytes, let's send them.
 
         Ok(Some(out))
     }
