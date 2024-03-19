@@ -4,7 +4,7 @@ use std::{
 };
 
 use futures::SinkExt;
-use reqwest::Response;
+use reqwest::{Response, RequestBuilder, Client};
 use serde::Deserialize;
 use thiserror::Error;
 use tokio::{net::TcpStream, sync::mpsc::Sender};
@@ -170,4 +170,26 @@ pub async fn force_close_session(
     let url = reqwest::Url::parse_with_params(&endpoint, params)?;
 
     Ok(reqwest::get(url).await?)
+}
+
+pub async fn send_late_bytes(
+    host: Arc<str>,
+    key: Arc<str>,
+    http: bool,
+    bytes: Vec<u8>
+) -> Result<Response, Error> {
+    let params = [("api_key", &key)];
+
+    let endpoint = if http {
+        format!("http://{host}/late_bytes")
+    } else {
+        format!("https://{host}/late_bytes")
+    };
+
+    let url = reqwest::Url::parse_with_params(&endpoint, params)?;
+
+    let client = Client::new();
+    let req: RequestBuilder = client.post(url).body(bytes);
+    
+    Ok(req.send().await?)
 }
