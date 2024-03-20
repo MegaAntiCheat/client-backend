@@ -451,18 +451,35 @@ where
                     Ok(session) => {
 
                         if late { // Late bytes, demo has finished. 
-                            if let Err(e) = send_late_bytes(host.clone(), key.clone(), http.clone(), bytes).await
+                            let send_result = send_late_bytes(host.clone(), key.clone(), http.clone(), bytes).await;
+                            if let Err(e) = send_result
                             {
                                 tracing::error!("Failed to upload late bytes to masterbase: {e}");
-                            } else {
-                                tracing::debug!("Uploaded late bytes to masterbase. Attempting to close session...");
-                                // We know demo has finished recording, let's close the session
-                                if let Err(e) = force_close_session(host, key, http).await {
-                                    tracing::debug!("Failed to close session after successfully uploading late bytes: {e}");
-                                } else {
-                                    tracing::debug!("Session successfully closed after late byte upload.");
-                                }
+                                break;
                             }
+
+                            let send_status = send_result.unwrap().status();
+                            if send_status.is_success() {
+                                tracing::debug!("Uploaded late bytes to masterbase. Attempting to close session...");
+                            } else {
+                                let s = send_status.as_str();
+                                tracing::debug!("Failed to upload late bytes to masterbase: Server returned {s}");
+                            }
+
+                            let close_result = force_close_session(host, key, http).await;
+                            if let Err(e) = close_result {
+                                tracing::debug!("Failed to close session after successfully uploading late bytes: {e}");
+                                break;
+                            } 
+
+                            let close_status = close_result.unwrap().status();
+                            if close_status.is_success() {
+                                tracing::debug!("Session successfully closed after late byte upload.");
+                            } else {
+                                let s = close_status.as_str();
+                                tracing::debug!("Failed to close session after successfully uploading late bytes: Server returned {s}");
+                            }
+                            
                         } else { // Regular bytes
                             let len = bytes.len();
                             if let Err(e) = session.send_bytes(bytes).await {
