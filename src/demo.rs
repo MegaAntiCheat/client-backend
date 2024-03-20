@@ -187,9 +187,10 @@ impl DemoWatcher {
         }
 
         if !written {
+            tracing::debug!("No new bytes from demo.");
             return Ok(None);
         }
-        
+        tracing::debug!("Late bytes found in demo recording.");
         Ok(Some(out))
     }
 
@@ -381,48 +382,55 @@ where
 
         let mut events = Vec::new();
 
-        // Don't parse contents if the user only wants minimal parsing, except
-        // if we still need to extract the headers.
-        if !(parsed_header && state.settings.minimal_demo_parsing()) {
-            events.extend(
-                demo.append_bytes(&msg.bytes)
-                    .into_iter()
-                    .map(Handled::single),
-            );
+        // Late bytes should not be handed to the parser.
+        if !msg.late
+        {
+            // Don't parse contents if the user only wants minimal parsing, except
+            // if we still need to extract the headers.
+            if !(parsed_header && state.settings.minimal_demo_parsing()) {
+                events.extend(
+                    demo.append_bytes(&msg.bytes)
+                        .into_iter()
+                        .map(Handled::single),
+                );
+            }
         }
-
+        
         if !state.settings.upload_demos() {
             return Handled::multiple(events);
         }
 
-        // Open new demo session if we've extracted the header
-        if let Some(header) = demo.header.as_ref() {
-            if !parsed_header {
-                let session = self.session.clone();
-                let host = state.settings.masterbase_host();
-                let key = state.settings.masterbase_key();
-                let map = header.map.clone();
-                let fake_ip = header.server.clone();
-                let http = state.settings.use_masterbase_http();
-                events.push(Handled::future(async move {
-                    let session = session;
-                    let mut guard = session.lock().await;
-                    assert!(guard.is_err());
+        // Late bytes should never trigger a new session to open.
+        if !msg.late {
+            // Open new demo session if we've extracted the header
+            if let Some(header) = demo.header.as_ref() {
+                if !parsed_header {
+                    let session = self.session.clone();
+                    let host = state.settings.masterbase_host();
+                    let key = state.settings.masterbase_key();
+                    let map = header.map.clone();
+                    let fake_ip = header.server.clone();
+                    let http = state.settings.use_masterbase_http();
+                    events.push(Handled::future(async move {
+                        let session = session;
+                        let mut guard = session.lock().await;
+                        assert!(guard.is_err());
 
-                    // Create session
-                    match new_demo_session(host, key, &fake_ip, &map, http).await {
-                        Ok(session) => {
-                            tracing::info!("Opened new demo session with Masterbase: {session:?}");
-                            *guard = Ok(session);
+                        // Create session
+                        match new_demo_session(host, key, &fake_ip, &map, http).await {
+                            Ok(session) => {
+                                tracing::info!("Opened new demo session with Masterbase: {session:?}");
+                                *guard = Ok(session);
+                            }
+                            Err(e) => {
+                                tracing::error!("Could not open new demo session: {e}");
+                                *guard = Err(SessionMissingReason::Error);
+                            }
                         }
-                        Err(e) => {
-                            tracing::error!("Could not open new demo session: {e}");
-                            *guard = Err(SessionMissingReason::Error);
-                        }
-                    }
 
-                    None
-                }));
+                        None
+                    }));
+                }
             }
         }
 
