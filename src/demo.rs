@@ -59,7 +59,6 @@ pub struct DemoBytes {
     pub file_path: PathBuf,
     pub id: usize,
     pub bytes: Vec<u8>,
-    pub late: bool,
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -146,85 +145,20 @@ impl DemoWatcher {
         Ok(Some(out))
     }
 
-    /// Reads the bytes that are only written at the end of the demo recording.
-    ///
-    /// # Errors
-    /// On IO errors
-    fn read_late_bytes(&mut self) -> std::io::Result<Option<Vec<u8>>> {
-        let Some(file_path) = self.current_demo.as_ref() else {
-            return Ok(None);
-        };
-
-        let start_address: u64 = 0x420;
-        let bytes_to_read: u64 = 16;
-        let min_valid_filelen: u64 =  start_address + bytes_to_read;
-
-        let current_metadata = metadata(file_path)?;
-
-        // Check the file is long enough to have data at the late byte address
-        match current_metadata.len().cmp(&min_valid_filelen) {
-            std::cmp::Ordering::Less => {
-                return Ok(None);
-            }
-            std::cmp::Ordering::Equal |
-            std::cmp::Ordering::Greater => {}
-        }
-
-        let mut file = File::open(file_path)?;
-
-        file.seek(std::io::SeekFrom::Start(start_address))?;
-        let mut out = vec![0; bytes_to_read.try_into().unwrap()];
-        file.read_exact(&mut out)?;
-
-        // Check if the late bytes have been written to
-        // The first 8 bytes are always all zeroes until written to.
-        let mut written = false;
-        for i in 0..8 {
-            if out[i] != 0 {
-                written = true;
-                break;
-            }
-        }
-
-        if !written {
-            tracing::debug!("No new bytes from demo.");
-            return Ok(None);
-        }
-        tracing::debug!("Late bytes found in demo recording.");
-        Ok(Some(out))
-    }
-
     fn next_bytes(&mut self) -> Option<DemoBytes> {
         let Some(file_path) = self.current_demo.clone() else {
             return None;
         };
 
-        let next_bytes = self.read_next_bytes()
+        self.read_next_bytes()
             .map_err(|e| tracing::error!("Failed reading bytes from demo {file_path:?}: {e}"))
             .ok()
-            .flatten();
-        
-        if next_bytes.is_some() {
-            return next_bytes.map(|b| DemoBytes {
+            .flatten()
+            .map(|b| DemoBytes {
                 id: self.current_id,
                 file_path,
                 bytes: b,
-                late: false
-            });
-        }
-
-        // if no new bytes have been written, check for the late bytes
-        let late_bytes = self.read_late_bytes()
-            .map_err(|e| tracing::error!("Failed reading late bytes from demo {file_path:?}: {e}"))
-            .ok()
-            .flatten();
-
-        return late_bytes.map(|b| DemoBytes {
-            id: self.current_id,
-            file_path,
-            bytes: b,
-            late: true
-        });
+            })
     }
 }
 
@@ -342,6 +276,54 @@ impl DemoManager {
     pub fn current_demo_path(&self) -> Option<&Path> {
         self.current_demo.as_ref().map(|d| d.file_path.as_path())
     }
+
+    /// Reads the bytes that are only written at the end of the demo recording.
+    ///
+    /// # Errors
+    /// On IO errors
+    fn read_late_bytes(&self) -> std::io::Result<Option<Vec<u8>>> {
+        let Some(file_path) = self.current_demo_path() else {
+            return Ok(None);
+        };
+
+        let start_address: u64 = 0x420;
+        let bytes_to_read: u64 = 16;
+        let min_valid_filelen: u64 =  start_address + bytes_to_read;
+
+        let current_metadata = metadata(file_path)?;
+
+        // Check the file is long enough to have data at the late byte address
+        match current_metadata.len().cmp(&min_valid_filelen) {
+            std::cmp::Ordering::Less => {
+                return Ok(None);
+            }
+            std::cmp::Ordering::Equal |
+            std::cmp::Ordering::Greater => {}
+        }
+
+        let mut file = File::open(file_path)?;
+
+        file.seek(std::io::SeekFrom::Start(start_address))?;
+        let mut out = vec![0; bytes_to_read.try_into().unwrap()];
+        file.read_exact(&mut out)?;
+
+        // Check if the late bytes have been written to
+        // The first 8 bytes are always all zeroes until written to.
+        let mut written = false;
+        for i in 0..8 {
+            if out[i] != 0 {
+                written = true;
+                break;
+            }
+        }
+
+        if !written {
+            tracing::debug!("No new bytes from demo.");
+            return Ok(None);
+        }
+        tracing::debug!("Late bytes found in demo recording.");
+        Ok(Some(out))
+    }
 }
 
 impl Default for DemoManager {
@@ -382,113 +364,70 @@ where
 
         let mut events = Vec::new();
 
-        // Late bytes should not be handed to the parser.
-        if !msg.late
-        {
-            // Don't parse contents if the user only wants minimal parsing, except
-            // if we still need to extract the headers.
-            if !(parsed_header && state.settings.minimal_demo_parsing()) {
-                events.extend(
-                    demo.append_bytes(&msg.bytes)
-                        .into_iter()
-                        .map(Handled::single),
-                );
-            }
+        // Don't parse contents if the user only wants minimal parsing, except
+        // if we still need to extract the headers.
+        if !(parsed_header && state.settings.minimal_demo_parsing()) {
+            events.extend(
+                demo.append_bytes(&msg.bytes)
+                    .into_iter()
+                    .map(Handled::single),
+            );
         }
+        
         
         if !state.settings.upload_demos() {
             return Handled::multiple(events);
         }
 
-        // Late bytes should never trigger a new session to open.
-        if !msg.late {
-            // Open new demo session if we've extracted the header
-            if let Some(header) = demo.header.as_ref() {
-                if !parsed_header {
-                    let session = self.session.clone();
-                    let host = state.settings.masterbase_host();
-                    let key = state.settings.masterbase_key();
-                    let map = header.map.clone();
-                    let fake_ip = header.server.clone();
-                    let http = state.settings.use_masterbase_http();
-                    events.push(Handled::future(async move {
-                        let session = session;
-                        let mut guard = session.lock().await;
-                        assert!(guard.is_err());
+        // Open new demo session if we've extracted the header
+        if let Some(header) = demo.header.as_ref() {
+            if !parsed_header {
+                let session = self.session.clone();
+                let host = state.settings.masterbase_host();
+                let key = state.settings.masterbase_key();
+                let map = header.map.clone();
+                let fake_ip = header.server.clone();
+                let http = state.settings.use_masterbase_http();
+                events.push(Handled::future(async move {
+                    let session = session;
+                    let mut guard = session.lock().await;
+                    assert!(guard.is_err());
 
-                        // Create session
-                        match new_demo_session(host, key, &fake_ip, &map, http).await {
-                            Ok(session) => {
-                                tracing::info!("Opened new demo session with Masterbase: {session:?}");
-                                *guard = Ok(session);
-                            }
-                            Err(e) => {
-                                tracing::error!("Could not open new demo session: {e}");
-                                *guard = Err(SessionMissingReason::Error);
-                            }
+                    // Create session
+                    match new_demo_session(host, key, &fake_ip, &map, http).await {
+                        Ok(session) => {
+                            tracing::info!("Opened new demo session with Masterbase: {session:?}");
+                            *guard = Ok(session);
                         }
+                        Err(e) => {
+                            tracing::error!("Could not open new demo session: {e}");
+                            *guard = Err(SessionMissingReason::Error);
+                        }
+                    }
 
-                        None
-                    }));
-                }
+                    None
+                }));
             }
         }
+        
 
         // Upload bytes
         let session = self.session.clone();
         let bytes = msg.bytes.clone();
-        let late = msg.late;
-
-        let host = state.settings.masterbase_host();
-        let key = state.settings.masterbase_key();
-        let http = state.settings.use_masterbase_http();
 
         events.push(Handled::future(async move {
             // Loop while session is uninit
             loop {
                 let mut guard = session.lock().await;
                 match &mut *guard {
-                    Ok(session) => {
-
-                        if late { // Late bytes, demo has finished. 
-                            let send_result = send_late_bytes(host.clone(), key.clone(), http.clone(), bytes).await;
-                            if let Err(e) = send_result
-                            {
-                                tracing::error!("Failed to upload late bytes to masterbase: {e}");
-                                break;
-                            }
-
-                            let send_status = send_result.unwrap().status();
-                            if send_status.is_success() {
-                                tracing::debug!("Uploaded late bytes to masterbase. Attempting to close session...");
-                            } else {
-                                let s = send_status.as_str();
-                                tracing::debug!("Failed to upload late bytes to masterbase: Server returned {s}");
-                            }
-
-                            let close_result = force_close_session(host, key, http).await;
-                            if let Err(e) = close_result {
-                                tracing::debug!("Failed to close session after successfully uploading late bytes: {e}");
-                                break;
-                            } 
-
-                            let close_status = close_result.unwrap().status();
-                            if close_status.is_success() {
-                                tracing::debug!("Session successfully closed after late byte upload.");
-                            } else {
-                                let s = close_status.as_str();
-                                tracing::debug!("Failed to close session after successfully uploading late bytes: Server returned {s}");
-                            }
-                            
-                        } else { // Regular bytes
-                            let len = bytes.len();
-                            if let Err(e) = session.send_bytes(bytes).await {
-                                tracing::error!("Failed to upload demo chunk: {e}");
-                                *guard = Err(SessionMissingReason::Error);
-                                std::mem::drop(guard);
-                            } else {
-                                tracing::debug!("Uploaded {len} bytes to masterbase.");
-                            }
+                    Ok(session) => { 
+                        let len = bytes.len();
+                        if let Err(e) = session.send_bytes(bytes).await {
+                            tracing::error!("Failed to upload demo chunk: {e}");
+                            *guard = Err(SessionMissingReason::Error);
+                            std::mem::drop(guard);
+                        } else {
+                            tracing::debug!("Uploaded {len} bytes to masterbase.");
                         }
                         break;
                     }
@@ -499,6 +438,47 @@ where
 
             None
         }));
+        
+        let host = state.settings.masterbase_host();
+        let key = state.settings.masterbase_key();
+        let http = state.settings.use_masterbase_http();
+
+        // Check for late bytes
+        if let Ok(Some(late_bytes)) = self.read_late_bytes() {
+            events.push(Handled::future(async move {
+
+                let send_result = send_late_bytes(host.clone(), key.clone(), http, late_bytes).await;
+                if let Err(e) = send_result
+                {
+                    tracing::error!("Failed to upload late bytes to masterbase: {e}");
+                    return None;
+                }
+
+                let send_status = send_result.unwrap().status();
+                if send_status.is_success() {
+                    tracing::debug!("Uploaded late bytes to masterbase. Attempting to close session...");
+                } else {
+                    let s = send_status.as_str();
+                    tracing::debug!("Failed to upload late bytes to masterbase: Server returned {s}");
+                }
+
+                let close_result = force_close_session(host, key, http).await;
+                if let Err(e) = close_result {
+                    tracing::debug!("Failed to close session after successfully uploading late bytes: {e}");
+                    return None;
+                } 
+
+                let close_status = close_result.unwrap().status();
+                if close_status.is_success() {
+                    tracing::debug!("Session successfully closed after late byte upload.");
+                } else {
+                    let s = close_status.as_str();
+                    tracing::debug!("Failed to close session after successfully uploading late bytes: Server returned {s}");
+                }
+                
+                None
+            }));
+        }
 
         Handled::multiple(events)
     }
