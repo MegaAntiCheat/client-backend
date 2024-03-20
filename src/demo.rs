@@ -459,21 +459,21 @@ where
                     tracing::debug!("Uploaded late bytes to masterbase. Attempting to close session...");
                 } else {
                     let s = send_status.as_str();
-                    tracing::debug!("Failed to upload late bytes to masterbase: Server returned {s}");
+                    tracing::error!("Failed to upload late bytes to masterbase: Server returned {s}");
                 }
 
                 let close_result = force_close_session(host, key, http).await;
                 if let Err(e) = close_result {
-                    tracing::debug!("Failed to close session after successfully uploading late bytes: {e}");
+                    tracing::error!("Failed to close session after successfully uploading late bytes: {e}");
                     return None;
                 } 
 
                 let close_status = close_result.unwrap().status();
                 if close_status.is_success() {
-                    tracing::debug!("Session successfully closed after late byte upload.");
+                    tracing::info!("Masterbase session successfully closed (demo finished recording).");
                 } else {
                     let s = close_status.as_str();
-                    tracing::debug!("Failed to close session after successfully uploading late bytes: Server returned {s}");
+                    tracing::error!("Failed to close session after successfully uploading late bytes: Server returned {s}");
                 }
                 
                 None
