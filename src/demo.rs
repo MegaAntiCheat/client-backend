@@ -28,7 +28,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
-    masterbase::{new_demo_session, DemoSession, force_close_session},
+    masterbase::{new_demo_session, DemoSession, send_late_bytes, force_close_session},
     state::MACState,
 };
 
@@ -59,6 +59,7 @@ pub struct DemoBytes {
     pub file_path: PathBuf,
     pub id: usize,
     pub bytes: Vec<u8>,
+    pub late: bool,
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -188,9 +189,7 @@ impl DemoWatcher {
         if !written {
             return Ok(None);
         }
-
-        // TODO: We have the late bytes, let's send them.
-
+        
         Ok(Some(out))
     }
 
@@ -199,15 +198,32 @@ impl DemoWatcher {
             return None;
         };
 
-        self.read_next_bytes()
+        let next_bytes = self.read_next_bytes()
             .map_err(|e| tracing::error!("Failed reading bytes from demo {file_path:?}: {e}"))
             .ok()
-            .flatten()
-            .map(|b| DemoBytes {
+            .flatten();
+        
+        if next_bytes.is_some() {
+            return next_bytes.map(|b| DemoBytes {
                 id: self.current_id,
                 file_path,
                 bytes: b,
-            })
+                late: false
+            });
+        }
+
+        // if no new bytes have been written, check for the late bytes
+        let late_bytes = self.read_late_bytes()
+            .map_err(|e| tracing::error!("Failed reading late bytes from demo {file_path:?}: {e}"))
+            .ok()
+            .flatten();
+
+        return late_bytes.map(|b| DemoBytes {
+            id: self.current_id,
+            file_path,
+            bytes: b,
+            late: true
+        });
     }
 }
 
@@ -413,19 +429,41 @@ where
         // Upload bytes
         let session = self.session.clone();
         let bytes = msg.bytes.clone();
+        let late = msg.late;
+
+        let host = state.settings.masterbase_host();
+        let key = state.settings.masterbase_key();
+        let http = state.settings.use_masterbase_http();
+
         events.push(Handled::future(async move {
             // Loop while session is uninit
             loop {
                 let mut guard = session.lock().await;
                 match &mut *guard {
                     Ok(session) => {
-                        let len = bytes.len();
-                        if let Err(e) = session.send_bytes(bytes).await {
-                            tracing::error!("Failed to upload demo chunk: {e}");
-                            *guard = Err(SessionMissingReason::Error);
-                            std::mem::drop(guard);
-                        } else {
-                            tracing::debug!("Uploaded {len} bytes to masterbase.");
+
+                        if late { // Late bytes, demo has finished. 
+                            if let Err(e) = send_late_bytes(host.clone(), key.clone(), http.clone(), bytes).await
+                            {
+                                tracing::error!("Failed to upload late bytes to masterbase: {e}");
+                            } else {
+                                tracing::debug!("Uploaded late bytes to masterbase. Attempting to close session...");
+                                // We know demo has finished recording, let's close the session
+                                if let Err(e) = force_close_session(host, key, http).await {
+                                    tracing::debug!("Failed to close session after successfully uploading late bytes: {e}");
+                                } else {
+                                    tracing::debug!("Session successfully closed after late byte upload.");
+                                }
+                            }
+                        } else { // Regular bytes
+                            let len = bytes.len();
+                            if let Err(e) = session.send_bytes(bytes).await {
+                                tracing::error!("Failed to upload demo chunk: {e}");
+                                *guard = Err(SessionMissingReason::Error);
+                                std::mem::drop(guard);
+                            } else {
+                                tracing::debug!("Uploaded {len} bytes to masterbase.");
+                            }
                         }
                         break;
                     }
