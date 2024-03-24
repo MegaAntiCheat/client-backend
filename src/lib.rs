@@ -6,6 +6,7 @@ pub mod events;
 pub mod gamefinder;
 pub mod io;
 pub mod launchoptions;
+pub mod masterbase;
 pub mod new_players;
 pub mod player;
 pub mod player_records;

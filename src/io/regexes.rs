@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Ok, Result};
 use regex::Captures;
 use steamid_ng::SteamID;
 
@@ -156,6 +156,26 @@ impl StatusLine {
             loss: caps[6].parse().unwrap_or(0),
             state: player_state,
         })
+    }
+}
+
+// Reads lines printed when demo recording terminates
+// Example: Completed demo, recording time 1.8, game frames 115.
+pub const REGEX_DEMOSTOP: &str = r"Completed demo, recording time ([\d.]+), game frames (\d+).";
+
+#[derive(Debug, Clone)]
+pub struct DemoStop {
+    pub seconds: f32,
+    pub frames: u32,
+}
+
+impl DemoStop {
+    #[must_use]
+    pub fn parse(caps: &Captures) -> Self {
+        Self {
+            seconds: caps[1].parse().unwrap_or(0.0),
+            frames: caps[2].parse().unwrap_or(0),
+        }
     }
 }
 

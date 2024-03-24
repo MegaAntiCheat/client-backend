@@ -300,8 +300,8 @@ where
         state: &MACState,
         message: &IM,
     ) -> Option<event_loop::Handled<OM>> {
-        let port = state.settings.get_rcon_port();
-        let pwd = state.settings.get_rcon_password();
+        let port = state.settings.rcon_port();
+        let pwd = state.settings.rcon_password();
 
         if try_get::<Refresh>(message).is_some() {
             self.refresh_status = !self.refresh_status;
