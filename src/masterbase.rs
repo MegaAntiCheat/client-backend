@@ -4,7 +4,7 @@ use std::{
 };
 
 use futures::SinkExt;
-use reqwest::{Response, RequestBuilder, Client};
+use reqwest::{Client, RequestBuilder, Response};
 use serde::Deserialize;
 use thiserror::Error;
 use tokio::{net::TcpStream, sync::mpsc::Sender};
@@ -119,7 +119,8 @@ pub async fn new_demo_session(
     session_id.close = Some(tx);
 
     // Wait for the dropped `DemoSession` to tell it to close the session.
-    // When it receives a message over the channel, it makes the appropriate request.
+    // When it receives a message over the channel, it makes the appropriate
+    // request.
     {
         let id = session_id.session_id;
         let host = host.clone();
@@ -176,7 +177,7 @@ pub async fn send_late_bytes(
     host: Arc<str>,
     key: Arc<str>,
     http: bool,
-    bytes: Vec<u8>
+    bytes: Vec<u8>,
 ) -> Result<Response, Error> {
     let params = [("api_key", &key)];
 
@@ -190,6 +191,6 @@ pub async fn send_late_bytes(
 
     let client = Client::new();
     let req: RequestBuilder = client.post(url).body(bytes);
-    
+
     Ok(req.send().await?)
 }

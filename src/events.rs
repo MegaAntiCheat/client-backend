@@ -10,9 +10,7 @@ use crate::{player_records::Verdict, settings::FriendsAPIUsage, state::MACState}
 #[derive(Debug, Clone, Copy)]
 pub struct Refresh;
 impl StateUpdater<MACState> for Refresh {
-    fn update_state(self, state: &mut MACState) {
-        state.players.refresh();
-    }
+    fn update_state(self, state: &mut MACState) { state.players.refresh(); }
 }
 
 #[derive(Debug, Deserialize, Clone)]

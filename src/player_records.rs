@@ -98,9 +98,7 @@ impl PlayerRecords {
     }
 
     /// Removes all records that don't contain any info worth retaining.
-    pub fn prune(&mut self) {
-        self.retain(|_, r| !r.is_empty());
-    }
+    pub fn prune(&mut self) { self.retain(|_, r| !r.is_empty()); }
 
     /// Attempt to save the `PlayerRecords` to the file it was loaded from
     ///
@@ -124,9 +122,7 @@ impl PlayerRecords {
         tracing::debug!("Playerlist saved to {:?}", self.path);
     }
 
-    pub fn set_path(&mut self, path: PathBuf) {
-        self.path = path;
-    }
+    pub fn set_path(&mut self, path: PathBuf) { self.path = path; }
 
     /// # Errors
     /// If the config directory could not be located (usually because no valid
@@ -160,15 +156,11 @@ impl Default for PlayerRecords {
 impl Deref for PlayerRecords {
     type Target = HashMap<SteamID, PlayerRecord>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.records
-    }
+    fn deref(&self) -> &Self::Target { &self.records }
 }
 
 impl DerefMut for PlayerRecords {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.records
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.records }
 }
 
 // PlayerRecord
@@ -211,14 +203,10 @@ impl Default for PlayerRecord {
 }
 
 #[must_use]
-pub fn default_custom_data() -> serde_json::Value {
-    serde_json::Value::Object(Map::new())
-}
+pub fn default_custom_data() -> serde_json::Value { serde_json::Value::Object(Map::new()) }
 
 #[must_use]
-pub fn default_date() -> DateTime<Utc> {
-    Utc::now()
-}
+pub fn default_date() -> DateTime<Utc> { Utc::now() }
 
 /// What a player is marked as in the personal playerlist
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -231,13 +219,9 @@ pub enum Verdict {
 }
 
 impl Display for Verdict {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{self:?}")
-    }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{self:?}") }
 }
 
 impl Default for Verdict {
-    fn default() -> Self {
-        Self::Player
-    }
+    fn default() -> Self { Self::Player }
 }

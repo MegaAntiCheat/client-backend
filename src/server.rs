@@ -44,40 +44,26 @@ impl Server {
     // **** Getters / Setters ****
 
     #[must_use]
-    pub fn map(&self) -> Option<Arc<str>> {
-        self.map.clone()
-    }
+    pub fn map(&self) -> Option<Arc<str>> { self.map.clone() }
 
     #[must_use]
-    pub fn ip(&self) -> Option<Arc<str>> {
-        self.ip.clone()
-    }
+    pub fn ip(&self) -> Option<Arc<str>> { self.ip.clone() }
 
     #[must_use]
-    pub fn hostname(&self) -> Option<Arc<str>> {
-        self.hostname.clone()
-    }
+    pub fn hostname(&self) -> Option<Arc<str>> { self.hostname.clone() }
 
     #[must_use]
-    pub const fn max_players(&self) -> Option<u32> {
-        self.max_players
-    }
+    pub const fn max_players(&self) -> Option<u32> { self.max_players }
 
     #[must_use]
-    pub const fn num_players(&self) -> Option<u32> {
-        self.num_players
-    }
+    pub const fn num_players(&self) -> Option<u32> { self.num_players }
 
     #[must_use]
-    pub const fn gamemode(&self) -> Option<&Gamemode> {
-        self.gamemode.as_ref()
-    }
+    pub const fn gamemode(&self) -> Option<&Gamemode> { self.gamemode.as_ref() }
 }
 
 impl Default for Server {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl Server {
@@ -88,7 +74,9 @@ impl Server {
     /// * Some<`SteamID`> of a player if they have been newly added to the
     ///   server.
     pub fn handle_console_output(&mut self, response: ConsoleOutput) {
-        use ConsoleOutput::{Chat, Hostname, Kill, Map, PlayerCount, ServerIP, Status, G15, DemoStop};
+        use ConsoleOutput::{
+            Chat, DemoStop, Hostname, Kill, Map, PlayerCount, ServerIP, Status, G15,
+        };
         match response {
             Chat(chat) => self.handle_chat(chat),
             Kill(kill) => self.handle_kill(kill),

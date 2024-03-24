@@ -9,8 +9,9 @@ use crate::{
         filewatcher::FileWatcher,
         g15::{G15Player, Parser},
         regexes::{
-            ChatMessage, Hostname, Map, PlayerCount, PlayerKill, ServerIP, StatusLine, DemoStop, 
-            REGEX_CHAT, REGEX_HOSTNAME, REGEX_IP, REGEX_KILL, REGEX_MAP, REGEX_PLAYERCOUNT, REGEX_STATUS, REGEX_DEMOSTOP
+            ChatMessage, DemoStop, Hostname, Map, PlayerCount, PlayerKill, ServerIP, StatusLine,
+            REGEX_CHAT, REGEX_DEMOSTOP, REGEX_HOSTNAME, REGEX_IP, REGEX_KILL, REGEX_MAP,
+            REGEX_PLAYERCOUNT, REGEX_STATUS,
         },
     },
     state::MACState,
@@ -70,9 +71,7 @@ pub enum ConsoleOutput {
     DemoStop(DemoStop),
 }
 impl StateUpdater<MACState> for ConsoleOutput {
-    fn update_state(self, state: &mut MACState) {
-        state.handle_console_output(self);
-    }
+    fn update_state(self, state: &mut MACState) { state.handle_console_output(self); }
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -85,7 +84,7 @@ pub struct ConsoleParser {
     regex_ip: Regex,
     regex_map: Regex,
     regex_playercount: Regex,
-    regex_demostop: Regex
+    regex_demostop: Regex,
 }
 
 impl Default for ConsoleParser {

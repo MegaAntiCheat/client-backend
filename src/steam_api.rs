@@ -272,9 +272,7 @@ impl LookupFriends {
 }
 
 impl Default for LookupFriends {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for LookupFriends

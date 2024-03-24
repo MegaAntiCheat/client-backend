@@ -222,9 +222,7 @@ pub trait HandlerStruct<S, IM, OM> {
 }
 
 impl<S, IM, OM, T> HandlerStruct<S, IM, OM> for &T {
-    fn handle_message(&mut self, _state: &S, _message: &IM) -> Option<Handled<OM>> {
-        None
-    }
+    fn handle_message(&mut self, _state: &S, _message: &IM) -> Option<Handled<OM>> { None }
 }
 
 impl<S, M, H> Default for EventLoop<S, M, H>
@@ -233,9 +231,7 @@ where
     M: Send + StateUpdater<S> + 'static,
     H: HandlerStruct<S, M, M>,
 {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 pub struct Handled<M>(Internal<Action<M>>);
@@ -251,16 +247,12 @@ pub enum Action<M> {
 }
 
 impl<M> From<M> for Action<M> {
-    fn from(value: M) -> Self {
-        Self::Message(value)
-    }
+    fn from(value: M) -> Self { Self::Message(value) }
 }
 
 impl<M> Handled<M> {
     #[must_use]
-    pub const fn none() -> Option<Self> {
-        None
-    }
+    pub const fn none() -> Option<Self> { None }
 
     pub fn single(m: impl Into<M>) -> Option<Self> {
         Some(Self(Internal::Single(Action::Message(m.into()))))
@@ -317,9 +309,7 @@ impl<M, I: Into<M>> MessageSource<M> for tokio::sync::mpsc::Receiver<I> {
     }
 }
 
-pub fn try_get<T>(message: &impl Is<T>) -> Option<&T> {
-    message.try_get()
-}
+pub fn try_get<T>(message: &impl Is<T>) -> Option<&T> { message.try_get() }
 
 pub trait Is<T>: From<T> {
     fn is(&self) -> bool;

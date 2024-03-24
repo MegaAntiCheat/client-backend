@@ -24,9 +24,7 @@ pub enum KickReason {
 }
 
 impl Default for KickReason {
-    fn default() -> Self {
-        Self::None
-    }
+    fn default() -> Self { Self::None }
 }
 
 impl Display for KickReason {
@@ -289,9 +287,7 @@ impl CommandManager {
 }
 
 impl Default for CommandManager {
-    fn default() -> Self {
-        Self::new()
-    }
+    fn default() -> Self { Self::new() }
 }
 
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for CommandManager

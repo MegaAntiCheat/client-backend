@@ -35,10 +35,12 @@ pub struct Args {
     #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
     pub autolaunch_ui: bool,
 
-    /// Only parse the bare minimum to allow demo uploads (may improve performance)
+    /// Only parse the bare minimum to allow demo uploads (may improve
+    /// performance)
     #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
     pub minimal_demo_parsing: bool,
-    /// Don't monitor or parse demos (may improve performance, but also prevents demo uploads)
+    /// Don't monitor or parse demos (may improve performance, but also prevents
+    /// demo uploads)
     #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
     pub dont_parse_demos: bool,
     /// Don't upload demos to the masterbase

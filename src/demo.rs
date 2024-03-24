@@ -28,7 +28,8 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
-    masterbase::{new_demo_session, DemoSession, send_late_bytes, force_close_session},
+    masterbase::{new_demo_session, send_late_bytes, DemoSession},
+    settings::Settings,
     state::MACState,
 };
 
@@ -214,6 +215,7 @@ impl<M: Is<DemoBytes>> MessageSource<M> for DemoWatcher {
 enum SessionMissingReason {
     Uninit,
     Error,
+    Closed,
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -286,9 +288,9 @@ impl DemoManager {
             return Ok(None);
         };
 
-        let start_address: u64 = 0x420;
-        let bytes_to_read: u64 = 16;
-        let min_valid_filelen: u64 =  start_address + bytes_to_read;
+        let start_address = 0x420;
+        let bytes_to_read: usize = 16;
+        let min_valid_filelen: u64 = start_address + bytes_to_read as u64;
 
         let current_metadata = metadata(file_path)?;
 
@@ -297,32 +299,137 @@ impl DemoManager {
             std::cmp::Ordering::Less => {
                 return Ok(None);
             }
-            std::cmp::Ordering::Equal |
-            std::cmp::Ordering::Greater => {}
+            std::cmp::Ordering::Equal | std::cmp::Ordering::Greater => {}
         }
 
         let mut file = File::open(file_path)?;
 
         file.seek(std::io::SeekFrom::Start(start_address))?;
-        let mut out = vec![0; bytes_to_read.try_into().unwrap()];
+        let mut out = vec![0; bytes_to_read];
         file.read_exact(&mut out)?;
 
         // Check if the late bytes have been written to
         // The first 8 bytes are always all zeroes until written to.
-        let mut written = false;
-        for i in 0..8 {
-            if out[i] != 0 {
-                written = true;
-                break;
-            }
-        }
+        let written = out.len() > 8 && out.iter().take(8).any(|&b| b != 0);
 
-        if !written {
+        if written {
+            tracing::debug!("Late bytes found in demo recording.");
+            Ok(Some(out))
+        } else {
             tracing::debug!("No new bytes from demo.");
-            return Ok(None);
+            Ok(None)
         }
-        tracing::debug!("Late bytes found in demo recording.");
-        Ok(Some(out))
+    }
+
+    /// Returns an event which opens a new session.
+    /// This event needs to be handled by the event loop to take effect.
+    fn open_new_session<M: Is<DemoMessage>>(
+        session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
+        settings: &Settings,
+        header: &Header,
+    ) -> Option<event_loop::Handled<M>> {
+        let host = settings.masterbase_host();
+        let key = settings.masterbase_key();
+        let map = header.map.clone();
+        let fake_ip = header.server.clone();
+        let http = settings.use_masterbase_http();
+
+        Handled::future(async move {
+            let session = session;
+            let mut maybe_session = session.lock().await;
+            assert!(maybe_session.is_err());
+
+            // Create session
+            match new_demo_session(host, key, &fake_ip, &map, http).await {
+                Ok(session) => {
+                    tracing::info!("Opened new demo session with Masterbase: {session:?}");
+                    *maybe_session = Ok(session);
+                }
+                Err(e) => {
+                    tracing::error!("Could not open new demo session: {e}");
+                    *maybe_session = Err(SessionMissingReason::Error);
+                }
+            }
+
+            None
+        })
+    }
+
+    /// Returns an event that uploads the given bytes to the current session.
+    /// This event needs to be handled by the event loop to take effect.
+    fn upload_bytes<M: Is<DemoMessage>>(
+        session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
+        bytes: Vec<u8>,
+    ) -> Option<event_loop::Handled<M>> {
+        // Loop while session is uninit
+        Handled::future(async move {
+            loop {
+                let mut guard = session.lock().await;
+                match &mut *guard {
+                    Ok(session) => {
+                        let len = bytes.len();
+                        if let Err(e) = session.send_bytes(bytes).await {
+                            tracing::error!("Failed to upload demo chunk: {e}");
+                            *guard = Err(SessionMissingReason::Error);
+                            std::mem::drop(guard);
+                        } else {
+                            tracing::debug!("Uploaded {len} bytes to masterbase.");
+                        }
+                        break;
+                    }
+                    Err(SessionMissingReason::Uninit) => continue,
+                    Err(SessionMissingReason::Closed) => {
+                        tracing::error!("Tried to upload bytes after demo session was closed.");
+                        break;
+                    }
+                    Err(SessionMissingReason::Error) => break,
+                }
+            }
+
+            None
+        })
+    }
+
+    /// Returns an event that checks for and handles the late bytes for the
+    /// current demo.
+    /// This event needs to be handled by the event loop to take effect.
+    fn handle_late_bytes<M: Is<DemoMessage>>(
+        session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
+        settings: &Settings,
+        late_bytes: Vec<u8>,
+    ) -> Option<event_loop::Handled<M>> {
+        let host = settings.masterbase_host();
+        let key = settings.masterbase_key();
+        let http = settings.use_masterbase_http();
+
+        Handled::future(async move {
+            let send_result = send_late_bytes(host.clone(), key.clone(), http, late_bytes).await;
+
+            match send_result {
+                Ok(send_response) => {
+                    let status = send_response.status();
+                    if status.is_success() {
+                        tracing::debug!(
+                            "Uploaded late bytes to masterbase. Attempting to close session..."
+                        );
+                    } else {
+                        let s = status.as_str();
+                        tracing::error!(
+                            "Failed to upload late bytes to masterbase: Server returned {s}"
+                        );
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to upload late bytes to masterbase: {e}");
+                }
+            }
+
+            // Drop session
+            let mut session = session.lock().await;
+            *session = Err(SessionMissingReason::Closed);
+
+            None
+        })
     }
 }
 
@@ -373,8 +480,7 @@ where
                     .map(Handled::single),
             );
         }
-        
-        
+
         if !state.settings.upload_demos() {
             return Handled::multiple(events);
         }
@@ -382,102 +488,26 @@ where
         // Open new demo session if we've extracted the header
         if let Some(header) = demo.header.as_ref() {
             if !parsed_header {
-                let session = self.session.clone();
-                let host = state.settings.masterbase_host();
-                let key = state.settings.masterbase_key();
-                let map = header.map.clone();
-                let fake_ip = header.server.clone();
-                let http = state.settings.use_masterbase_http();
-                events.push(Handled::future(async move {
-                    let session = session;
-                    let mut guard = session.lock().await;
-                    assert!(guard.is_err());
-
-                    // Create session
-                    match new_demo_session(host, key, &fake_ip, &map, http).await {
-                        Ok(session) => {
-                            tracing::info!("Opened new demo session with Masterbase: {session:?}");
-                            *guard = Ok(session);
-                        }
-                        Err(e) => {
-                            tracing::error!("Could not open new demo session: {e}");
-                            *guard = Err(SessionMissingReason::Error);
-                        }
-                    }
-
-                    None
-                }));
+                events.push(Self::open_new_session(
+                    self.session.clone(),
+                    &state.settings,
+                    header,
+                ));
             }
         }
-        
 
         // Upload bytes
         let session = self.session.clone();
         let bytes = msg.bytes.clone();
-
-        events.push(Handled::future(async move {
-            // Loop while session is uninit
-            loop {
-                let mut guard = session.lock().await;
-                match &mut *guard {
-                    Ok(session) => { 
-                        let len = bytes.len();
-                        if let Err(e) = session.send_bytes(bytes).await {
-                            tracing::error!("Failed to upload demo chunk: {e}");
-                            *guard = Err(SessionMissingReason::Error);
-                            std::mem::drop(guard);
-                        } else {
-                            tracing::debug!("Uploaded {len} bytes to masterbase.");
-                        }
-                        break;
-                    }
-                    Err(SessionMissingReason::Uninit) => continue,
-                    _ => break,
-                }
-            }
-
-            None
-        }));
-        
-        let host = state.settings.masterbase_host();
-        let key = state.settings.masterbase_key();
-        let http = state.settings.use_masterbase_http();
+        events.push(Self::upload_bytes(session, bytes));
 
         // Check for late bytes
         if let Ok(Some(late_bytes)) = self.read_late_bytes() {
-            events.push(Handled::future(async move {
-
-                let send_result = send_late_bytes(host.clone(), key.clone(), http, late_bytes).await;
-                if let Err(e) = send_result
-                {
-                    tracing::error!("Failed to upload late bytes to masterbase: {e}");
-                    return None;
-                }
-
-                let send_status = send_result.unwrap().status();
-                if send_status.is_success() {
-                    tracing::debug!("Uploaded late bytes to masterbase. Attempting to close session...");
-                } else {
-                    let s = send_status.as_str();
-                    tracing::error!("Failed to upload late bytes to masterbase: Server returned {s}");
-                }
-
-                let close_result = force_close_session(host, key, http).await;
-                if let Err(e) = close_result {
-                    tracing::error!("Failed to close session after successfully uploading late bytes: {e}");
-                    return None;
-                } 
-
-                let close_status = close_result.unwrap().status();
-                if close_status.is_success() {
-                    tracing::info!("Masterbase session successfully closed (demo finished recording).");
-                } else {
-                    let s = close_status.as_str();
-                    tracing::error!("Failed to close session after successfully uploading late bytes: Server returned {s}");
-                }
-                
-                None
-            }));
+            events.push(Self::handle_late_bytes(
+                self.session.clone(),
+                &state.settings,
+                late_bytes,
+            ));
         }
 
         Handled::multiple(events)
@@ -496,7 +526,8 @@ impl OpenDemo {
         self.process_next_chunk()
     }
 
-    /// Attempt to parse any new bytes that have been added since the last call as packets
+    /// Attempt to parse any new bytes that have been added since the last call
+    /// as packets
     #[allow(clippy::cognitive_complexity)]
     fn process_next_chunk(&mut self) -> Vec<DemoMessage> {
         tracing::debug!("New demo length: {}", self.bytes.len());

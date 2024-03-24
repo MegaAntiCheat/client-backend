@@ -458,9 +458,7 @@ impl Default for GameInfo {
 }
 
 impl GameInfo {
-    pub(crate) fn new() -> Self {
-        Self::default()
-    }
+    pub(crate) fn new() -> Self { Self::default() }
 
     pub(crate) fn new_from_g15(g15: G15Player) -> Option<Self> {
         g15.userid.as_ref()?;
@@ -562,15 +560,11 @@ pub struct FriendInfo {
 impl Deref for FriendInfo {
     type Target = Vec<Friend>;
 
-    fn deref(&self) -> &Self::Target {
-        &self.friends
-    }
+    fn deref(&self) -> &Self::Target { &self.friends }
 }
 
 impl DerefMut for FriendInfo {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        &mut self.friends
-    }
+    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.friends }
 }
 
 // Useful

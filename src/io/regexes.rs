@@ -3,7 +3,7 @@
 
 use std::sync::Arc;
 
-use anyhow::{Context, Result, Ok};
+use anyhow::{Context, Ok, Result};
 use regex::Captures;
 use steamid_ng::SteamID;
 
@@ -24,9 +24,7 @@ pub const REGEX_HOSTNAME: &str = r"^hostname: (.*)$";
 pub struct Hostname(pub Arc<str>);
 impl Hostname {
     #[must_use]
-    pub fn parse(caps: &Captures) -> Self {
-        Self(caps[1].into())
-    }
+    pub fn parse(caps: &Captures) -> Self { Self(caps[1].into()) }
 }
 
 pub const REGEX_IP: &str = r"^udp/ip  : (.*)$";
@@ -34,9 +32,7 @@ pub const REGEX_IP: &str = r"^udp/ip  : (.*)$";
 pub struct ServerIP(pub Arc<str>);
 impl ServerIP {
     #[must_use]
-    pub fn parse(caps: &Captures) -> Self {
-        Self(caps[1].into())
-    }
+    pub fn parse(caps: &Captures) -> Self { Self(caps[1].into()) }
 }
 
 pub const REGEX_MAP: &str = r"^map     : (.+) at: .*$";
@@ -44,9 +40,7 @@ pub const REGEX_MAP: &str = r"^map     : (.+) at: .*$";
 pub struct Map(pub Arc<str>);
 impl Map {
     #[must_use]
-    pub fn parse(caps: &Captures) -> Self {
-        Self(caps[1].into())
-    }
+    pub fn parse(caps: &Captures) -> Self { Self(caps[1].into()) }
 }
 
 pub const REGEX_PLAYERCOUNT: &str = r"^players : (\d+) humans, (\d+) bots \((\d+) max\)$";
@@ -167,13 +161,12 @@ impl StatusLine {
 
 // Reads lines printed when demo recording terminates
 // Example: Completed demo, recording time 1.8, game frames 115.
-pub const REGEX_DEMOSTOP: &str =
-    r"Completed demo, recording time ([\d.]+), game frames (\d+).";
+pub const REGEX_DEMOSTOP: &str = r"Completed demo, recording time ([\d.]+), game frames (\d+).";
 
 #[derive(Debug, Clone)]
 pub struct DemoStop {
     pub seconds: f32,
-    pub frames: u32
+    pub frames: u32,
 }
 
 impl DemoStop {
