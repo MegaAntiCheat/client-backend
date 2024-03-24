@@ -122,6 +122,11 @@ fn main() {
         .build()
         .expect("Failed to build async runtime")
         .block_on(async {
+            if state.settings.masterbase_key().is_empty() {
+                state.settings.upload_demos = false;
+                tracing::warn!("No masterbase key is set. Disabling demo uploads.");
+            }
+            
             // Close any previous masterbase sessions that might not have finished up
             // properly.
             if state.settings.upload_demos() {
