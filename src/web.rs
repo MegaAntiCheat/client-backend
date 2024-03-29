@@ -25,6 +25,7 @@ use super::command_manager::Command;
 use crate::{
     events::{InternalPreferences, Preferences, UserUpdate, UserUpdates},
     player::{Player, Players},
+    player_records::PlayerRecord,
     server::Gamemode,
     state::MACState,
 };
@@ -409,8 +410,10 @@ async fn get_playerlist(State(state): State<WebState>) -> impl IntoResponse {
     )
 }
 
-fn get_playerlist_response(_state: &MACState) -> String {
-    "Not yet implemented".into()
+fn get_playerlist_response(state: &MACState) -> String {
+    let records: Vec<&PlayerRecord> = state.players.records.records.values().collect();
+
+    serde_json::to_string(&records).expect("Epic serialization fail")
 }
 
 // Commands
