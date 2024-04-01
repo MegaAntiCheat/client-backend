@@ -49,4 +49,8 @@ pub struct Args {
     /// Use http (inscure) connections to the masterbase
     #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
     pub masterbase_http: bool,
+
+    /// Print player votes parsed from demos (requires demo parsing to be enabled)
+    #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
+    pub print_votes: bool,
 }

@@ -42,7 +42,7 @@ mod web;
 
 use command_manager::{Command, CommandManager};
 use console::{ConsoleLog, ConsoleOutput, ConsoleParser, RawConsoleOutput};
-use demo::{DemoBytes, DemoManager, DemoMessage, DemoWatcher};
+use demo::{DemoBytes, DemoManager, DemoMessage, DemoWatcher, PrintVotes};
 use events::{Preferences, Refresh, UserUpdates};
 use new_players::{ExtractNewPlayers, NewPlayers};
 use steam_api::{
@@ -87,6 +87,7 @@ define_events!(
         WebAPIHandler,
 
         DemoManager,
+        PrintVotes,
     },
 );
 
@@ -191,6 +192,10 @@ fn main() {
                 .add_handler(LookupProfiles::new())
                 .add_handler(LookupFriends::new())
                 .add_handler(WebAPIHandler);
+
+            if args.print_votes {
+                event_loop = event_loop.add_handler(PrintVotes::new());
+            }
 
             if args.dont_parse_demos {
                 tracing::info!("Demo parsing has been disabled. This also prevents uploading demos to the masterbase.");

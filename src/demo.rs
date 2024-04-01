@@ -1,4 +1,5 @@
 use std::{
+    collections::HashMap,
     fs::{metadata, File},
     io::{Read, Seek},
     path::{Path, PathBuf},
@@ -147,9 +148,7 @@ impl DemoWatcher {
     }
 
     fn next_bytes(&mut self) -> Option<DemoBytes> {
-        let Some(file_path) = self.current_demo.clone() else {
-            return None;
-        };
+        let file_path = self.current_demo.clone()?;
 
         self.read_next_bytes()
             .map_err(|e| tracing::error!("Failed reading bytes from demo {file_path:?}: {e}"))
@@ -672,4 +671,72 @@ fn handle_packet(packet: &Packet, state: &GameState) -> Vec<DemoMessage> {
     }
 
     out
+}
+
+pub struct PrintVotes {
+    votes: HashMap<u32, Vec<String>>,
+}
+
+impl PrintVotes {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            votes: HashMap::new(),
+        }
+    }
+}
+
+impl Default for PrintVotes {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<IM, OM> HandlerStruct<MACState, IM, OM> for PrintVotes
+where
+    IM: Is<DemoMessage>,
+{
+    #[allow(clippy::cognitive_complexity)]
+    fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
+        let msg = try_get(message)?;
+
+        match &msg.event {
+            DemoEvent::VoteStarted(options) => {
+                let mut values = Vec::new();
+                tracing::info!("Vote started:");
+                for i in 0..options.count {
+                    let opt = match i {
+                        0 => options.option_1.to_string(),
+                        1 => options.option_2.to_string(),
+                        2 => options.option_3.to_string(),
+                        3 => options.option_4.to_string(),
+                        4 => options.option_5.to_string(),
+                        _ => String::new(),
+                    };
+
+                    tracing::info!("\t{}", opt);
+                    values.push(opt);
+                }
+
+                self.votes.insert(options.voteidx, values);
+            }
+            DemoEvent::VoteCast(event, steamid) => {
+                let name = steamid
+                    .as_ref()
+                    .and_then(|id| state.players.game_info.get(id).map(|i| i.name.clone()))
+                    .unwrap_or_else(|| "Someone".into());
+
+                let vote: &str = self
+                    .votes
+                    .get(&event.voteidx)
+                    .and_then(|v| v.get(event.vote_option as usize))
+                    .map_or::<&str, _>("Invalid vote", |s| s);
+
+                tracing::info!("{vote} - {name}");
+            }
+            DemoEvent::LastestTick => {}
+        }
+
+        None
+    }
 }
