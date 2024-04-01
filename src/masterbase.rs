@@ -98,7 +98,12 @@ pub async fn new_demo_session(
     demo_name: &str,
     http: bool,
 ) -> Result<DemoSession, Error> {
-    let params: [(&str, &str); 4] = [("api_key", &key), ("fake_ip", &fake_ip), ("map", &map), ("demo_name", &demo_name)];
+    let params: [(&str, &str); 4] = [
+        ("api_key", &key),
+        ("fake_ip", &fake_ip),
+        ("map", &map),
+        ("demo_name", &demo_name),
+    ];
 
     // Request to start session
 
@@ -140,7 +145,12 @@ pub async fn new_demo_session(
 
     // Open Websocket
     let params: [(&str, &str); 2] = [("api_key", &key), ("session_id", &session_id.to_string())];
-    let url = reqwest::Url::parse_with_params(&format!("ws://{host}/demos"), params)?;
+    let ws_endpoint = if http {
+        format!("ws://{host}/demos")
+    } else {
+        format!("wss://{host}/demos")
+    };
+    let url = reqwest::Url::parse_with_params(&ws_endpoint, params)?;
     let (ws_client, _) = tokio_tungstenite::connect_async(url).await?;
 
     Ok(DemoSession {
@@ -195,11 +205,11 @@ pub async fn send_late_bytes(
 
     #[derive(Serialize)]
     struct LateBytes {
-        late_bytes: String
+        late_bytes: String,
     }
 
     let req: RequestBuilder = client.post(url).json(&LateBytes {
-        late_bytes: late_bytes_hex
+        late_bytes: late_bytes_hex,
     });
 
     Ok(req.send().await?)
