@@ -1,11 +1,11 @@
 use std::{
-    fs::OpenOptions,
     io::{self, ErrorKind, Write},
     path::{Path, PathBuf},
     sync::Arc,
 };
 
 use anyhow::{anyhow, Context, Result};
+use atomic_write_file::AtomicWriteFile;
 use directories_next::ProjectDirs;
 use keyvalues_parser::Vdf;
 use serde::{Deserialize, Serialize};
@@ -308,19 +308,14 @@ impl Settings {
     pub fn save(&self) -> Result<()> {
         let config_path = self.config_path.as_ref().context("No config file set.")?;
 
-        let mut open_options = OpenOptions::new();
-        let mut file = open_options
-            .create(true)
-            .write(true)
-            .truncate(true)
-            .open(config_path)
-            .context("Failed to create or open config file.")?;
+        let mut file = AtomicWriteFile::open(config_path)?;
         write!(
             &mut file,
             "{}",
             serde_yaml::to_string(self).context("Failed to serialize configuration.")?
         )
         .context("Failed to write to config file.")?;
+        file.commit()?;
 
         Ok(())
     }
