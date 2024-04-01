@@ -486,7 +486,12 @@ where
             return Handled::multiple(events);
         }
 
-        let file_name: &str = msg.file_path.file_name().unwrap().to_str().unwrap();
+        // let file_name: &str = msg.file_path.file_name().unwrap().to_str().unwrap();
+        let file_name = msg
+            .file_path
+            .file_name()
+            .expect("Should be valid file.")
+            .to_string_lossy();
 
         // Open new demo session if we've extracted the header
         if let Some(header) = demo.header.as_ref() {
@@ -495,7 +500,7 @@ where
                     self.session.clone(),
                     &state.settings,
                     header,
-                    file_name
+                    &file_name,
                 ));
             }
         }
