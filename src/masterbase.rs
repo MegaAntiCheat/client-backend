@@ -5,7 +5,7 @@ use std::{
 
 use futures::SinkExt;
 use reqwest::{Client, RequestBuilder, Response};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 use tokio::{net::TcpStream, sync::mpsc::Sender};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
@@ -190,7 +190,16 @@ pub async fn send_late_bytes(
     let url = reqwest::Url::parse_with_params(&endpoint, params)?;
 
     let client = Client::new();
-    let req: RequestBuilder = client.post(url).body(bytes);
+    let late_bytes_hex: String = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
+
+    #[derive(Serialize)]
+    struct LateBytes {
+        late_bytes: String
+    }
+
+    let req: RequestBuilder = client.post(url).json(&LateBytes {
+        late_bytes: late_bytes_hex
+    });
 
     Ok(req.send().await?)
 }
