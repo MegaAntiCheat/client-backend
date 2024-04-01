@@ -40,7 +40,7 @@ mod state;
 mod steam_api;
 mod web;
 
-use command_manager::{Command, CommandManager};
+use command_manager::{Command, CommandManager, DumbAutoKick};
 use console::{ConsoleLog, ConsoleOutput, ConsoleParser, RawConsoleOutput};
 use demo::{DemoBytes, DemoManager, DemoMessage, DemoWatcher, PrintVotes};
 use events::{Preferences, Refresh, UserUpdates};
@@ -88,6 +88,8 @@ define_events!(
 
         DemoManager,
         PrintVotes,
+
+        DumbAutoKick,
     },
 );
 
@@ -191,6 +193,7 @@ fn main() {
                 .add_handler(ExtractNewPlayers)
                 .add_handler(LookupProfiles::new())
                 .add_handler(LookupFriends::new())
+                .add_handler(DumbAutoKick)
                 .add_handler(WebAPIHandler);
 
             if args.print_votes {

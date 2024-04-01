@@ -65,6 +65,7 @@ pub struct Settings {
     webui_port: u16,
     rcon_port: u16,
     external: serde_json::Value,
+    autokick_bots: bool,
 
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
@@ -482,6 +483,11 @@ impl Settings {
         self.masterbase_http
     }
 
+    #[must_use]
+    pub const fn autokick_bots(&self) -> bool {
+        self.autokick_bots
+    }
+
     /// Attempts to find (and create) a directory to be used for configuration
     /// files
     ///
@@ -544,6 +550,7 @@ impl Default for Settings {
             upload_demos: true,
             minimal_demo_parsing: false,
             masterbase_http: false,
+            autokick_bots: false,
         }
     }
 }

@@ -12,7 +12,7 @@ use thiserror::Error;
 use tokio::{net::TcpStream, sync::Mutex, time::timeout};
 
 use super::console::RawConsoleOutput;
-use crate::{events::Refresh, state::MACState};
+use crate::{events::Refresh, player_records::Verdict, state::MACState};
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -24,7 +24,9 @@ pub enum KickReason {
 }
 
 impl Default for KickReason {
-    fn default() -> Self { Self::None }
+    fn default() -> Self {
+        Self::None
+    }
 }
 
 impl Display for KickReason {
@@ -287,7 +289,9 @@ impl CommandManager {
 }
 
 impl Default for CommandManager {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for CommandManager
@@ -312,5 +316,44 @@ where
         }
 
         self.run_command(try_get::<Command>(message)?, port, pwd)
+    }
+}
+
+pub struct DumbAutoKick;
+impl<IM, OM> HandlerStruct<MACState, IM, OM> for DumbAutoKick
+where
+    IM: Is<Refresh>,
+    OM: Is<Command>,
+{
+    fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
+        let _ = try_get(message)?;
+
+        let user_team = state
+            .players
+            .user
+            .as_ref()
+            .and_then(|s| state.players.game_info.get(s))
+            .map(|gi| gi.team)?;
+
+        let to_kick =
+            state
+                .players
+                .connected
+                .iter()
+                .filter(|s| {
+                    state.players.records.get(*s).is_some_and(|r| {
+                        r.verdict == Verdict::Bot && state.settings.autokick_bots()
+                    })
+                })
+                .filter_map(|s| state.players.game_info.get(s))
+                .filter(|gi| gi.team == user_team)
+                .map(|gi| gi.userid.clone())
+                .map(|id| Command::Kick {
+                    player: id,
+                    reason: KickReason::Cheating,
+                })
+                .map(|c| Handled::single(c));
+
+        Handled::multiple(to_kick)
     }
 }
