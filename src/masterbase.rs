@@ -95,9 +95,10 @@ pub async fn new_demo_session(
     key: Arc<str>,
     fake_ip: &str,
     map: &str,
+    demo_name: &str,
     http: bool,
 ) -> Result<DemoSession, Error> {
-    let params: [(&str, &str); 3] = [("api_key", &key), ("fake_ip", &fake_ip), ("map", &map)];
+    let params: [(&str, &str); 4] = [("api_key", &key), ("fake_ip", &fake_ip), ("map", &map), ("demo_name", &demo_name)];
 
     // Request to start session
 

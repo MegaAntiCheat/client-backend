@@ -327,12 +327,14 @@ impl DemoManager {
         session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
         settings: &Settings,
         header: &Header,
+        demo_name: &str,
     ) -> Option<event_loop::Handled<M>> {
         let host = settings.masterbase_host();
         let key = settings.masterbase_key();
         let map = header.map.clone();
         let fake_ip = header.server.clone();
         let http = settings.use_masterbase_http();
+        let demo_name = demo_name.to_owned();
 
         Handled::future(async move {
             let session = session;
@@ -340,7 +342,7 @@ impl DemoManager {
             assert!(maybe_session.is_err());
 
             // Create session
-            match new_demo_session(host, key, &fake_ip, &map, http).await {
+            match new_demo_session(host, key, &fake_ip, &map, &demo_name, http).await {
                 Ok(session) => {
                     tracing::info!("Opened new demo session with Masterbase: {session:?}");
                     *maybe_session = Ok(session);
@@ -485,6 +487,8 @@ where
             return Handled::multiple(events);
         }
 
+        let file_name: &str = msg.file_path.file_name().unwrap().to_str().unwrap();
+
         // Open new demo session if we've extracted the header
         if let Some(header) = demo.header.as_ref() {
             if !parsed_header {
@@ -492,6 +496,7 @@ where
                     self.session.clone(),
                     &state.settings,
                     header,
+                    file_name
                 ));
             }
         }
