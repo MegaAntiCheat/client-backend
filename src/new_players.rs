@@ -36,7 +36,8 @@ where
             | ConsoleOutput::Hostname(_)
             | ConsoleOutput::ServerIP(_)
             | ConsoleOutput::Map(_)
-            | ConsoleOutput::PlayerCount(_) => {}
+            | ConsoleOutput::PlayerCount(_)
+            | ConsoleOutput::DemoStop(_) => {}
             ConsoleOutput::G15(ps) => {
                 steamids.extend(ps.iter().filter_map(|p| p.steamid));
             }

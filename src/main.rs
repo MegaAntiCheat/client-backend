@@ -1,13 +1,11 @@
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
-    sync::mpsc::channel,
     time::Duration,
 };
 
 use args::Args;
 use clap::Parser;
-use demo::{demo_loop, DemoEventWatcher};
 use event_loop::{define_events, EventLoop};
 use events::emit_on_timer;
 use include_dir::{include_dir, Dir};
@@ -32,6 +30,7 @@ mod events;
 mod gamefinder;
 mod io;
 mod launchoptions;
+mod masterbase;
 mod new_players;
 mod player;
 mod player_records;
@@ -43,7 +42,7 @@ mod web;
 
 use command_manager::{Command, CommandManager};
 use console::{ConsoleLog, ConsoleOutput, ConsoleParser, RawConsoleOutput};
-use demo::DemoMessage;
+use demo::{DemoBytes, DemoManager, DemoMessage, DemoWatcher, PrintVotes};
 use events::{Preferences, Refresh, UserUpdates};
 use new_players::{ExtractNewPlayers, NewPlayers};
 use steam_api::{
@@ -72,6 +71,7 @@ define_events!(
 
         WebRequest,
 
+        DemoBytes,
         DemoMessage,
     },
     Handler {
@@ -86,12 +86,14 @@ define_events!(
 
         WebAPIHandler,
 
-        DemoEventWatcher,
+        DemoManager,
+        PrintVotes,
     },
 );
 
 static UI_DIR: Dir = include_dir!("ui");
 
+#[allow(clippy::too_many_lines)]
 fn main() {
     let _guard = init_tracing();
 
@@ -103,7 +105,7 @@ fn main() {
     let playerlist = PlayerRecords::load_or_create(&args);
     playerlist.save_ok();
 
-    let players = Players::new(playerlist, settings.get_steam_user());
+    let players = Players::new(playerlist, settings.steam_user());
 
     let mut state = MACState {
         server: Server::new(),
@@ -113,7 +115,7 @@ fn main() {
 
     check_launch_options(&state.settings);
 
-    let web_port = state.settings.get_webui_port();
+    let web_port = state.settings.webui_port();
 
     // The juicy part of the program
     tokio::runtime::Builder::new_multi_thread()
@@ -121,25 +123,47 @@ fn main() {
         .build()
         .expect("Failed to build async runtime")
         .block_on(async {
+            if state.settings.masterbase_key().is_empty() {
+                state.settings.upload_demos = false;
+                tracing::warn!("No masterbase key is set. Disabling demo uploads.");
+            }
+            
+            // Close any previous masterbase sessions that might not have finished up
+            // properly.
+            if state.settings.upload_demos() {
+                match masterbase::force_close_session(
+                    state.settings.masterbase_host(),
+                    state.settings.masterbase_key(),
+                    state.settings.use_masterbase_http(),
+                )
+                .await
+                {
+                    Ok(r) if r.status().is_success() => tracing::warn!(
+                        "User was previously in a masterbase session that has now been closed."
+                    ),
+                    Ok(r) if r.status().is_server_error() => tracing::error!(
+                    "Error when trying to close any previous masterbase sessions: Status code {}",
+                    r.status()
+                ),
+                    Ok(_) => tracing::info!("Successfully connected to masterbase."),
+                    Err(e) => tracing::error!("Couldn't reach masterbase: {e}"),
+                }
+            }
+
             // Autolaunch UI
-            if args.autolaunch_ui || state.settings.get_autolaunch_ui() {
+            if args.autolaunch_ui || state.settings.autolaunch_ui() {
                 if let Err(e) = open::that(Path::new(&format!("http://localhost:{web_port}"))) {
                     tracing::error!("Failed to open web browser: {:?}", e);
                 }
             }
 
-            // Demo manager
-            let (demo_tx, demo_rx) = channel();
-            if args.demo_monitoring {
-                let demo_path = state.settings.get_tf2_directory().join("tf");
-                tracing::info!("Demo path: {:?}", demo_path);
-
-                std::thread::spawn(move || {
-                    if let Err(e) = demo_loop(&demo_path, demo_tx) {
-                        tracing::error!("Failed to start demo watcher: {:?}", e);
-                    }
-                });
-            }
+            // Demo watcher and manager
+            let demo_path = state.settings.tf2_directory().join("tf");
+            let demo_watcher = if args.dont_parse_demos { None } else { DemoWatcher::new(&demo_path)
+                .map_err(|e| {
+                    tracing::error!("Could not initialise demo watcher: {e}");
+                })
+                .ok()};
 
             // Web API
             let (web_state, web_requests) = WebState::new(Some(&UI_DIR));
@@ -149,7 +173,7 @@ fn main() {
 
             // Watch console log
             let log_file_path: PathBuf =
-                PathBuf::from(state.settings.get_tf2_directory()).join("tf/console.log");
+                PathBuf::from(state.settings.tf2_directory()).join("tf/console.log");
             let console_log = Box::new(ConsoleLog::new(log_file_path).await);
 
             let lookup_batch_timer =
@@ -160,15 +184,24 @@ fn main() {
                 .add_source(console_log)
                 .add_source(refresh_timer)
                 .add_source(lookup_batch_timer)
-                .add_source(Box::new(demo_rx))
                 .add_source(Box::new(web_requests))
+                .add_handler(DemoManager::new())
                 .add_handler(CommandManager::new())
                 .add_handler(ConsoleParser::default())
                 .add_handler(ExtractNewPlayers)
                 .add_handler(LookupProfiles::new())
                 .add_handler(LookupFriends::new())
-                .add_handler(WebAPIHandler)
-                .add_handler(DemoEventWatcher {});
+                .add_handler(WebAPIHandler);
+
+            if args.print_votes {
+                event_loop = event_loop.add_handler(PrintVotes::new());
+            }
+
+            if args.dont_parse_demos {
+                tracing::info!("Demo parsing has been disabled. This also prevents uploading demos to the masterbase.");
+            } else if let Some(dw) = demo_watcher {
+                event_loop = event_loop.add_source(Box::new(dw));
+            }
 
             loop {
                 if event_loop.execute_cycle(&mut state).await.is_none() {
@@ -183,7 +216,7 @@ fn check_launch_options(settings: &Settings) {
     // Launch options and overrides
     let launch_opts = match LaunchOptions::new(
         settings
-            .get_steam_user()
+            .steam_user()
             .expect("Failed to identify the local steam user (failed to find `loginusers.vdf`)"),
     ) {
         Ok(val) => Some(val),

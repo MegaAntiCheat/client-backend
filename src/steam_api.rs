@@ -92,6 +92,7 @@ pub struct LookupProfiles {
 }
 
 impl LookupProfiles {
+    #[must_use]
     pub const fn new() -> Self {
         Self {
             batch_buffer: VecDeque::new(),
@@ -113,6 +114,8 @@ where
                     tf2_directory: _,
                     rcon_password: _,
                     steam_api_key: Some(new_key),
+                    masterbase_key: _,
+                    masterbase_host: _,
                     rcon_port: _,
                 }),
             external: _,
@@ -126,7 +129,7 @@ where
             self.batch_buffer.extend(&state.players.connected);
         }
 
-        if state.settings.get_steam_api_key().is_empty() {
+        if state.settings.steam_api_key().is_empty() {
             return None;
         }
 
@@ -142,7 +145,7 @@ where
                 return Handled::none();
             }
 
-            let key = state.settings.get_steam_api_key();
+            let key = state.settings.steam_api_key();
             let batch: Vec<_> = self
                 .batch_buffer
                 .drain(0..BATCH_SIZE.min(self.batch_buffer.len()))
@@ -228,7 +231,7 @@ impl LookupFriends {
 
         for &p in players {
             // Lookup user regardless of policy
-            if state.settings.get_steam_user().is_some_and(|s| p == s) {
+            if state.settings.steam_user().is_some_and(|s| p == s) {
                 queued_friendlist_req.push(p);
                 continue;
             }
@@ -278,7 +281,7 @@ where
     OM: Is<FriendLookupResult>,
 {
     fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
-        if state.settings.get_steam_api_key().is_empty() {
+        if state.settings.steam_api_key().is_empty() {
             return Handled::none();
         }
 
@@ -286,8 +289,8 @@ where
             return self.handle_players(
                 state,
                 new_players,
-                state.settings.get_friends_api_usage(),
-                &state.settings.get_steam_api_key(),
+                state.settings.friends_api_usage(),
+                &state.settings.steam_api_key(),
                 false,
             );
         }
@@ -305,8 +308,8 @@ where
                 self.handle_players::<OM>(
                     state,
                     &state.players.connected,
-                    state.settings.get_friends_api_usage(),
-                    &state.settings.get_steam_api_key(),
+                    state.settings.friends_api_usage(),
+                    &state.settings.steam_api_key(),
                     true,
                 )
             } else {
@@ -319,7 +322,7 @@ where
 
         // Lookup any players that might need to be after a change to their verdicts
         if let Some(UserUpdates(users)) = try_get(message) {
-            let policy = state.settings.get_friends_api_usage();
+            let policy = state.settings.friends_api_usage();
             let mut out = Vec::new();
 
             for (k, v) in users {
@@ -341,16 +344,16 @@ where
                         out.push(self.handle_players(
                             state,
                             &state.players.connected,
-                            state.settings.get_friends_api_usage(),
-                            &state.settings.get_steam_api_key(),
+                            state.settings.friends_api_usage(),
+                            &state.settings.steam_api_key(),
                             true,
                         ));
                     } else {
                         out.push(self.handle_players(
                             state,
                             &vec![*k],
-                            state.settings.get_friends_api_usage(),
-                            &state.settings.get_steam_api_key(),
+                            state.settings.friends_api_usage(),
+                            &state.settings.steam_api_key(),
                             true,
                         ));
                     }
@@ -372,11 +375,11 @@ where
 
             let policy = internal
                 .friends_api_usage
-                .unwrap_or_else(|| state.settings.get_friends_api_usage());
+                .unwrap_or_else(|| state.settings.friends_api_usage());
             let key = internal
                 .steam_api_key
                 .clone()
-                .unwrap_or_else(|| state.settings.get_steam_api_key());
+                .unwrap_or_else(|| state.settings.steam_api_key());
 
             return self.handle_players(state, &state.players.connected, policy, &key, false);
         }
@@ -389,6 +392,11 @@ where
 
 /// Make a request to the Steam web API for the chosen player and return the
 /// important steam info.
+///
+/// # Errors
+/// Returns `Err` if the overall api request failed.
+/// Individual elements in the Vec may be `Err` if specific accounts were not
+/// found or failed to parse.
 pub async fn request_steam_info(
     client: &SteamAPI,
     playerids: &[SteamID],
@@ -464,6 +472,9 @@ async fn request_player_summary(
     Ok(summaries.response.players)
 }
 
+/// # Errors
+/// If the API request failed, the account does not expose their friends list,
+/// or the account does not exist.
 pub async fn request_account_friends(
     client: &SteamAPI,
     player: SteamID,

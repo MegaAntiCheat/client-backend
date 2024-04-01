@@ -105,7 +105,7 @@ pub struct EventLoop<S, M, H>
 where
     S: Send,
     M: Send + StateUpdater<S> + 'static,
-    H: Send + HandlerStruct<S, M, M>,
+    H: HandlerStruct<S, M, M>,
 {
     pub sources: Vec<Box<dyn MessageSource<M> + 'static + Send>>,
     pub handlers: Vec<H>,
@@ -119,7 +119,7 @@ impl<S, M, H> EventLoop<S, M, H>
 where
     S: Send,
     M: Send + StateUpdater<S> + 'static,
-    H: Send + HandlerStruct<S, M, M>,
+    H: HandlerStruct<S, M, M>,
 {
     #[must_use]
     pub fn new() -> Self {
@@ -169,6 +169,7 @@ where
         out
     }
 
+    #[allow(clippy::future_not_send)]
     pub async fn execute_cycle(&mut self, state: &mut S) -> Option<()> {
         let mut messages = Vec::new();
 
@@ -228,7 +229,7 @@ impl<S, M, H> Default for EventLoop<S, M, H>
 where
     S: Send,
     M: Send + StateUpdater<S> + 'static,
-    H: Send + HandlerStruct<S, M, M>,
+    H: HandlerStruct<S, M, M>,
 {
     fn default() -> Self { Self::new() }
 }
