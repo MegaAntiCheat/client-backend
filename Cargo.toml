@@ -15,6 +15,10 @@ path = "src/lib.rs"
 [lints.rust]
 unsafe_code = "forbid"
 
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
