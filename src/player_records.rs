@@ -143,6 +143,7 @@ impl PlayerRecords {
 
     pub fn update_name(&mut self, steamid: SteamID, name: Arc<str>) {
         if let Some(record) = self.records.get_mut(&steamid) {
+            record.name = name.clone();
             if !record.previous_names.contains(&name) {
                 record.add_previous_name(name);
             }

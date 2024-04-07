@@ -17,6 +17,7 @@ use event_loop::{try_get, Handled, HandlerStruct, Is};
 use futures::Stream;
 use include_dir::Dir;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use steamid_ng::SteamID;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_stream::wrappers::ReceiverStream;
@@ -410,10 +411,24 @@ async fn get_playerlist(State(state): State<WebState>) -> impl IntoResponse {
     )
 }
 
-fn get_playerlist_response(state: &MACState) -> String {
-    let records: Vec<&PlayerRecord> = state.players.records.records.values().collect();
+fn get_playerlist_response(_state: &MACState) -> String {
+    let records = &_state.players.records.records;
 
-    serde_json::to_string(&records).expect("Epic serialization fail")
+    let mut out: Vec<Value> = Vec::new();
+
+    for (key, value) in records {
+        let mut value_map = serde_json::to_value(value).unwrap();
+
+        if let Some(obj) = value_map.as_object_mut() {
+            obj.insert(
+                "steamID64".to_string(),
+                serde_json::to_value(serde_json::to_string(key).unwrap()).unwrap(),
+            );
+        }
+        out.push(value_map);
+    }
+
+    serde_json::to_string(&out).expect("Epic serialization fail")
 }
 
 // Commands
