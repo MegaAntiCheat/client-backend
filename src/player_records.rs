@@ -183,6 +183,7 @@ impl DerefMut for PlayerRecords {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct PlayerRecord {
+    pub name: Arc<str>,
     custom_data: serde_json::Value,
     verdict: Verdict,
     previous_names: Vec<Arc<str>>,
@@ -207,6 +208,7 @@ impl PlayerRecord {
 impl Default for PlayerRecord {
     fn default() -> Self {
         Self {
+            name: default_name(),
             custom_data: default_custom_data(),
             verdict: Verdict::default(),
             previous_names: Vec::new(),
@@ -270,6 +272,11 @@ pub fn default_custom_data() -> serde_json::Value {
 #[must_use]
 pub fn default_date() -> DateTime<Utc> {
     Utc::now()
+}
+
+#[must_use]
+pub fn default_name() -> Arc<str> {
+    Arc::from("")
 }
 
 /// What a player is marked as in the personal playerlist
