@@ -587,7 +587,10 @@ impl DerefMut for FriendInfo {
 // Useful
 
 #[allow(clippy::trivially_copy_pass_by_ref)]
-fn serialize_steamid_as_string<S: Serializer>(steamid: &SteamID, s: S) -> Result<S::Ok, S::Error> {
+pub fn serialize_steamid_as_string<S: Serializer>(
+    steamid: &SteamID,
+    s: S,
+) -> Result<S::Ok, S::Error> {
     format!("{}", u64::from(*steamid)).serialize(s)
 }
 

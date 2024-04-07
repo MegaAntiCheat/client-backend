@@ -17,7 +17,6 @@ use event_loop::{try_get, Handled, HandlerStruct, Is};
 use futures::Stream;
 use include_dir::Dir;
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 use steamid_ng::SteamID;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_stream::wrappers::ReceiverStream;
@@ -25,8 +24,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use super::command_manager::Command;
 use crate::{
     events::{InternalPreferences, Preferences, UserUpdate, UserUpdates},
-    player::{Player, Players},
-    player_records::PlayerRecord,
+    player::{serialize_steamid_as_string, Friend, Player, Players, SteamInfo},
     server::Gamemode,
     state::MACState,
 };
@@ -411,24 +409,47 @@ async fn get_playerlist(State(state): State<WebState>) -> impl IntoResponse {
     )
 }
 
-fn get_playerlist_response(_state: &MACState) -> String {
-    let records = &_state.players.records.records;
+// Allowing non-snake-case here because this is the format the UI expects.
+#[allow(non_snake_case)]
+#[derive(Debug, Serialize)]
+struct PlayerRecordResponse<'a> {
+    name: Arc<str>,
+    isSelf: bool,
+    #[serde(serialize_with = "serialize_steamid_as_string")]
+    steamID64: SteamID,
+    convicted: Option<bool>,
+    localVerdict: Option<Arc<str>>,
+    steamInfo: Option<&'a SteamInfo>,
+    customData: &'a serde_json::Value,
+    previousNames: Option<&'a [Arc<str>]>,
+    friends: Option<&'a [Friend]>,
+    friendsIsPublic: Option<bool>,
+}
 
-    let mut out: Vec<Value> = Vec::new();
+fn get_playerlist_response(state: &MACState) -> String {
+    let records = &state.players.records.records;
 
-    for (key, value) in records {
-        let mut value_map = serde_json::to_value(value).unwrap();
+    let records_mapped: Vec<PlayerRecordResponse> = records
+        .iter()
+        .map(|(id, record)| PlayerRecordResponse {
+            name: record.name.to_owned(),
+            isSelf: state
+                .settings
+                .steam_user()
+                .unwrap_or(SteamID::default())
+                .eq(id),
+            steamID64: *id,
+            convicted: Some(false),
+            localVerdict: Some(Arc::from(record.verdict().to_string())),
+            steamInfo: None,
+            customData: record.custom_data(),
+            previousNames: Some(record.previous_names()),
+            friends: None,
+            friendsIsPublic: None,
+        })
+        .collect();
 
-        if let Some(obj) = value_map.as_object_mut() {
-            obj.insert(
-                "steamID64".to_string(),
-                serde_json::to_value(serde_json::to_string(key).unwrap()).unwrap(),
-            );
-        }
-        out.push(value_map);
-    }
-
-    serde_json::to_string(&out).expect("Epic serialization fail")
+    serde_json::to_string(&records_mapped).expect("Epic serialization fail")
 }
 
 // Commands
