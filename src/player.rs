@@ -252,7 +252,7 @@ impl Players {
         let record = self.records.get(&steamid);
         let previous_names = record
             .as_ref()
-            .map(|r| r.previous_names.iter().map(AsRef::as_ref).collect())
+            .map(|r| r.previous_names().iter().map(AsRef::as_ref).collect())
             .unwrap_or_default();
 
         let friend_info = self.friend_info.get(&steamid);
@@ -261,7 +261,7 @@ impl Players {
             .map(|fi| fi.friends.iter().collect())
             .unwrap_or_default();
 
-        let local_verdict = record.as_ref().map_or(Verdict::Player, |r| r.verdict);
+        let local_verdict = record.as_ref().map_or(Verdict::Player, |r| r.verdict());
 
         Some(Player {
             isSelf: self.user.is_some_and(|user| user == steamid),
@@ -272,7 +272,7 @@ impl Players {
             gameInfo: Some(game_info),
             customData: record
                 .as_ref()
-                .map_or_else(default_custom_data, |r| r.custom_data.clone()),
+                .map_or_else(default_custom_data, |r| r.custom_data().clone()),
             convicted: false,
             tags,
             previous_names,

@@ -18,7 +18,7 @@ use super::new_players::NewPlayers;
 use crate::{
     events::{InternalPreferences, Preferences, UserUpdates},
     player::{Friend, SteamInfo},
-    player_records::Verdict,
+    player_records::{PlayerRecord, Verdict},
     settings::FriendsAPIUsage,
     state::MACState,
 };
@@ -213,19 +213,17 @@ impl LookupFriends {
     ) -> Option<Handled<M>> {
         // Need all friends if there's a cheater/bot on the server with a private
         // friends list
-        let need_all_friends = force
-            || state.players.connected.iter().any(|p| {
-                state
-                    .players
-                    .records
-                    .get(p)
-                    .is_some_and(|r| r.verdict == Verdict::Cheater || r.verdict == Verdict::Bot)
-                    && state
+        let need_all_friends =
+            force
+                || state.players.connected.iter().any(|p| {
+                    state.players.records.get(p).is_some_and(|r| {
+                        r.verdict() == Verdict::Cheater || r.verdict() == Verdict::Bot
+                    }) && state
                         .players
                         .friend_info
                         .get(p)
                         .is_some_and(|f| f.public == Some(false))
-            });
+                });
 
         let mut queued_friendlist_req: Vec<SteamID> = Vec::new();
 
@@ -242,7 +240,7 @@ impl LookupFriends {
                         .players
                         .records
                         .get(&p)
-                        .map(|r| r.verdict)
+                        .map(PlayerRecord::verdict)
                         .unwrap_or_default();
 
                     if need_all_friends || verdict == Verdict::Cheater || verdict == Verdict::Bot {
@@ -300,11 +298,10 @@ where
         // Lookup all players if it failed to get the friends list of a cheater and
         // we're using CheatersOnly policy
         if let Some(FriendLookupResult { steamid, result }) = try_get(message) {
-            let is_bot_or_cheater = state
-                .players
-                .records
-                .get(steamid)
-                .is_some_and(|r| r.verdict == Verdict::Bot || r.verdict == Verdict::Cheater);
+            let is_bot_or_cheater =
+                state.players.records.get(steamid).is_some_and(|r| {
+                    r.verdict() == Verdict::Bot || r.verdict() == Verdict::Cheater
+                });
 
             let out = if is_bot_or_cheater && result.is_err() {
                 self.handle_players::<OM>(

@@ -16,7 +16,7 @@ use steamid_ng::SteamID;
 
 use crate::{
     args::Args,
-    settings::{ConfigFilesError, Settings},
+    settings::{merge_json_objects, ConfigFilesError, Settings},
 };
 
 // PlayerList
@@ -183,12 +183,12 @@ impl DerefMut for PlayerRecords {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct PlayerRecord {
-    pub custom_data: serde_json::Value,
-    pub verdict: Verdict,
-    pub previous_names: Vec<Arc<str>>,
+    custom_data: serde_json::Value,
+    verdict: Verdict,
+    previous_names: Vec<Arc<str>>,
     /// Time of last manual change made by the user.
-    pub modified: DateTime<Utc>,
-    pub created: DateTime<Utc>,
+    modified: DateTime<Utc>,
+    created: DateTime<Utc>,
 }
 
 impl PlayerRecord {
@@ -213,6 +213,52 @@ impl Default for PlayerRecord {
             modified: default_date(),
             created: default_date(),
         }
+    }
+}
+
+impl PlayerRecord {
+    #[must_use]
+    pub const fn custom_data(&self) -> &serde_json::Value {
+        &self.custom_data
+    }
+    pub fn clear_custom_data(&mut self) -> &mut Self {
+        self.custom_data = serde_json::Value::Object(Map::new());
+        self.modified = Utc::now();
+        self
+    }
+    pub fn set_custom_data(&mut self, val: serde_json::Value) -> &mut Self {
+        merge_json_objects(&mut self.custom_data, val);
+        self.modified = Utc::now();
+        self
+    }
+    #[must_use]
+    pub const fn verdict(&self) -> Verdict {
+        self.verdict
+    }
+    pub fn set_verdict(&mut self, verdict: Verdict) -> &mut Self {
+        self.verdict = verdict;
+        self.modified = Utc::now();
+        self
+    }
+    #[must_use]
+    pub fn previous_names(&self) -> &[Arc<str>] {
+        &self.previous_names
+    }
+    pub fn add_previous_name(&mut self, name: Arc<str>) -> &mut Self {
+        if self.previous_names.contains(&name) {
+            return self;
+        };
+
+        self.previous_names.push(name);
+        self
+    }
+    #[must_use]
+    pub const fn modified(&self) -> DateTime<Utc> {
+        self.modified
+    }
+    #[must_use]
+    pub const fn created(&self) -> DateTime<Utc> {
+        self.created
     }
 }
 
