@@ -107,6 +107,7 @@ where
     OM: Is<ProfileLookupResult>,
 {
     fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
+        // Re-request connected players if the API key has changed
         if let Some(Preferences {
             internal:
                 Some(InternalPreferences {
@@ -129,14 +130,17 @@ where
             self.batch_buffer.extend(&state.players.connected);
         }
 
+        // Don't request anything if there's no API key
         if state.settings.steam_api_key().is_empty() {
             return None;
         }
 
+        // Request new players
         if let Some(NewPlayers(new_players)) = try_get::<NewPlayers>(message) {
             self.batch_buffer.extend(new_players);
         }
 
+        // Send of lookup batch
         if try_get::<ProfileLookupBatchTick>(message).is_some() {
             self.batch_buffer.retain(|s| {
                 !self.in_progress.contains(s) && !state.players.steam_info.contains_key(s)
