@@ -252,7 +252,7 @@ impl Players {
         let record = self.records.get(&steamid);
         let previous_names = record
             .as_ref()
-            .map(|r| r.previous_names.iter().map(AsRef::as_ref).collect())
+            .map(|r| r.previous_names().iter().map(AsRef::as_ref).collect())
             .unwrap_or_default();
 
         let friend_info = self.friend_info.get(&steamid);
@@ -261,7 +261,7 @@ impl Players {
             .map(|fi| fi.friends.iter().collect())
             .unwrap_or_default();
 
-        let local_verdict = record.as_ref().map_or(Verdict::Player, |r| r.verdict);
+        let local_verdict = record.as_ref().map_or(Verdict::Player, |r| r.verdict());
 
         Some(Player {
             isSelf: self.user.is_some_and(|user| user == steamid),
@@ -272,7 +272,7 @@ impl Players {
             gameInfo: Some(game_info),
             customData: record
                 .as_ref()
-                .map_or_else(default_custom_data, |r| r.custom_data.clone()),
+                .map_or_else(default_custom_data, |r| r.custom_data().clone()),
             convicted: false,
             tags,
             previous_names,
@@ -281,13 +281,11 @@ impl Players {
         })
     }
 
-    #[allow(clippy::missing_panics_doc)]
     pub fn handle_g15(&mut self, players: Vec<g15::G15Player>) {
         for g15 in players {
-            if g15.steamid.is_none() {
+            let Some(steamid) = g15.steamid else {
                 continue;
-            }
-            let steamid = g15.steamid.expect("Just checked it was some");
+            };
 
             // Add to connected players if they aren't already
             if !self.connected.contains(&steamid) {
@@ -297,9 +295,7 @@ impl Players {
             // Update game info
             if let Some(game_info) = self.game_info.get_mut(&steamid) {
                 if let Some(name) = g15.name.as_ref() {
-                    if *name != game_info.name {
-                        self.records.update_name(steamid, name.clone());
-                    }
+                    self.records.update_name(steamid, name.clone());
                 }
                 game_info.update_from_g15(g15);
             } else if let Some(game_info) = GameInfo::new_from_g15(g15) {
@@ -331,6 +327,17 @@ impl Players {
             self.records.update_name(steamid, game_info.name.clone());
             self.game_info.insert(steamid, game_info);
         }
+    }
+
+    #[must_use]
+    pub fn get_name(&self, steamid: SteamID) -> Option<Arc<str>> {
+        if let Some(gi) = self.game_info.get(&steamid) {
+            return Some(gi.name.clone());
+        } else if let Some(si) = self.steam_info.get(&steamid) {
+            return Some(si.account_name.clone());
+        }
+
+        None
     }
 }
 
@@ -458,7 +465,9 @@ impl Default for GameInfo {
 }
 
 impl GameInfo {
-    pub(crate) fn new() -> Self { Self::default() }
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
 
     pub(crate) fn new_from_g15(g15: G15Player) -> Option<Self> {
         g15.userid.as_ref()?;
@@ -513,7 +522,11 @@ impl GameInfo {
         }
         // Make the Spawning flag "sticky" until they either pick a class or join spectator.
         // Makes it easy to spot bots taking up a player slot that can't be kicked.
-        else if self.state != PlayerState::Spawning || status.state != PlayerState::Active || self.alive || self.team == Team::Spectators {
+        else if self.state != PlayerState::Spawning
+            || status.state != PlayerState::Active
+            || self.alive
+            || self.team == Team::Spectators
+        {
             self.state = status.state;
         }
 
@@ -560,11 +573,15 @@ pub struct FriendInfo {
 impl Deref for FriendInfo {
     type Target = Vec<Friend>;
 
-    fn deref(&self) -> &Self::Target { &self.friends }
+    fn deref(&self) -> &Self::Target {
+        &self.friends
+    }
 }
 
 impl DerefMut for FriendInfo {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.friends }
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.friends
+    }
 }
 
 // Useful

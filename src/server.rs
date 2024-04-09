@@ -44,26 +44,40 @@ impl Server {
     // **** Getters / Setters ****
 
     #[must_use]
-    pub fn map(&self) -> Option<Arc<str>> { self.map.clone() }
+    pub fn map(&self) -> Option<Arc<str>> {
+        self.map.clone()
+    }
 
     #[must_use]
-    pub fn ip(&self) -> Option<Arc<str>> { self.ip.clone() }
+    pub fn ip(&self) -> Option<Arc<str>> {
+        self.ip.clone()
+    }
 
     #[must_use]
-    pub fn hostname(&self) -> Option<Arc<str>> { self.hostname.clone() }
+    pub fn hostname(&self) -> Option<Arc<str>> {
+        self.hostname.clone()
+    }
 
     #[must_use]
-    pub const fn max_players(&self) -> Option<u32> { self.max_players }
+    pub const fn max_players(&self) -> Option<u32> {
+        self.max_players
+    }
 
     #[must_use]
-    pub const fn num_players(&self) -> Option<u32> { self.num_players }
+    pub const fn num_players(&self) -> Option<u32> {
+        self.num_players
+    }
 
     #[must_use]
-    pub const fn gamemode(&self) -> Option<&Gamemode> { self.gamemode.as_ref() }
+    pub const fn gamemode(&self) -> Option<&Gamemode> {
+        self.gamemode.as_ref()
+    }
 }
 
 impl Default for Server {
-    fn default() -> Self { Self::new() }
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl Server {

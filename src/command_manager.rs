@@ -327,6 +327,9 @@ where
 {
     fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
         let _ = try_get(message)?;
+        if !state.settings.autokick_bots() {
+            return None;
+        }
 
         let user_team = state
             .players
@@ -335,24 +338,25 @@ where
             .and_then(|s| state.players.game_info.get(s))
             .map(|gi| gi.team)?;
 
-        let to_kick =
-            state
-                .players
-                .connected
-                .iter()
-                .filter(|s| {
-                    state.players.records.get(*s).is_some_and(|r| {
-                        r.verdict == Verdict::Bot && state.settings.autokick_bots()
-                    })
-                })
-                .filter_map(|s| state.players.game_info.get(s))
-                .filter(|gi| gi.team == user_team)
-                .map(|gi| gi.userid.clone())
-                .map(|id| Command::Kick {
-                    player: id,
-                    reason: KickReason::Cheating,
-                })
-                .map(|c| Handled::single(c));
+        let to_kick = state
+            .players
+            .connected
+            .iter()
+            .filter(|s| {
+                state
+                    .players
+                    .records
+                    .get(*s)
+                    .is_some_and(|r| r.verdict() == Verdict::Bot)
+            })
+            .filter_map(|s| state.players.game_info.get(s))
+            .filter(|gi| gi.team == user_team)
+            .map(|gi| gi.userid.clone())
+            .map(|id| Command::Kick {
+                player: id,
+                reason: KickReason::Cheating,
+            })
+            .map(|c| Handled::single(c));
 
         Handled::multiple(to_kick)
     }

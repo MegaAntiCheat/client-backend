@@ -1,5 +1,5 @@
 use std::{
-    fmt::{Debug, Display},
+    fmt::{Debug, Display, Write},
     sync::Arc,
 };
 
@@ -184,12 +184,19 @@ pub async fn force_close_session(
     Ok(reqwest::get(url).await?)
 }
 
+/// # Errors
+/// If the web request to send late bytes was unsuccessful
 pub async fn send_late_bytes(
     host: Arc<str>,
     key: Arc<str>,
     http: bool,
     bytes: Vec<u8>,
 ) -> Result<Response, Error> {
+    #[derive(Serialize)]
+    struct LateBytes {
+        late_bytes: String,
+    }
+
     let params = [("api_key", &key)];
 
     let endpoint = if http {
@@ -201,12 +208,13 @@ pub async fn send_late_bytes(
     let url = reqwest::Url::parse_with_params(&endpoint, params)?;
 
     let client = Client::new();
-    let late_bytes_hex: String = bytes.iter().map(|byte| format!("{:02x}", byte)).collect();
-
-    #[derive(Serialize)]
-    struct LateBytes {
-        late_bytes: String,
-    }
+    let late_bytes_hex: String =
+        bytes
+            .iter()
+            .fold(String::with_capacity(bytes.len() * 2), |mut s, byte| {
+                write!(&mut s, "{byte:02x}").expect("Couldn't write to string??");
+                s
+            });
 
     let req: RequestBuilder = client.post(url).json(&LateBytes {
         late_bytes: late_bytes_hex,

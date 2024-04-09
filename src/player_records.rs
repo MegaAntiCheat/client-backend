@@ -16,7 +16,7 @@ use steamid_ng::SteamID;
 
 use crate::{
     args::Args,
-    settings::{ConfigFilesError, Settings},
+    settings::{merge_json_objects, ConfigFilesError, Settings},
 };
 
 // PlayerList
@@ -99,7 +99,9 @@ impl PlayerRecords {
     }
 
     /// Removes all records that don't contain any info worth retaining.
-    pub fn prune(&mut self) { self.retain(|_, r| !r.is_empty()); }
+    pub fn prune(&mut self) {
+        self.retain(|_, r| !r.is_empty());
+    }
 
     /// Attempt to save the `PlayerRecords` to the file it was loaded from
     ///
@@ -128,7 +130,9 @@ impl PlayerRecords {
         tracing::debug!("Playerlist saved to {:?}", self.path);
     }
 
-    pub fn set_path(&mut self, path: PathBuf) { self.path = path; }
+    pub fn set_path(&mut self, path: PathBuf) {
+        self.path = path;
+    }
 
     /// # Errors
     /// If the config directory could not be located (usually because no valid
@@ -140,7 +144,7 @@ impl PlayerRecords {
     pub fn update_name(&mut self, steamid: SteamID, name: Arc<str>) {
         if let Some(record) = self.records.get_mut(&steamid) {
             if !record.previous_names.contains(&name) {
-                record.previous_names.push(name);
+                record.add_previous_name(name);
             }
         }
     }
@@ -162,11 +166,15 @@ impl Default for PlayerRecords {
 impl Deref for PlayerRecords {
     type Target = HashMap<SteamID, PlayerRecord>;
 
-    fn deref(&self) -> &Self::Target { &self.records }
+    fn deref(&self) -> &Self::Target {
+        &self.records
+    }
 }
 
 impl DerefMut for PlayerRecords {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.records }
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.records
+    }
 }
 
 // PlayerRecord
@@ -175,12 +183,12 @@ impl DerefMut for PlayerRecords {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct PlayerRecord {
-    pub custom_data: serde_json::Value,
-    pub verdict: Verdict,
-    pub previous_names: Vec<Arc<str>>,
+    custom_data: serde_json::Value,
+    verdict: Verdict,
+    previous_names: Vec<Arc<str>>,
     /// Time of last manual change made by the user.
-    pub modified: DateTime<Utc>,
-    pub created: DateTime<Utc>,
+    modified: DateTime<Utc>,
+    created: DateTime<Utc>,
 }
 
 impl PlayerRecord {
@@ -208,11 +216,61 @@ impl Default for PlayerRecord {
     }
 }
 
-#[must_use]
-pub fn default_custom_data() -> serde_json::Value { serde_json::Value::Object(Map::new()) }
+impl PlayerRecord {
+    #[must_use]
+    pub const fn custom_data(&self) -> &serde_json::Value {
+        &self.custom_data
+    }
+    pub fn clear_custom_data(&mut self) -> &mut Self {
+        self.custom_data = serde_json::Value::Object(Map::new());
+        self.modified = Utc::now();
+        self
+    }
+    pub fn set_custom_data(&mut self, val: serde_json::Value) -> &mut Self {
+        merge_json_objects(&mut self.custom_data, val);
+        self.modified = Utc::now();
+        self
+    }
+    #[must_use]
+    pub const fn verdict(&self) -> Verdict {
+        self.verdict
+    }
+    pub fn set_verdict(&mut self, verdict: Verdict) -> &mut Self {
+        self.verdict = verdict;
+        self.modified = Utc::now();
+        self
+    }
+    #[must_use]
+    pub fn previous_names(&self) -> &[Arc<str>] {
+        &self.previous_names
+    }
+    pub fn add_previous_name(&mut self, name: Arc<str>) -> &mut Self {
+        if self.previous_names.contains(&name) {
+            return self;
+        };
+
+        self.previous_names.push(name);
+        self
+    }
+    #[must_use]
+    pub const fn modified(&self) -> DateTime<Utc> {
+        self.modified
+    }
+    #[must_use]
+    pub const fn created(&self) -> DateTime<Utc> {
+        self.created
+    }
+}
 
 #[must_use]
-pub fn default_date() -> DateTime<Utc> { Utc::now() }
+pub fn default_custom_data() -> serde_json::Value {
+    serde_json::Value::Object(Map::new())
+}
+
+#[must_use]
+pub fn default_date() -> DateTime<Utc> {
+    Utc::now()
+}
 
 /// What a player is marked as in the personal playerlist
 #[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq, Eq)]
@@ -225,9 +283,13 @@ pub enum Verdict {
 }
 
 impl Display for Verdict {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result { write!(f, "{self:?}") }
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
 }
 
 impl Default for Verdict {
-    fn default() -> Self { Self::Player }
+    fn default() -> Self {
+        Self::Player
+    }
 }
