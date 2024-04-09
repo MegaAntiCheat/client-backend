@@ -12,6 +12,7 @@ use include_dir::{include_dir, Dir};
 use launchoptions::LaunchOptions;
 use player::Players;
 use player_records::PlayerRecords;
+use reqwest::StatusCode;
 use server::Server;
 use settings::Settings;
 use state::MACState;
@@ -127,7 +128,7 @@ fn main() {
         .block_on(async {
             if state.settings.masterbase_key().is_empty() {
                 state.settings.upload_demos = false;
-                tracing::warn!("No masterbase key is set. Disabling demo uploads.");
+                tracing::warn!("No masterbase key is set. If you would like to enable demo uploads, please provision a key at https://megaanticheat.com/provision");
             }
             
             // Close any previous masterbase sessions that might not have finished up
@@ -141,14 +142,18 @@ fn main() {
                 .await
                 {
                     Ok(r) if r.status().is_success() => tracing::warn!(
-                        "User was previously in a masterbase session that has now been closed."
+                        "User was previously in a Masterbase session that has now been closed."
                     ),
                     Ok(r) if r.status().is_server_error() => tracing::error!(
-                    "Error when trying to close any previous masterbase sessions: Status code {}",
+                    "Error when trying to close any previous Masterbase sessions: Status code {}",
                     r.status()
                 ),
-                    Ok(_) => tracing::info!("Successfully connected to masterbase."),
-                    Err(e) => tracing::error!("Couldn't reach masterbase: {e}"),
+                    Ok(r) if r.status() == StatusCode::UNAUTHORIZED => {
+                        tracing::warn!("Your Masterbase key is not valid, demo uploads will be disabled. Please provision a new one at https://megaanticheat.com/provision");
+                        state.settings.upload_demos = false;
+                    }
+                    Ok(_) => tracing::info!("Successfully authenticated with the Masterbase."),
+                    Err(e) => tracing::error!("Couldn't reach Masterbase: {e}"),
                 }
             }
 
