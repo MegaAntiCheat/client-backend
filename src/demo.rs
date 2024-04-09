@@ -728,7 +728,7 @@ where
             DemoEvent::VoteCast(event, steamid) => {
                 let name = steamid
                     .as_ref()
-                    .and_then(|id| state.players.game_info.get(id).map(|i| i.name.clone()))
+                    .and_then(|&id| state.players.get_name(id))
                     .unwrap_or_else(|| "Someone".into());
 
                 let vote: &str = self

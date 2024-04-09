@@ -28,6 +28,8 @@ pub struct UserUpdates(pub HashMap<SteamID, UserUpdate>);
 impl StateUpdater<MACState> for UserUpdates {
     fn update_state(self, state: &mut MACState) {
         for (k, v) in self.0 {
+            let name = state.players.get_name(k);
+
             // Insert record if it didn't exist
             let record = state.players.records.entry(k).or_default();
 
@@ -37,6 +39,9 @@ impl StateUpdater<MACState> for UserUpdates {
 
             if let Some(verdict) = v.local_verdict {
                 record.set_verdict(verdict);
+                if let Some(name) = name {
+                    record.add_previous_name(name);
+                }
             }
 
             if record.is_empty() {

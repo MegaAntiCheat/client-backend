@@ -295,9 +295,7 @@ impl Players {
             // Update game info
             if let Some(game_info) = self.game_info.get_mut(&steamid) {
                 if let Some(name) = g15.name.as_ref() {
-                    if *name != game_info.name {
-                        self.records.update_name(steamid, name.clone());
-                    }
+                    self.records.update_name(steamid, name.clone());
                 }
                 game_info.update_from_g15(g15);
             } else if let Some(game_info) = GameInfo::new_from_g15(g15) {
@@ -329,6 +327,17 @@ impl Players {
             self.records.update_name(steamid, game_info.name.clone());
             self.game_info.insert(steamid, game_info);
         }
+    }
+
+    #[must_use]
+    pub fn get_name(&self, steamid: SteamID) -> Option<Arc<str>> {
+        if let Some(gi) = self.game_info.get(&steamid) {
+            return Some(gi.name.clone());
+        } else if let Some(si) = self.steam_info.get(&steamid) {
+            return Some(si.account_name.clone());
+        }
+
+        None
     }
 }
 
