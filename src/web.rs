@@ -165,7 +165,9 @@ pub async fn web_main(web_state: WebState, port: u16) {
     }
 }
 
-async fn ui_redirect() -> impl IntoResponse { Redirect::permanent("/ui/index.html") }
+async fn ui_redirect() -> impl IntoResponse {
+    Redirect::permanent("/ui/index.html")
+}
 
 // UI
 
@@ -357,7 +359,9 @@ pub struct Pagination {
 }
 
 impl Default for Pagination {
-    fn default() -> Self { Self { from: 0, to: 100 } }
+    fn default() -> Self {
+        Self { from: 0, to: 100 }
+    }
 }
 
 async fn get_history(State(state): State<WebState>, page: Query<Pagination>) -> impl IntoResponse {
@@ -405,7 +409,9 @@ async fn get_playerlist(State(state): State<WebState>) -> impl IntoResponse {
     )
 }
 
-fn get_playerlist_response(_state: &MACState) -> String { "Not yet implemented".into() }
+fn get_playerlist_response(_state: &MACState) -> String {
+    "Not yet implemented".into()
+}
 
 // Commands
 

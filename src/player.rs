@@ -281,13 +281,11 @@ impl Players {
         })
     }
 
-    #[allow(clippy::missing_panics_doc)]
     pub fn handle_g15(&mut self, players: Vec<g15::G15Player>) {
         for g15 in players {
-            if g15.steamid.is_none() {
+            let Some(steamid) = g15.steamid else {
                 continue;
-            }
-            let steamid = g15.steamid.expect("Just checked it was some");
+            };
 
             // Add to connected players if they aren't already
             if !self.connected.contains(&steamid) {
@@ -458,7 +456,9 @@ impl Default for GameInfo {
 }
 
 impl GameInfo {
-    pub(crate) fn new() -> Self { Self::default() }
+    pub(crate) fn new() -> Self {
+        Self::default()
+    }
 
     pub(crate) fn new_from_g15(g15: G15Player) -> Option<Self> {
         g15.userid.as_ref()?;
@@ -513,7 +513,11 @@ impl GameInfo {
         }
         // Make the Spawning flag "sticky" until they either pick a class or join spectator.
         // Makes it easy to spot bots taking up a player slot that can't be kicked.
-        else if self.state != PlayerState::Spawning || status.state != PlayerState::Active || self.alive || self.team == Team::Spectators {
+        else if self.state != PlayerState::Spawning
+            || status.state != PlayerState::Active
+            || self.alive
+            || self.team == Team::Spectators
+        {
             self.state = status.state;
         }
 
@@ -560,11 +564,15 @@ pub struct FriendInfo {
 impl Deref for FriendInfo {
     type Target = Vec<Friend>;
 
-    fn deref(&self) -> &Self::Target { &self.friends }
+    fn deref(&self) -> &Self::Target {
+        &self.friends
+    }
 }
 
 impl DerefMut for FriendInfo {
-    fn deref_mut(&mut self) -> &mut Self::Target { &mut self.friends }
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.friends
+    }
 }
 
 // Useful
