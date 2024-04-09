@@ -18,6 +18,7 @@ use futures::Stream;
 use include_dir::Dir;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
+use tappet::SteamAPI;
 use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
 use tokio_stream::wrappers::ReceiverStream;
 
@@ -27,8 +28,8 @@ use crate::{
     player::{serialize_steamid_as_string, Friend, Player, Players, SteamInfo},
     server::Gamemode,
     state::MACState,
+    steam_api::{request_steam_info, ProfileLookupResult},
 };
-
 const HEADERS: [(header::HeaderName, &str); 2] = [
     (header::CONTENT_TYPE, "application/json"),
     (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
@@ -40,7 +41,7 @@ pub enum WebRequest {
     /// Retrieve info on the active game
     GetGame(UnboundedSender<String>),
     /// Retrieve info on specific accounts
-    PostUser(UserRequest, UnboundedSender<String>),
+    PostUser(UserPostRequest, UnboundedSender<String>),
     /// Set Verdict and customData for specific accounts
     PutUser(HashMap<SteamID, UserUpdate>),
     /// Retrieve client preferences
@@ -55,12 +56,22 @@ pub enum WebRequest {
     PostCommand(RequestedCommands),
 }
 
+struct PostUserRequest {
+    send: UnboundedSender<String>,
+    users: Vec<(SteamID, Option<SteamInfo>)>,
+    waiting_users: Vec<SteamID>,
+}
+
 #[allow(clippy::module_name_repetitions)]
-pub struct WebAPIHandler;
+pub struct WebAPIHandler {
+    profile_requests_in_progress: Vec<SteamID>,
+    post_user_queue: Vec<PostUserRequest>,
+}
+
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for WebAPIHandler
 where
-    IM: Is<WebRequest>,
-    OM: Is<Command> + Is<Preferences> + Is<UserUpdates>,
+    IM: Is<WebRequest> + Is<ProfileLookupResult>,
+    OM: Is<Command> + Is<Preferences> + Is<UserUpdates> + Is<ProfileLookupResult>,
 {
     #[allow(clippy::cognitive_complexity)]
     fn handle_message(
@@ -68,6 +79,10 @@ where
         state: &MACState,
         message: &IM,
     ) -> Option<event_loop::Handled<OM>> {
+        if let Some(lookup_result) = try_get::<ProfileLookupResult>(message) {
+            self.handle_profile_lookup(state, lookup_result);
+        }
+
         match try_get::<WebRequest>(message)? {
             WebRequest::GetGame(tx) => {
                 if tx.send(get_game_response(state)).is_err() {
@@ -75,9 +90,7 @@ where
                 }
             }
             WebRequest::PostUser(users, tx) => {
-                if tx.send(post_user_response(state, users)).is_err() {
-                    tracing::error!("Failed to send response to API task.");
-                }
+                return self.handle_post_user_request(state, users, tx.clone());
             }
             WebRequest::PutUser(users) => {
                 return Handled::single(OM::from(UserUpdates(users.clone())));
@@ -108,6 +121,140 @@ where
         }
 
         Handled::none()
+    }
+}
+
+impl WebAPIHandler {
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            profile_requests_in_progress: Vec::new(),
+            post_user_queue: Vec::new(),
+        }
+    }
+
+    fn handle_post_user_request<OM: Is<ProfileLookupResult>>(
+        &mut self,
+        state: &MACState,
+        users: &UserPostRequest,
+        send: UnboundedSender<String>,
+    ) -> Option<Handled<OM>> {
+        if state.settings.steam_api_key().is_empty() {
+            return None;
+        }
+
+        let mut request = PostUserRequest {
+            send,
+            users: users
+                .users
+                .iter()
+                .map(|s| (*s, state.players.steam_info.get(s).cloned()))
+                .collect(),
+            waiting_users: Vec::new(),
+        };
+
+        // Find just the users we don't have steam info on yet
+        request.waiting_users = users
+            .users
+            .iter()
+            .filter(|&s| {
+                !self.profile_requests_in_progress.contains(s)
+                    || !state.players.steam_info.contains_key(s)
+            })
+            .copied()
+            .collect();
+
+        self.profile_requests_in_progress
+            .extend_from_slice(&request.waiting_users);
+
+        // Make steam api requests
+        let client = Arc::new(SteamAPI::new(state.settings.steam_api_key()));
+        let out = Handled::multiple(request.waiting_users.chunks(100).map(|accounts| {
+            let accounts = accounts.to_vec();
+            let client = client.clone();
+            Handled::future(async move {
+                Some(ProfileLookupResult(request_steam_info(&client, &accounts).await).into())
+            })
+        }));
+
+        let ready = request.waiting_users.is_empty();
+        self.post_user_queue.push(request);
+
+        if ready {
+            self.send_waiting_post_user_responses(state);
+        }
+
+        out
+    }
+
+    fn handle_profile_lookup(&mut self, state: &MACState, result: &ProfileLookupResult) {
+        let accounts = match &result.0 {
+            Err(e) => {
+                tracing::error!("Failed to lookup steam profiles: {e:?}");
+
+                // Clear out waiting users and just send what we got,
+                // because something has gone wrong.
+                self.post_user_queue
+                    .iter_mut()
+                    .for_each(|req| req.waiting_users.clear());
+                self.send_waiting_post_user_responses(state);
+
+                return;
+            }
+            Ok(a) => a,
+        };
+
+        // Add any results that have been fetched to the appropriate requests
+        for (id, lookup_result) in accounts {
+            self.profile_requests_in_progress.retain(|s| s != id);
+
+            let steam_info = match lookup_result {
+                Err(e) => {
+                    tracing::error!("Couldn't lookup profile {}: {e:?}", u64::from(*id));
+                    continue;
+                }
+                Ok(a) => a,
+            };
+
+            self.post_user_queue.iter_mut().for_each(|req| {
+                if let Some((id, info)) = req.users.iter_mut().find(|(s, _)| s == id) {
+                    *info = Some(steam_info.clone());
+                    req.waiting_users.retain(|s| s != id);
+                }
+            });
+        }
+
+        self.send_waiting_post_user_responses(state);
+    }
+
+    fn send_waiting_post_user_responses(&mut self, state: &MACState) {
+        self.post_user_queue
+            .iter()
+            .filter(|req| req.waiting_users.is_empty())
+            .for_each(|req| {
+                let users: Vec<Player> = req
+                    .users
+                    .iter()
+                    .map(|(id, si)| {
+                        let mut player = state.players.get_serializable_player(*id);
+                        player.steamInfo = si.as_ref();
+                        player
+                    })
+                    .collect();
+
+                req.send
+                    .send(serde_json::to_string(&users).expect("Epic serialization fail"))
+                    .ok();
+            });
+
+        self.post_user_queue
+            .retain(|req| !req.waiting_users.is_empty());
+    }
+}
+
+impl Default for WebAPIHandler {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -277,12 +424,14 @@ fn get_game_response(state: &MACState) -> String {
 // User
 
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
-pub struct UserRequest {
-    users: Vec<u64>,
+pub struct UserPostRequest {
+    pub users: Vec<SteamID>,
 }
 
-async fn post_user(State(state): State<WebState>, users: Json<UserRequest>) -> impl IntoResponse {
+async fn post_user(
+    State(state): State<WebState>,
+    users: Json<UserPostRequest>,
+) -> impl IntoResponse {
     tracing::debug!("API: POST user");
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
     if state
@@ -296,10 +445,6 @@ async fn post_user(State(state): State<WebState>, users: Json<UserRequest>) -> i
         || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
         |resp| (StatusCode::OK, HEADERS, resp),
     )
-}
-
-fn post_user_response(_state: &MACState, _users: &UserRequest) -> String {
-    "Not yet implemented".into()
 }
 
 async fn put_user(
@@ -389,7 +534,7 @@ fn get_history_response(state: &MACState, page: &Pagination) -> String {
         .rev()
         .skip(page.from)
         .take(page.to - page.from)
-        .filter_map(|&s| state.players.get_serializable_player(s))
+        .map(|&s| state.players.get_serializable_player(s))
         .collect();
 
     serde_json::to_string(&history).expect("Epic serialization fail")
@@ -432,12 +577,8 @@ fn get_playerlist_response(state: &MACState) -> String {
     let records_mapped: Vec<PlayerRecordResponse> = records
         .iter()
         .map(|(id, record)| PlayerRecordResponse {
-            name: record.name.to_owned(),
-            isSelf: state
-                .settings
-                .steam_user()
-                .unwrap_or(SteamID::default())
-                .eq(id),
+            name: record.name.clone(),
+            isSelf: state.settings.steam_user().is_some_and(|user| user == *id),
             steamID64: *id,
             convicted: Some(false),
             localVerdict: Some(Arc::from(record.verdict().to_string())),

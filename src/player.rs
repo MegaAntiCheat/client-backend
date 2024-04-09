@@ -241,8 +241,13 @@ impl Players {
 
     /// Gets a struct containing all the relevant data on a player in a
     /// serializable format
-    pub fn get_serializable_player(&self, steamid: SteamID) -> Option<Player> {
-        let game_info = self.game_info.get(&steamid)?;
+    pub fn get_serializable_player(&self, steamid: SteamID) -> Player {
+        let game_info = self.game_info.get(&steamid);
+        let steam_info = self.steam_info.get(&steamid);
+        let name = game_info.map_or_else(
+            || steam_info.map_or("", |si| &si.account_name),
+            |gi| &gi.name,
+        );
         let tags: Vec<&str> = self
             .tags
             .get(&steamid)
@@ -263,13 +268,13 @@ impl Players {
 
         let local_verdict = record.as_ref().map_or(Verdict::Player, |r| r.verdict());
 
-        Some(Player {
+        Player {
             isSelf: self.user.is_some_and(|user| user == steamid),
-            name: game_info.name.as_ref(),
+            name,
             steamID64: steamid,
             localVerdict: local_verdict,
-            steamInfo: self.steam_info.get(&steamid),
-            gameInfo: Some(game_info),
+            steamInfo: steam_info,
+            gameInfo: game_info,
             customData: record
                 .as_ref()
                 .map_or_else(default_custom_data, |r| r.custom_data().clone()),
@@ -278,7 +283,7 @@ impl Players {
             previous_names,
             friends,
             friendsIsPublic: friend_info.and_then(|fi| fi.public),
-        })
+        }
     }
 
     pub fn handle_g15(&mut self, players: Vec<g15::G15Player>) {
@@ -349,7 +354,7 @@ impl Serialize for Players {
         let players: Vec<Player> = self
             .connected
             .iter()
-            .filter_map(|&s| self.get_serializable_player(s))
+            .map(|&s| self.get_serializable_player(s))
             .collect();
         players.serialize(serializer)
     }
@@ -586,7 +591,7 @@ impl DerefMut for FriendInfo {
 
 // Useful
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
+#[allow(clippy::trivially_copy_pass_by_ref, clippy::missing_errors_doc)]
 pub fn serialize_steamid_as_string<S: Serializer>(
     steamid: &SteamID,
     s: S,
