@@ -340,6 +340,12 @@ impl Players {
             return Some(gi.name.clone());
         } else if let Some(si) = self.steam_info.get(&steamid) {
             return Some(si.account_name.clone());
+        } else if let Some(last_name) = self
+            .records
+            .get(&steamid)
+            .map(|r| r.previous_names().get(0))
+        {
+            return last_name.cloned();
         }
 
         None
@@ -573,6 +579,13 @@ pub struct Friend {
 pub struct FriendInfo {
     pub public: Option<bool>,
     friends: Vec<Friend>,
+}
+
+impl FriendInfo {
+    #[must_use]
+    pub fn friends(&self) -> &[Friend] {
+        &self.friends
+    }
 }
 
 impl Deref for FriendInfo {

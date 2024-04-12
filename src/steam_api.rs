@@ -48,18 +48,25 @@ type ProfileResult = Result<Vec<(SteamID, Result<SteamInfo, SteamAPIError>)>, St
 pub struct ProfileLookupResult(pub ProfileResult);
 impl StateUpdater<MACState> for ProfileLookupResult {
     fn update_state(self, state: &mut MACState) {
-        if let Err(e) = &self.0 {
-            tracing::error!("Profile lookup failed: {e}");
-            return;
-        }
+        let results = match &self.0 {
+            Err(e) => {
+                tracing::error!("Profile lookup failed: {e}");
+                return;
+            }
+            Ok(results) => results,
+        };
 
-        for (steamid, result) in self.0.expect("Just checked it was some") {
+        for (steamid, result) in results {
             match result {
                 Ok(steaminfo) => {
-                    state.players.steam_info.insert(steamid, steaminfo);
+                    state.players.steam_info.insert(*steamid, steaminfo.clone());
                 }
                 Err(e) => {
-                    tracing::error!("Faield to lookup profile for {}: {}", u64::from(steamid), e);
+                    tracing::error!(
+                        "Faield to lookup profile for {}: {}",
+                        u64::from(*steamid),
+                        e
+                    );
                 }
             }
         }

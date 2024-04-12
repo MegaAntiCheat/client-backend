@@ -25,7 +25,7 @@ use tokio_stream::wrappers::ReceiverStream;
 use super::command_manager::Command;
 use crate::{
     events::{InternalPreferences, Preferences, UserUpdate, UserUpdates},
-    player::{serialize_steamid_as_string, Friend, Player, Players, SteamInfo},
+    player::{serialize_steamid_as_string, Friend, FriendInfo, Player, Players, SteamInfo},
     server::Gamemode,
     state::MACState,
     steam_api::{request_steam_info, ProfileLookupResult},
@@ -576,17 +576,21 @@ fn get_playerlist_response(state: &MACState) -> String {
 
     let records_mapped: Vec<PlayerRecordResponse> = records
         .iter()
-        .map(|(id, record)| PlayerRecordResponse {
-            name: record.name.clone(),
-            isSelf: state.settings.steam_user().is_some_and(|user| user == *id),
-            steamID64: *id,
-            convicted: Some(false),
-            localVerdict: Some(Arc::from(record.verdict().to_string())),
-            steamInfo: None,
-            customData: record.custom_data(),
-            previousNames: Some(record.previous_names()),
-            friends: None,
-            friendsIsPublic: None,
+        .map(|(id, record)| {
+            let friends = state.players.friend_info.get(id);
+
+            PlayerRecordResponse {
+                name: record.name.clone(),
+                isSelf: state.settings.steam_user().is_some_and(|user| user == *id),
+                steamID64: *id,
+                convicted: Some(false),
+                localVerdict: Some(Arc::from(record.verdict().to_string())),
+                steamInfo: state.players.steam_info.get(id),
+                customData: record.custom_data(),
+                previousNames: Some(record.previous_names()),
+                friends: friends.map(FriendInfo::friends),
+                friendsIsPublic: friends.and_then(|f| f.public),
+            }
         })
         .collect();
 
