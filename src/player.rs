@@ -292,6 +292,10 @@ impl Players {
                 continue;
             };
 
+            if let Some(r) = self.records.get_mut(&steamid) {
+                r.mark_seen();
+            }
+
             // Add to connected players if they aren't already
             if !self.connected.contains(&steamid) {
                 self.connected.push(steamid);
@@ -313,6 +317,10 @@ impl Players {
 
     pub fn handle_status_line(&mut self, status: StatusLine) {
         let steamid = status.steamid;
+
+        if let Some(r) = self.records.get_mut(&steamid) {
+            r.mark_seen();
+        }
 
         // Add to connected players if they aren't already
         if !self.connected.contains(&steamid) {

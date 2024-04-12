@@ -188,6 +188,7 @@ pub struct PlayerRecord {
     custom_data: serde_json::Value,
     verdict: Verdict,
     previous_names: Vec<String>,
+    last_seen: Option<DateTime<Utc>>,
     /// Time of last manual change made by the user.
     modified: DateTime<Utc>,
     created: DateTime<Utc>,
@@ -213,6 +214,7 @@ impl Default for PlayerRecord {
             custom_data: default_custom_data(),
             verdict: Verdict::default(),
             previous_names: Vec::new(),
+            last_seen: None,
             modified: default_date(),
             created: default_date(),
         }
@@ -262,6 +264,15 @@ impl PlayerRecord {
     #[must_use]
     pub const fn created(&self) -> DateTime<Utc> {
         self.created
+    }
+
+    #[must_use]
+    pub const fn last_seen(&self) -> Option<DateTime<Utc>> {
+        self.last_seen
+    }
+
+    pub fn mark_seen(&mut self) {
+        self.last_seen = Some(Utc::now());
     }
 }
 
