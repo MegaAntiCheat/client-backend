@@ -238,6 +238,11 @@ impl WebAPIHandler {
                     .map(|(id, si)| {
                         let mut player = state.players.get_serializable_player(*id);
                         player.steamInfo = si.as_ref();
+
+                        if let Some(si) = si {
+                            player.name = &si.account_name;
+                        }
+
                         player
                     })
                     .collect();
