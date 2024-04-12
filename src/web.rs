@@ -13,6 +13,7 @@ use axum::{
     routing::{get, post, put},
     Json, Router,
 };
+use chrono::{DateTime, Utc};
 use event_loop::{try_get, Handled, HandlerStruct, Is};
 use futures::Stream;
 use include_dir::Dir;
@@ -574,6 +575,8 @@ struct PlayerRecordResponse<'a> {
     previousNames: Option<&'a [String]>,
     friends: Option<&'a [Friend]>,
     friendsIsPublic: Option<bool>,
+    modified: DateTime<Utc>,
+    created: DateTime<Utc>,
 }
 
 fn get_playerlist_response(state: &MACState) -> String {
@@ -595,6 +598,8 @@ fn get_playerlist_response(state: &MACState) -> String {
                 previousNames: Some(record.previous_names()),
                 friends: friends.map(FriendInfo::friends),
                 friendsIsPublic: friends.and_then(|f| f.public),
+                modified: record.modified(),
+                created: record.created(),
             }
         })
         .collect();
