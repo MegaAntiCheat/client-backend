@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use anyhow::{anyhow, Context, Result};
 use clap_lex::SeekFrom;
@@ -20,12 +20,12 @@ pub struct FileWatcher {
     file_path: PathBuf,
     /// The file currently being watched
     open_file: Option<OpenFile>,
-    response_send: UnboundedSender<Arc<str>>,
+    response_send: UnboundedSender<String>,
 }
 
 impl FileWatcher {
     #[must_use]
-    pub fn new(path: PathBuf) -> (UnboundedReceiver<Arc<str>>, Self) {
+    pub fn new(path: PathBuf) -> (UnboundedReceiver<String>, Self) {
         let (resp_tx, resp_rx) = unbounded_channel();
 
         let file_watcher = Self {

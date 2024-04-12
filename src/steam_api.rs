@@ -1,7 +1,4 @@
-use std::{
-    collections::{HashMap, VecDeque},
-    sync::Arc,
-};
+use std::collections::{HashMap, VecDeque};
 
 use event_loop::{try_get, Handled, HandlerStruct, Is, StateUpdater};
 use steamid_ng::SteamID;
@@ -156,7 +153,7 @@ where
                 return Handled::none();
             }
 
-            let key = state.settings.steam_api_key();
+            let key = state.settings.steam_api_key().to_owned();
             let batch: Vec<_> = self
                 .batch_buffer
                 .drain(0..BATCH_SIZE.min(self.batch_buffer.len()))
@@ -188,12 +185,12 @@ impl LookupFriends {
 
     fn lookup_players<'a, M: Is<FriendLookupResult>>(
         &mut self,
-        key: &Arc<str>,
+        key: &str,
         players: impl IntoIterator<Item = &'a SteamID>,
     ) -> Option<Handled<M>> {
         Handled::multiple(players.into_iter().map(|&p| {
             self.in_progess.push(p);
-            let key = key.clone();
+            let key = key.to_owned();
             Handled::future(async move {
                 let client = SteamAPI::new(key);
                 Some(
@@ -219,7 +216,7 @@ impl LookupFriends {
         state: &MACState,
         players: impl IntoIterator<Item = &'a SteamID>,
         policy: FriendsAPIUsage,
-        key: &Arc<str>,
+        key: &str,
         force: bool,
     ) -> Option<Handled<M>> {
         // Need all friends if there's a cheater/bot on the server with a private
@@ -301,7 +298,7 @@ where
                 state,
                 new_players,
                 state.settings.friends_api_usage(),
-                &state.settings.steam_api_key(),
+                state.settings.steam_api_key(),
                 false,
             );
         }
@@ -319,7 +316,7 @@ where
                     state,
                     &state.players.connected,
                     state.settings.friends_api_usage(),
-                    &state.settings.steam_api_key(),
+                    state.settings.steam_api_key(),
                     true,
                 )
             } else {
@@ -355,7 +352,7 @@ where
                             state,
                             &state.players.connected,
                             state.settings.friends_api_usage(),
-                            &state.settings.steam_api_key(),
+                            state.settings.steam_api_key(),
                             true,
                         ));
                     } else {
@@ -363,7 +360,7 @@ where
                             state,
                             &vec![*k],
                             state.settings.friends_api_usage(),
-                            &state.settings.steam_api_key(),
+                            state.settings.steam_api_key(),
                             true,
                         ));
                     }
@@ -388,10 +385,10 @@ where
                 .unwrap_or_else(|| state.settings.friends_api_usage());
             let key = internal
                 .steam_api_key
-                .clone()
+                .as_deref()
                 .unwrap_or_else(|| state.settings.steam_api_key());
 
-            return self.handle_players(state, &state.players.connected, policy, &key, false);
+            return self.handle_players(state, &state.players.connected, policy, key, false);
         }
 
         Handled::none()
@@ -438,10 +435,10 @@ pub async fn request_steam_info(
                     .get(&id)
                     .ok_or(SteamAPIError::MissingBans(player))?;
                 let steam_info = SteamInfo {
-                    account_name: summary.personaname.clone().into(),
-                    pfp_url: summary.avatarfull.clone().into(),
-                    profile_url: summary.profileurl.clone().into(),
-                    pfp_hash: summary.avatarhash.clone().into(),
+                    account_name: summary.personaname.clone(),
+                    pfp_url: summary.avatarfull.clone(),
+                    profile_url: summary.profileurl.clone(),
+                    pfp_hash: summary.avatarhash.clone(),
                     profile_visibility: summary.communityvisibilitystate.into(),
                     time_created: summary.timecreated,
                     country_code: summary.loccountrycode.clone().map(Into::into),

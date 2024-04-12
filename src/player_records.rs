@@ -4,7 +4,6 @@ use std::{
     io::{ErrorKind, Write},
     ops::{Deref, DerefMut},
     path::PathBuf,
-    sync::Arc,
 };
 
 use anyhow::Context;
@@ -141,12 +140,13 @@ impl PlayerRecords {
         Settings::locate_config_directory().map(|dir| dir.join("playerlist.json"))
     }
 
-    pub fn update_name(&mut self, steamid: SteamID, name: Arc<str>) {
+    pub fn update_name(&mut self, steamid: SteamID, name: &str) {
         if let Some(record) = self.records.get_mut(&steamid) {
-            record.name = name.clone();
-            if !record.previous_names.contains(&name) {
-                record.add_previous_name(name);
+            if record.name == name {
+                return;
             }
+            record.name = name.to_owned();
+            record.add_previous_name(name);
         }
     }
 }
@@ -184,10 +184,10 @@ impl DerefMut for PlayerRecords {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct PlayerRecord {
-    pub name: Arc<str>,
+    pub name: String,
     custom_data: serde_json::Value,
     verdict: Verdict,
-    previous_names: Vec<Arc<str>>,
+    previous_names: Vec<String>,
     /// Time of last manual change made by the user.
     modified: DateTime<Utc>,
     created: DateTime<Utc>,
@@ -209,7 +209,7 @@ impl PlayerRecord {
 impl Default for PlayerRecord {
     fn default() -> Self {
         Self {
-            name: default_name(),
+            name: String::default(),
             custom_data: default_custom_data(),
             verdict: Verdict::default(),
             previous_names: Vec::new(),
@@ -244,15 +244,15 @@ impl PlayerRecord {
         self
     }
     #[must_use]
-    pub fn previous_names(&self) -> &[Arc<str>] {
+    pub fn previous_names(&self) -> &[String] {
         &self.previous_names
     }
-    pub fn add_previous_name(&mut self, name: Arc<str>) -> &mut Self {
-        if self.previous_names.contains(&name) {
+    pub fn add_previous_name(&mut self, name: &str) -> &mut Self {
+        if self.previous_names.iter().any(|pn| pn == name) {
             return self;
         };
 
-        self.previous_names.push(name);
+        self.previous_names.push(name.to_owned());
         self
     }
     #[must_use]
@@ -273,11 +273,6 @@ pub fn default_custom_data() -> serde_json::Value {
 #[must_use]
 pub fn default_date() -> DateTime<Utc> {
     Utc::now()
-}
-
-#[must_use]
-pub fn default_name() -> Arc<str> {
-    Arc::from("")
 }
 
 /// What a player is marked as in the personal playerlist

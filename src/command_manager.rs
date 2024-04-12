@@ -88,16 +88,16 @@ enum ErrorState {
 pub enum Command {
     G15,
     Status,
-    Say(Arc<str>),
-    SayTeam(Arc<str>),
+    Say(String),
+    SayTeam(String),
     Kick {
         /// The uid of the player as returned by [Command::Status] or
         /// [Command::G15]
-        player: Arc<str>,
+        player: String,
         #[serde(default)]
         reason: KickReason,
     },
-    Custom(Arc<str>),
+    Custom(String),
 }
 
 impl Display for Command {
@@ -124,7 +124,7 @@ pub struct CommandManager {
 
 struct CommandManagerInner {
     connection: Option<Connection<TcpStream>>,
-    password: Arc<str>,
+    password: String,
     port: u16,
 
     current_err_state: ErrorState,
@@ -136,7 +136,7 @@ impl CommandManagerInner {
         &mut self,
         cmd: Command,
         port: u16,
-        password: Arc<str>,
+        password: String,
     ) -> Option<M> {
         let needs_reconnect = password != self.password
             || port != self.port
@@ -208,7 +208,7 @@ impl CommandManagerInner {
 
             match result {
                 Ok(out) => {
-                    return Some(RawConsoleOutput(out.into()).into());
+                    return Some(RawConsoleOutput(out).into());
                 }
                 Err(e) => {
                     self.previous_err_state = ErrorState::Okay;
@@ -258,7 +258,7 @@ impl CommandManagerInner {
             connection: None,
             current_err_state: ErrorState::Never,
             previous_err_state: ErrorState::Never,
-            password: "".into(),
+            password: String::new(),
             port: 27015,
         }
     }
@@ -277,7 +277,7 @@ impl CommandManager {
         &mut self,
         command: &Command,
         port: u16,
-        password: Arc<str>,
+        password: String,
     ) -> Option<Handled<OM>> {
         let inner = self.inner.clone();
         let cmd = command.clone();
@@ -310,12 +310,12 @@ where
         if try_get::<Refresh>(message).is_some() {
             self.refresh_status = !self.refresh_status;
             if self.refresh_status {
-                return self.run_command(&Command::Status, port, pwd);
+                return self.run_command(&Command::Status, port, pwd.to_owned());
             }
-            return self.run_command(&Command::G15, port, pwd);
+            return self.run_command(&Command::G15, port, pwd.to_owned());
         }
 
-        self.run_command(try_get::<Command>(message)?, port, pwd)
+        self.run_command(try_get::<Command>(message)?, port, pwd.to_owned())
     }
 }
 

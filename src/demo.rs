@@ -328,8 +328,8 @@ impl DemoManager {
         header: &Header,
         demo_name: &str,
     ) -> Option<event_loop::Handled<M>> {
-        let host = settings.masterbase_host();
-        let key = settings.masterbase_key();
+        let host = settings.masterbase_host().to_owned();
+        let key = settings.masterbase_key().to_owned();
         let map = header.map.clone();
         let fake_ip = header.server.clone();
         let http = settings.use_masterbase_http();
@@ -399,12 +399,12 @@ impl DemoManager {
         settings: &Settings,
         late_bytes: Vec<u8>,
     ) -> Option<event_loop::Handled<M>> {
-        let host = settings.masterbase_host();
-        let key = settings.masterbase_key();
+        let host = settings.masterbase_host().to_owned();
+        let key = settings.masterbase_key().to_owned();
         let http = settings.use_masterbase_http();
 
         Handled::future(async move {
-            let send_result = send_late_bytes(host.clone(), key.clone(), http, late_bytes).await;
+            let send_result = send_late_bytes(&host, &key, http, late_bytes).await;
 
             match send_result {
                 Ok(send_response) => {
@@ -729,7 +729,7 @@ where
                 let name = steamid
                     .as_ref()
                     .and_then(|&id| state.players.get_name(id))
-                    .unwrap_or_else(|| "Someone".into());
+                    .unwrap_or("Someone");
 
                 let vote: &str = self
                     .votes

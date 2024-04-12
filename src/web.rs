@@ -404,21 +404,21 @@ fn get_game_response(state: &MACState) -> String {
     #[derive(Serialize)]
     #[allow(non_snake_case)]
     struct Game<'a> {
-        map: &'a Option<Arc<str>>,
-        ip: &'a Option<Arc<str>>,
-        hostname: &'a Option<Arc<str>>,
-        maxPlayers: &'a Option<u32>,
-        numPlayers: &'a Option<u32>,
+        map: Option<&'a str>,
+        ip: Option<&'a str>,
+        hostname: Option<&'a str>,
+        maxPlayers: Option<u32>,
+        numPlayers: Option<u32>,
         gamemode: Option<&'a Gamemode>,
         players: &'a Players,
     }
 
     let game = Game {
-        map: &state.server.map(),
-        ip: &state.server.ip(),
-        hostname: &state.server.hostname(),
-        maxPlayers: &state.server.max_players(),
-        numPlayers: &state.server.num_players(),
+        map: state.server.map(),
+        ip: state.server.ip(),
+        hostname: state.server.hostname(),
+        maxPlayers: state.server.max_players(),
+        numPlayers: state.server.num_players(),
         gamemode: state.server.gamemode(),
         players: &state.players,
     };
@@ -481,10 +481,10 @@ fn get_prefs_response(state: &MACState) -> String {
         internal: Some(InternalPreferences {
             friends_api_usage: Some(settings.friends_api_usage()),
             tf2_directory: Some(settings.tf2_directory().to_string_lossy().into()),
-            rcon_password: Some(settings.rcon_password()),
-            steam_api_key: Some(settings.steam_api_key()),
-            masterbase_key: Some(settings.masterbase_key()),
-            masterbase_host: Some(settings.masterbase_host()),
+            rcon_password: Some(settings.rcon_password().to_owned()),
+            steam_api_key: Some(settings.steam_api_key().to_owned()),
+            masterbase_key: Some(settings.masterbase_key().to_owned()),
+            masterbase_host: Some(settings.masterbase_host().to_owned()),
             rcon_port: Some(settings.rcon_port()),
         }),
         external: Some(settings.external_preferences().clone()),
@@ -563,15 +563,15 @@ async fn get_playerlist(State(state): State<WebState>) -> impl IntoResponse {
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize)]
 struct PlayerRecordResponse<'a> {
-    name: Arc<str>,
+    name: String,
     isSelf: bool,
     #[serde(serialize_with = "serialize_steamid_as_string")]
     steamID64: SteamID,
     convicted: Option<bool>,
-    localVerdict: Option<Arc<str>>,
+    localVerdict: Option<String>,
     steamInfo: Option<&'a SteamInfo>,
     customData: &'a serde_json::Value,
-    previousNames: Option<&'a [Arc<str>]>,
+    previousNames: Option<&'a [String]>,
     friends: Option<&'a [Friend]>,
     friendsIsPublic: Option<bool>,
 }
@@ -589,7 +589,7 @@ fn get_playerlist_response(state: &MACState) -> String {
                 isSelf: state.settings.steam_user().is_some_and(|user| user == *id),
                 steamID64: *id,
                 convicted: Some(false),
-                localVerdict: Some(Arc::from(record.verdict().to_string())),
+                localVerdict: Some(record.verdict().to_string()),
                 steamInfo: state.players.steam_info.get(id),
                 customData: record.custom_data(),
                 previousNames: Some(record.previous_names()),

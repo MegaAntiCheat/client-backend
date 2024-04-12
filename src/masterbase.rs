@@ -1,7 +1,4 @@
-use std::{
-    fmt::{Debug, Display, Write},
-    sync::Arc,
-};
+use std::fmt::{Debug, Display, Write};
 
 use futures::SinkExt;
 use reqwest::{Client, RequestBuilder, Response};
@@ -91,8 +88,8 @@ impl Debug for DemoSession {
 /// fails to notify it, which should only be possible if the async runtime stops
 /// before the session is dropped, meaning this shouldn't be able to occur.
 pub async fn new_demo_session(
-    host: Arc<str>,
-    key: Arc<str>,
+    host: String,
+    key: String,
     fake_ip: &str,
     map: &str,
     demo_name: &str,
@@ -124,25 +121,6 @@ pub async fn new_demo_session(
     let (tx, mut rx) = tokio::sync::mpsc::channel(1);
     session_id.close = Some(tx);
 
-    // Wait for the dropped `DemoSession` to tell it to close the session.
-    // When it receives a message over the channel, it makes the appropriate
-    // request.
-    {
-        let id = session_id.session_id;
-        let host = host.clone();
-        let key = key.clone();
-        tokio::task::spawn(async move {
-            rx.recv()
-                .await
-                .expect("Didn't get closing message from DemoSession.");
-
-            match force_close_session(host, key, http).await {
-                Ok(_) => tracing::info!("Closed session {id}."),
-                Err(e) => tracing::error!("Failed to close session: {e:?}"),
-            }
-        });
-    }
-
     // Open Websocket
     let params: [(&str, &str); 2] = [("api_key", &key), ("session_id", &session_id.to_string())];
     let ws_endpoint = if http {
@@ -151,6 +129,26 @@ pub async fn new_demo_session(
         format!("wss://{host}/demos")
     };
     let url = reqwest::Url::parse_with_params(&ws_endpoint, params)?;
+
+    // Wait for the dropped `DemoSession` to tell it to close the session.
+    // When it receives a message over the channel, it makes the appropriate
+    // request.
+    {
+        let id = session_id.session_id;
+        // let host = host.to_owned();
+        // let key = key.to_owned();
+        tokio::task::spawn(async move {
+            rx.recv()
+                .await
+                .expect("Didn't get closing message from DemoSession.");
+
+            match force_close_session(&host, &key, http).await {
+                Ok(_) => tracing::info!("Closed session {id}."),
+                Err(e) => tracing::error!("Failed to close session: {e:?}"),
+            }
+        });
+    }
+
     let (ws_client, _) = tokio_tungstenite::connect_async(url).await?;
 
     Ok(DemoSession {
@@ -167,12 +165,8 @@ pub async fn new_demo_session(
 /// # Errors
 /// * Fails to parse Url (usually indicating a bad host or key was provided)
 /// * Web request failed
-pub async fn force_close_session(
-    host: Arc<str>,
-    key: Arc<str>,
-    http: bool,
-) -> Result<Response, Error> {
-    let params = [("api_key", &key)];
+pub async fn force_close_session(host: &str, key: &str, http: bool) -> Result<Response, Error> {
+    let params = [("api_key", key)];
 
     let endpoint = if http {
         format!("http://{host}/close_session")
@@ -187,8 +181,8 @@ pub async fn force_close_session(
 /// # Errors
 /// If the web request to send late bytes was unsuccessful
 pub async fn send_late_bytes(
-    host: Arc<str>,
-    key: Arc<str>,
+    host: &str,
+    key: &str,
     http: bool,
     bytes: Vec<u8>,
 ) -> Result<Response, Error> {
@@ -197,7 +191,7 @@ pub async fn send_late_bytes(
         late_bytes: String,
     }
 
-    let params = [("api_key", &key)];
+    let params = [("api_key", key)];
 
     let endpoint = if http {
         format!("http://{host}/late_bytes")

@@ -1,7 +1,6 @@
 use std::{
     io::{self, ErrorKind, Write},
     path::{Path, PathBuf},
-    sync::Arc,
 };
 
 use anyhow::{anyhow, Context, Result};
@@ -56,10 +55,10 @@ pub struct Settings {
     #[serde(skip)]
     tf2_directory: PathBuf,
 
-    rcon_password: Arc<str>,
-    steam_api_key: Arc<str>,
-    masterbase_key: Arc<str>,
-    masterbase_host: Arc<str>,
+    rcon_password: String,
+    steam_api_key: String,
+    masterbase_key: String,
+    masterbase_host: String,
     autolaunch_ui: bool,
     friends_api_usage: FriendsAPIUsage,
     webui_port: u16,
@@ -70,9 +69,9 @@ pub struct Settings {
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
     #[serde(skip)]
-    override_rcon_password: Option<Arc<str>>,
+    override_rcon_password: Option<String>,
     #[serde(skip)]
-    override_steam_api_key: Option<Arc<str>>,
+    override_steam_api_key: Option<String>,
     #[serde(skip)]
     override_webui_port: Option<u16>,
     #[serde(skip)]
@@ -80,9 +79,9 @@ pub struct Settings {
     #[serde(skip)]
     override_rcon_port: Option<u16>,
     #[serde(skip)]
-    override_masterbase_api_key: Option<Arc<str>>,
+    override_masterbase_api_key: Option<String>,
     #[serde(skip)]
-    override_masterbase_host: Option<Arc<str>>,
+    override_masterbase_host: Option<String>,
 
     #[serde(skip)]
     pub upload_demos: bool,
@@ -243,23 +242,23 @@ impl Settings {
             val
         });
         // Override (and log if) the RCON password. (default mac_rcon)
-        self.override_rcon_password = args.rcon_pword.as_ref().map(|val| {
+        self.override_rcon_password = args.rcon_pword.as_deref().map(|val| {
             tracing::info!(
                 "Overrode configured rcon_password {:?}->{:?}",
                 self.rcon_password,
                 val
             );
-            Arc::from(val.clone())
+            val.to_owned()
         });
         // Override (and log if) the Steam API key. (No default value, but can be
         // configured from config.yaml)
-        self.override_steam_api_key = args.api_key.as_ref().map(|val| {
+        self.override_steam_api_key = args.api_key.as_deref().map(|val| {
             tracing::info!(
                 "Overrode configured Steam API key {:?}->{:?}",
                 self.steam_api_key,
                 val
             );
-            Arc::from(val.clone())
+            val.to_owned()
         });
         // Override (and log if) the TF2 game directory. (Can be configured, but by
         // default we search via steam library for it)
@@ -281,20 +280,20 @@ impl Settings {
             val
         });
 
-        self.override_masterbase_api_key = args.mb_key.as_ref().map(|val| {
+        self.override_masterbase_api_key = args.mb_key.as_deref().map(|val| {
             tracing::info!(
                 "Overrode configured Masterbase key {}->{val}",
                 self.masterbase_key
             );
-            Arc::from(val.clone())
+            val.to_owned()
         });
 
-        self.override_masterbase_host = args.mb_host.as_ref().map(|val| {
+        self.override_masterbase_host = args.mb_host.as_deref().map(|val| {
             tracing::info!(
                 "Overrode configured Masterbase endpoint {}->{val}",
                 self.masterbase_host
             );
-            Arc::from(val.clone())
+            val.to_owned()
         });
 
         self.minimal_demo_parsing = args.minimal_demo_parsing;
@@ -361,7 +360,7 @@ impl Settings {
             .unwrap_or(&self.tf2_directory)
     }
 
-    pub fn set_rcon_password(&mut self, pwd: Arc<str>) {
+    pub fn set_rcon_password(&mut self, pwd: String) {
         self.rcon_password = pwd;
     }
     #[must_use]
@@ -371,14 +370,13 @@ impl Settings {
             .unwrap_or(&self.rcon_password)
     }
     #[must_use]
-    pub fn rcon_password(&self) -> Arc<str> {
+    pub fn rcon_password(&self) -> &str {
         self.override_rcon_password
-            .as_ref()
+            .as_deref()
             .unwrap_or(&self.rcon_password)
-            .clone()
     }
 
-    pub fn set_steam_api_key(&mut self, key: Arc<str>) {
+    pub fn set_steam_api_key(&mut self, key: String) {
         self.steam_api_key = key;
     }
     #[must_use]
@@ -388,14 +386,13 @@ impl Settings {
             .unwrap_or(&self.steam_api_key)
     }
     #[must_use]
-    pub fn steam_api_key(&self) -> Arc<str> {
+    pub fn steam_api_key(&self) -> &str {
         self.override_steam_api_key
-            .as_ref()
+            .as_deref()
             .unwrap_or(&self.steam_api_key)
-            .clone()
     }
 
-    pub fn set_masterbase_key(&mut self, key: Arc<str>) {
+    pub fn set_masterbase_key(&mut self, key: String) {
         self.masterbase_key = key;
     }
     #[must_use]
@@ -405,14 +402,13 @@ impl Settings {
             .unwrap_or(&self.masterbase_key)
     }
     #[must_use]
-    pub fn masterbase_key(&self) -> Arc<str> {
+    pub fn masterbase_key(&self) -> &str {
         self.override_masterbase_api_key
-            .as_ref()
+            .as_deref()
             .unwrap_or(&self.masterbase_key)
-            .clone()
     }
 
-    pub fn set_masterbase_host(&mut self, endpoint: Arc<str>) {
+    pub fn set_masterbase_host(&mut self, endpoint: String) {
         self.masterbase_host = endpoint;
     }
     #[must_use]
@@ -422,11 +418,10 @@ impl Settings {
             .unwrap_or(&self.masterbase_host)
     }
     #[must_use]
-    pub fn masterbase_host(&self) -> Arc<str> {
+    pub fn masterbase_host(&self) -> &str {
         self.override_masterbase_host
-            .as_ref()
+            .as_deref()
             .unwrap_or(&self.masterbase_host)
-            .clone()
     }
 
     pub fn set_autolaunch_ui(&mut self, autolaunch: bool) {
@@ -531,8 +526,8 @@ impl Default for Settings {
             config_path,
             tf2_directory: PathBuf::default(),
             rcon_password: "mac_rcon".into(),
-            steam_api_key: "".into(),
-            masterbase_key: "".into(),
+            steam_api_key: String::new(),
+            masterbase_key: String::new(),
             masterbase_host: "megaanticheat.com".into(),
             friends_api_usage: FriendsAPIUsage::CheatersOnly,
             webui_port: 3621,

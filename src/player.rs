@@ -1,7 +1,6 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     ops::{Deref, DerefMut},
-    sync::Arc,
 };
 
 use serde::{Serialize, Serializer};
@@ -26,7 +25,7 @@ pub struct Players {
     pub steam_info: HashMap<SteamID, SteamInfo>,
     pub friend_info: HashMap<SteamID, FriendInfo>,
     pub records: PlayerRecords,
-    pub tags: HashMap<SteamID, HashSet<Arc<str>>>,
+    pub tags: HashMap<SteamID, HashSet<String>>,
 
     pub connected: Vec<SteamID>,
     pub history: VecDeque<SteamID>,
@@ -58,7 +57,7 @@ impl Players {
     }
 
     /// Set a particular tag on a player
-    pub fn set_tag(&mut self, steamid: SteamID, tag: Arc<str>) {
+    pub fn set_tag(&mut self, steamid: SteamID, tag: String) {
         self.tags.entry(steamid).or_default().insert(tag);
     }
 
@@ -300,12 +299,12 @@ impl Players {
             // Update game info
             if let Some(game_info) = self.game_info.get_mut(&steamid) {
                 if let Some(name) = g15.name.as_ref() {
-                    self.records.update_name(steamid, name.clone());
+                    self.records.update_name(steamid, name);
                 }
                 game_info.update_from_g15(g15);
             } else if let Some(game_info) = GameInfo::new_from_g15(g15) {
                 // Update name
-                self.records.update_name(steamid, game_info.name.clone());
+                self.records.update_name(steamid, &game_info.name);
                 self.game_info.insert(steamid, game_info);
             }
         }
@@ -321,7 +320,7 @@ impl Players {
 
         if let Some(game_info) = self.game_info.get_mut(&steamid) {
             if status.name != game_info.name {
-                self.records.update_name(steamid, status.name.clone());
+                self.records.update_name(steamid, &status.name);
             }
 
             game_info.update_from_status(status);
@@ -329,23 +328,23 @@ impl Players {
             let game_info = GameInfo::new_from_status(status);
 
             // Update name
-            self.records.update_name(steamid, game_info.name.clone());
+            self.records.update_name(steamid, &game_info.name);
             self.game_info.insert(steamid, game_info);
         }
     }
 
     #[must_use]
-    pub fn get_name(&self, steamid: SteamID) -> Option<Arc<str>> {
+    pub fn get_name(&self, steamid: SteamID) -> Option<&str> {
         if let Some(gi) = self.game_info.get(&steamid) {
-            return Some(gi.name.clone());
+            return Some(&gi.name);
         } else if let Some(si) = self.steam_info.get(&steamid) {
-            return Some(si.account_name.clone());
+            return Some(&si.account_name);
         } else if let Some(last_name) = self
             .records
             .get(&steamid)
-            .map(|r| r.previous_names().get(0))
+            .map(|r| r.previous_names().first())
         {
-            return last_name.cloned();
+            return last_name.map(String::as_str);
         }
 
         None
@@ -408,14 +407,14 @@ impl Serialize for Team {
 #[serde(rename_all = "camelCase")]
 pub struct SteamInfo {
     #[serde(rename = "name")]
-    pub account_name: Arc<str>,
-    pub profile_url: Arc<str>,
+    pub account_name: String,
+    pub profile_url: String,
     #[serde(rename = "pfp")]
-    pub pfp_url: Arc<str>,
-    pub pfp_hash: Arc<str>,
+    pub pfp_url: String,
+    pub pfp_hash: String,
     pub profile_visibility: ProfileVisibility,
     pub time_created: Option<i64>,
-    pub country_code: Option<Arc<str>>,
+    pub country_code: Option<String>,
     pub vac_bans: i64,
     pub game_bans: i64,
     pub days_since_last_ban: Option<i64>,
@@ -442,8 +441,8 @@ impl From<i32> for ProfileVisibility {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GameInfo {
-    pub name: Arc<str>,
-    pub userid: Arc<str>,
+    pub name: String,
+    pub userid: String,
     pub team: Team,
     pub time: u32,
     pub ping: u32,
@@ -460,8 +459,8 @@ pub struct GameInfo {
 impl Default for GameInfo {
     fn default() -> Self {
         Self {
-            name: "".into(),
-            userid: "".into(),
+            name: String::new(),
+            userid: String::new(),
             team: Team::Unassigned,
             time: 0,
             ping: 0,

@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use serde::Serialize;
 
 use crate::{
@@ -10,9 +8,9 @@ use crate::{
 // Server
 
 pub struct Server {
-    map: Option<Arc<str>>,
-    ip: Option<Arc<str>>,
-    hostname: Option<Arc<str>>,
+    map: Option<String>,
+    ip: Option<String>,
+    hostname: Option<String>,
     max_players: Option<u32>,
     num_players: Option<u32>,
     gamemode: Option<Gamemode>,
@@ -22,7 +20,7 @@ pub struct Server {
 pub struct Gamemode {
     pub matchmaking: bool,
     #[serde(rename = "type")]
-    pub game_type: Arc<str>,
+    pub game_type: String,
     pub vanilla: bool,
 }
 
@@ -44,18 +42,18 @@ impl Server {
     // **** Getters / Setters ****
 
     #[must_use]
-    pub fn map(&self) -> Option<Arc<str>> {
-        self.map.clone()
+    pub fn map(&self) -> Option<&str> {
+        self.map.as_deref()
     }
 
     #[must_use]
-    pub fn ip(&self) -> Option<Arc<str>> {
-        self.ip.clone()
+    pub fn ip(&self) -> Option<&str> {
+        self.ip.as_deref()
     }
 
     #[must_use]
-    pub fn hostname(&self) -> Option<Arc<str>> {
-        self.hostname.clone()
+    pub fn hostname(&self) -> Option<&str> {
+        self.hostname.as_deref()
     }
 
     #[must_use]
