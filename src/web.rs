@@ -564,7 +564,7 @@ async fn get_playerlist(State(state): State<WebState>) -> impl IntoResponse {
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize)]
 struct PlayerRecordResponse<'a> {
-    name: String,
+    name: &'a str,
     isSelf: bool,
     #[serde(serialize_with = "serialize_steamid_as_string")]
     steamID64: SteamID,
@@ -588,7 +588,7 @@ fn get_playerlist_response(state: &MACState) -> String {
             let friends = state.players.friend_info.get(id);
 
             PlayerRecordResponse {
-                name: record.name.clone(),
+                name: record.previous_names().first().map_or("", String::as_str),
                 isSelf: state.settings.steam_user().is_some_and(|user| user == *id),
                 steamID64: *id,
                 convicted: Some(false),

@@ -57,6 +57,9 @@ impl StateUpdater<MACState> for ProfileLookupResult {
         for (steamid, result) in results {
             match result {
                 Ok(steaminfo) => {
+                    if let Some(r) = state.players.records.get_mut(steamid) {
+                        r.add_previous_name(&steaminfo.account_name);
+                    }
                     state.players.steam_info.insert(*steamid, steaminfo.clone());
                 }
                 Err(e) => {

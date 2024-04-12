@@ -142,10 +142,6 @@ impl PlayerRecords {
 
     pub fn update_name(&mut self, steamid: SteamID, name: &str) {
         if let Some(record) = self.records.get_mut(&steamid) {
-            if record.name == name {
-                return;
-            }
-            record.name = name.to_owned();
             record.add_previous_name(name);
         }
     }
@@ -184,7 +180,6 @@ impl DerefMut for PlayerRecords {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 #[serde(default)]
 pub struct PlayerRecord {
-    pub name: String,
     custom_data: serde_json::Value,
     verdict: Verdict,
     previous_names: Vec<String>,
@@ -210,7 +205,6 @@ impl PlayerRecord {
 impl Default for PlayerRecord {
     fn default() -> Self {
         Self {
-            name: String::default(),
             custom_data: default_custom_data(),
             verdict: Verdict::default(),
             previous_names: Vec::new(),
@@ -250,11 +244,12 @@ impl PlayerRecord {
         &self.previous_names
     }
     pub fn add_previous_name(&mut self, name: &str) -> &mut Self {
-        if self.previous_names.iter().any(|pn| pn == name) {
+        if self.previous_names.first().is_some_and(|n| n == name) {
             return self;
-        };
+        }
 
-        self.previous_names.push(name.to_owned());
+        self.previous_names.retain(|n| n != name);
+        self.previous_names.insert(0, name.to_owned());
         self
     }
     #[must_use]
