@@ -1,5 +1,6 @@
 use std::collections::{HashMap, VecDeque};
 
+use chrono::Utc;
 use event_loop::{try_get, Handled, HandlerStruct, Is, StateUpdater};
 use steamid_ng::SteamID;
 use tappet::{
@@ -451,6 +452,7 @@ pub async fn request_steam_info(
                     } else {
                         None
                     },
+                    fetched: Utc::now(),
                 };
                 Ok(steam_info)
             };

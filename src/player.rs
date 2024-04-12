@@ -3,6 +3,7 @@ use std::{
     ops::{Deref, DerefMut},
 };
 
+use chrono::{DateTime, Utc};
 use serde::{Serialize, Serializer};
 use steamid_ng::SteamID;
 
@@ -418,6 +419,7 @@ pub struct SteamInfo {
     pub vac_bans: i64,
     pub game_bans: i64,
     pub days_since_last_ban: Option<i64>,
+    pub fetched: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
