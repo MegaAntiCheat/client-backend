@@ -588,7 +588,7 @@ fn get_playerlist_response(state: &MACState) -> String {
             let friends = state.players.friend_info.get(id);
 
             PlayerRecordResponse {
-                name: record.previous_names().first().map_or("", String::as_str),
+                name: state.players.get_name(*id).unwrap_or(""),
                 isSelf: state.settings.steam_user().is_some_and(|user| user == *id),
                 steamID64: *id,
                 convicted: Some(false),
