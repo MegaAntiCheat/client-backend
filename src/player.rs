@@ -18,7 +18,7 @@ pub mod tags {
     pub const FRIEND: &str = "Friend";
 }
 
-const MAX_HISTORY_LEN: usize = 100;
+// const MAX_HISTORY_LEN: usize = 100;
 
 pub struct Players {
     pub game_info: HashMap<SteamID, GameInfo>,
@@ -45,7 +45,7 @@ impl Players {
             records,
 
             connected: Vec::new(),
-            history: VecDeque::with_capacity(MAX_HISTORY_LEN),
+            history: VecDeque::new(),
             user,
         }
     }
@@ -224,10 +224,10 @@ impl Players {
             .retain(|p| !unaccounted_players.iter().any(|up| up == p));
 
         // Shrink to not go past max number of players
-        let num_players = self.history.len() + unaccounted_players.len();
-        for _ in MAX_HISTORY_LEN..num_players {
-            self.history.pop_front();
-        }
+        // let num_players = self.history.len() + unaccounted_players.len();
+        // for _ in MAX_HISTORY_LEN..num_players {
+        //     self.history.pop_front();
+        // }
 
         for p in unaccounted_players {
             self.history.push_back(p);
