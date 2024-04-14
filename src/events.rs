@@ -87,6 +87,7 @@ pub struct InternalPreferences {
     pub masterbase_key: Option<String>,
     pub masterbase_host: Option<String>,
     pub rcon_port: Option<u16>,
+    pub dumb_autokick: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -119,6 +120,9 @@ impl StateUpdater<MACState> for Preferences {
             }
             if let Some(masterbase_host) = internal.masterbase_host {
                 state.settings.set_masterbase_host(masterbase_host);
+            }
+            if let Some(autokick) = internal.dumb_autokick {
+                state.settings.set_autokick_bots(autokick);
             }
         }
 

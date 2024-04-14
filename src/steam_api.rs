@@ -126,6 +126,7 @@ where
                     masterbase_key: _,
                     masterbase_host: _,
                     rcon_port: _,
+                    dumb_autokick: _,
                 }),
             external: _,
         }) = try_get(message)

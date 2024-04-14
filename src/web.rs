@@ -487,6 +487,7 @@ fn get_prefs_response(state: &MACState) -> String {
             masterbase_key: Some(settings.masterbase_key().to_owned()),
             masterbase_host: Some(settings.masterbase_host().to_owned()),
             rcon_port: Some(settings.rcon_port()),
+            dumb_autokick: Some(settings.autokick_bots()),
         }),
         external: Some(settings.external_preferences().clone()),
     };

@@ -1,4 +1,5 @@
 use std::{
+    fmt::Display,
     io::{self, ErrorKind, Write},
     path::{Path, PathBuf},
 };
@@ -32,6 +33,12 @@ pub enum FriendsAPIUsage {
     None,
     CheatersOnly,
     All,
+}
+
+impl Display for FriendsAPIUsage {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{self:?}")
+    }
 }
 
 impl FriendsAPIUsage {
@@ -481,6 +488,9 @@ impl Settings {
     #[must_use]
     pub const fn autokick_bots(&self) -> bool {
         self.autokick_bots
+    }
+    pub fn set_autokick_bots(&mut self, kick: bool) {
+        self.autokick_bots = kick;
     }
 
     /// Attempts to find (and create) a directory to be used for configuration
