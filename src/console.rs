@@ -1,4 +1,4 @@
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 use event_loop::{Handled, HandlerStruct, Is, MessageSource, StateUpdater};
 use regex::Regex;
@@ -18,11 +18,11 @@ use crate::{
 };
 
 #[derive(Debug, Clone)]
-pub struct RawConsoleOutput(pub Arc<str>);
+pub struct RawConsoleOutput(pub String);
 
 #[allow(clippy::module_name_repetitions)]
 pub struct ConsoleLog {
-    pub recv: UnboundedReceiver<Arc<str>>,
+    pub recv: UnboundedReceiver<String>,
     logged_error: bool,
 }
 impl<M: Is<RawConsoleOutput>> MessageSource<M> for ConsoleLog {

@@ -1,4 +1,4 @@
-use std::{collections::HashMap, path::PathBuf, sync::Arc, time::Duration};
+use std::{collections::HashMap, path::PathBuf, time::Duration};
 
 use event_loop::StateUpdater;
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ pub struct UserUpdates(pub HashMap<SteamID, UserUpdate>);
 impl StateUpdater<MACState> for UserUpdates {
     fn update_state(self, state: &mut MACState) {
         for (k, v) in self.0 {
-            let name = state.players.get_name(k);
+            let name = state.players.get_name(k).map(ToOwned::to_owned);
 
             // Insert record if it didn't exist
             let record = state.players.records.entry(k).or_default();
@@ -40,7 +40,7 @@ impl StateUpdater<MACState> for UserUpdates {
             if let Some(verdict) = v.local_verdict {
                 record.set_verdict(verdict);
                 if let Some(name) = name {
-                    record.add_previous_name(name);
+                    record.add_previous_name(&name);
                 }
             }
 
@@ -81,12 +81,13 @@ pub async fn emit_on_timer<M: 'static + Send>(
 #[serde(rename_all = "camelCase")]
 pub struct InternalPreferences {
     pub friends_api_usage: Option<FriendsAPIUsage>,
-    pub tf2_directory: Option<Arc<str>>,
-    pub rcon_password: Option<Arc<str>>,
-    pub steam_api_key: Option<Arc<str>>,
-    pub masterbase_key: Option<Arc<str>>,
-    pub masterbase_host: Option<Arc<str>>,
+    pub tf2_directory: Option<String>,
+    pub rcon_password: Option<String>,
+    pub steam_api_key: Option<String>,
+    pub masterbase_key: Option<String>,
+    pub masterbase_host: Option<String>,
     pub rcon_port: Option<u16>,
+    pub dumb_autokick: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -99,7 +100,7 @@ impl StateUpdater<MACState> for Preferences {
     fn update_state(self, state: &mut MACState) {
         if let Some(internal) = self.internal {
             if let Some(tf2_dir) = internal.tf2_directory {
-                let path: PathBuf = tf2_dir.to_string().into();
+                let path: PathBuf = tf2_dir.into();
                 state.settings.set_tf2_directory(path);
             }
             if let Some(rcon_pwd) = internal.rcon_password {
@@ -119,6 +120,9 @@ impl StateUpdater<MACState> for Preferences {
             }
             if let Some(masterbase_host) = internal.masterbase_host {
                 state.settings.set_masterbase_host(masterbase_host);
+            }
+            if let Some(autokick) = internal.dumb_autokick {
+                state.settings.set_autokick_bots(autokick);
             }
         }
 

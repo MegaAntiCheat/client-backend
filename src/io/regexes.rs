@@ -1,8 +1,6 @@
 #![allow(non_upper_case_globals)]
 #![allow(unused_variables)]
 
-use std::sync::Arc;
-
 use anyhow::{Context, Ok, Result};
 use regex::Captures;
 use steamid_ng::SteamID;
@@ -21,7 +19,7 @@ use crate::player::PlayerState;
 
 pub const REGEX_HOSTNAME: &str = r"^hostname: (.*)$";
 #[derive(Debug, Clone)]
-pub struct Hostname(pub Arc<str>);
+pub struct Hostname(pub String);
 impl Hostname {
     #[must_use]
     pub fn parse(caps: &Captures) -> Self {
@@ -31,7 +29,7 @@ impl Hostname {
 
 pub const REGEX_IP: &str = r"^udp/ip  : (.*)$";
 #[derive(Debug, Clone)]
-pub struct ServerIP(pub Arc<str>);
+pub struct ServerIP(pub String);
 impl ServerIP {
     #[must_use]
     pub fn parse(caps: &Captures) -> Self {
@@ -41,7 +39,7 @@ impl ServerIP {
 
 pub const REGEX_MAP: &str = r"^map     : (.+) at: .*$";
 #[derive(Debug, Clone)]
-pub struct Map(pub Arc<str>);
+pub struct Map(pub String);
 impl Map {
     #[must_use]
     pub fn parse(caps: &Captures) -> Self {
@@ -79,11 +77,11 @@ impl PlayerCount {
 pub const REGEX_KILL: &str = r"^(.*)\skilled\s(.*)\swith\s(.*)\.(\s\(crit\))?$";
 #[derive(Debug, Clone)]
 pub struct PlayerKill {
-    pub killer_name: Arc<str>,
-    pub killer_steamid: Option<Arc<str>>,
-    pub victim_name: Arc<str>,
-    pub victim_steamid: Option<Arc<str>>,
-    pub weapon: Arc<str>,
+    pub killer_name: String,
+    pub killer_steamid: Option<String>,
+    pub victim_name: String,
+    pub victim_steamid: Option<String>,
+    pub weapon: String,
     pub crit: bool,
 }
 
@@ -109,9 +107,9 @@ pub const REGEX_CHAT: &str = r"^(?:\*DEAD\*)?(?:\(TEAM\))?\s?(.*)\s:\s\s(.*)$";
 
 #[derive(Debug, Clone)]
 pub struct ChatMessage {
-    pub player_name: Arc<str>,
-    pub steamid: Option<Arc<str>>,
-    pub message: Arc<str>,
+    pub player_name: String,
+    pub steamid: Option<String>,
+    pub message: String,
 }
 
 impl ChatMessage {
@@ -134,8 +132,8 @@ pub const REGEX_STATUS: &str =
 
 #[derive(Debug, Clone)]
 pub struct StatusLine {
-    pub userid: Arc<str>,
-    pub name: Arc<str>,
+    pub userid: String,
+    pub name: String,
     pub steamid: SteamID,
     pub time: u32,
     pub ping: u32,

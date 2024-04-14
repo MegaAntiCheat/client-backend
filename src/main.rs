@@ -199,7 +199,7 @@ fn main() {
                 .add_handler(LookupProfiles::new())
                 .add_handler(LookupFriends::new())
                 .add_handler(DumbAutoKick)
-                .add_handler(WebAPIHandler);
+                .add_handler(WebAPIHandler::new());
 
             if args.print_votes {
                 event_loop = event_loop.add_handler(PrintVotes::new());

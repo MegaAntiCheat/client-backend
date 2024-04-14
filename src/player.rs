@@ -1,9 +1,9 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     ops::{Deref, DerefMut},
-    sync::Arc,
 };
 
+use chrono::{DateTime, Utc};
 use serde::{Serialize, Serializer};
 use steamid_ng::SteamID;
 
@@ -19,14 +19,14 @@ pub mod tags {
     pub const FRIEND: &str = "Friend";
 }
 
-const MAX_HISTORY_LEN: usize = 100;
+// const MAX_HISTORY_LEN: usize = 100;
 
 pub struct Players {
     pub game_info: HashMap<SteamID, GameInfo>,
     pub steam_info: HashMap<SteamID, SteamInfo>,
     pub friend_info: HashMap<SteamID, FriendInfo>,
     pub records: PlayerRecords,
-    pub tags: HashMap<SteamID, HashSet<Arc<str>>>,
+    pub tags: HashMap<SteamID, HashSet<String>>,
 
     pub connected: Vec<SteamID>,
     pub history: VecDeque<SteamID>,
@@ -46,7 +46,7 @@ impl Players {
             records,
 
             connected: Vec::new(),
-            history: VecDeque::with_capacity(MAX_HISTORY_LEN),
+            history: VecDeque::new(),
             user,
         }
     }
@@ -58,7 +58,7 @@ impl Players {
     }
 
     /// Set a particular tag on a player
-    pub fn set_tag(&mut self, steamid: SteamID, tag: Arc<str>) {
+    pub fn set_tag(&mut self, steamid: SteamID, tag: String) {
         self.tags.entry(steamid).or_default().insert(tag);
     }
 
@@ -225,10 +225,10 @@ impl Players {
             .retain(|p| !unaccounted_players.iter().any(|up| up == p));
 
         // Shrink to not go past max number of players
-        let num_players = self.history.len() + unaccounted_players.len();
-        for _ in MAX_HISTORY_LEN..num_players {
-            self.history.pop_front();
-        }
+        // let num_players = self.history.len() + unaccounted_players.len();
+        // for _ in MAX_HISTORY_LEN..num_players {
+        //     self.history.pop_front();
+        // }
 
         for p in unaccounted_players {
             self.history.push_back(p);
@@ -241,8 +241,13 @@ impl Players {
 
     /// Gets a struct containing all the relevant data on a player in a
     /// serializable format
-    pub fn get_serializable_player(&self, steamid: SteamID) -> Option<Player> {
-        let game_info = self.game_info.get(&steamid)?;
+    pub fn get_serializable_player(&self, steamid: SteamID) -> Player {
+        let game_info = self.game_info.get(&steamid);
+        let steam_info = self.steam_info.get(&steamid);
+        let name = game_info.map_or_else(
+            || steam_info.map_or("", |si| &si.account_name),
+            |gi| &gi.name,
+        );
         let tags: Vec<&str> = self
             .tags
             .get(&steamid)
@@ -263,13 +268,13 @@ impl Players {
 
         let local_verdict = record.as_ref().map_or(Verdict::Player, |r| r.verdict());
 
-        Some(Player {
+        Player {
             isSelf: self.user.is_some_and(|user| user == steamid),
-            name: game_info.name.as_ref(),
+            name,
             steamID64: steamid,
             localVerdict: local_verdict,
-            steamInfo: self.steam_info.get(&steamid),
-            gameInfo: Some(game_info),
+            steamInfo: steam_info,
+            gameInfo: game_info,
             customData: record
                 .as_ref()
                 .map_or_else(default_custom_data, |r| r.custom_data().clone()),
@@ -278,7 +283,7 @@ impl Players {
             previous_names,
             friends,
             friendsIsPublic: friend_info.and_then(|fi| fi.public),
-        })
+        }
     }
 
     pub fn handle_g15(&mut self, players: Vec<g15::G15Player>) {
@@ -286,6 +291,10 @@ impl Players {
             let Some(steamid) = g15.steamid else {
                 continue;
             };
+
+            if let Some(r) = self.records.get_mut(&steamid) {
+                r.mark_seen();
+            }
 
             // Add to connected players if they aren't already
             if !self.connected.contains(&steamid) {
@@ -295,12 +304,12 @@ impl Players {
             // Update game info
             if let Some(game_info) = self.game_info.get_mut(&steamid) {
                 if let Some(name) = g15.name.as_ref() {
-                    self.records.update_name(steamid, name.clone());
+                    self.records.update_name(steamid, name);
                 }
                 game_info.update_from_g15(g15);
             } else if let Some(game_info) = GameInfo::new_from_g15(g15) {
                 // Update name
-                self.records.update_name(steamid, game_info.name.clone());
+                self.records.update_name(steamid, &game_info.name);
                 self.game_info.insert(steamid, game_info);
             }
         }
@@ -309,6 +318,10 @@ impl Players {
     pub fn handle_status_line(&mut self, status: StatusLine) {
         let steamid = status.steamid;
 
+        if let Some(r) = self.records.get_mut(&steamid) {
+            r.mark_seen();
+        }
+
         // Add to connected players if they aren't already
         if !self.connected.contains(&steamid) {
             self.connected.push(steamid);
@@ -316,7 +329,7 @@ impl Players {
 
         if let Some(game_info) = self.game_info.get_mut(&steamid) {
             if status.name != game_info.name {
-                self.records.update_name(steamid, status.name.clone());
+                self.records.update_name(steamid, &status.name);
             }
 
             game_info.update_from_status(status);
@@ -324,17 +337,23 @@ impl Players {
             let game_info = GameInfo::new_from_status(status);
 
             // Update name
-            self.records.update_name(steamid, game_info.name.clone());
+            self.records.update_name(steamid, &game_info.name);
             self.game_info.insert(steamid, game_info);
         }
     }
 
     #[must_use]
-    pub fn get_name(&self, steamid: SteamID) -> Option<Arc<str>> {
+    pub fn get_name(&self, steamid: SteamID) -> Option<&str> {
         if let Some(gi) = self.game_info.get(&steamid) {
-            return Some(gi.name.clone());
+            return Some(&gi.name);
         } else if let Some(si) = self.steam_info.get(&steamid) {
-            return Some(si.account_name.clone());
+            return Some(&si.account_name);
+        } else if let Some(last_name) = self
+            .records
+            .get(&steamid)
+            .map(|r| r.previous_names().first())
+        {
+            return last_name.map(String::as_str);
         }
 
         None
@@ -349,7 +368,7 @@ impl Serialize for Players {
         let players: Vec<Player> = self
             .connected
             .iter()
-            .filter_map(|&s| self.get_serializable_player(s))
+            .map(|&s| self.get_serializable_player(s))
             .collect();
         players.serialize(serializer)
     }
@@ -397,17 +416,18 @@ impl Serialize for Team {
 #[serde(rename_all = "camelCase")]
 pub struct SteamInfo {
     #[serde(rename = "name")]
-    pub account_name: Arc<str>,
-    pub profile_url: Arc<str>,
+    pub account_name: String,
+    pub profile_url: String,
     #[serde(rename = "pfp")]
-    pub pfp_url: Arc<str>,
-    pub pfp_hash: Arc<str>,
+    pub pfp_url: String,
+    pub pfp_hash: String,
     pub profile_visibility: ProfileVisibility,
     pub time_created: Option<i64>,
-    pub country_code: Option<Arc<str>>,
+    pub country_code: Option<String>,
     pub vac_bans: i64,
     pub game_bans: i64,
     pub days_since_last_ban: Option<i64>,
+    pub fetched: DateTime<Utc>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
@@ -431,8 +451,8 @@ impl From<i32> for ProfileVisibility {
 
 #[derive(Debug, Clone, Serialize)]
 pub struct GameInfo {
-    pub name: Arc<str>,
-    pub userid: Arc<str>,
+    pub name: String,
+    pub userid: String,
     pub team: Team,
     pub time: u32,
     pub ping: u32,
@@ -449,8 +469,8 @@ pub struct GameInfo {
 impl Default for GameInfo {
     fn default() -> Self {
         Self {
-            name: "".into(),
-            userid: "".into(),
+            name: String::new(),
+            userid: String::new(),
             team: Team::Unassigned,
             time: 0,
             ping: 0,
@@ -570,6 +590,13 @@ pub struct FriendInfo {
     friends: Vec<Friend>,
 }
 
+impl FriendInfo {
+    #[must_use]
+    pub fn friends(&self) -> &[Friend] {
+        &self.friends
+    }
+}
+
 impl Deref for FriendInfo {
     type Target = Vec<Friend>;
 
@@ -586,8 +613,11 @@ impl DerefMut for FriendInfo {
 
 // Useful
 
-#[allow(clippy::trivially_copy_pass_by_ref)]
-fn serialize_steamid_as_string<S: Serializer>(steamid: &SteamID, s: S) -> Result<S::Ok, S::Error> {
+#[allow(clippy::trivially_copy_pass_by_ref, clippy::missing_errors_doc)]
+pub fn serialize_steamid_as_string<S: Serializer>(
+    steamid: &SteamID,
+    s: S,
+) -> Result<S::Ok, S::Error> {
     format!("{}", u64::from(*steamid)).serialize(s)
 }
 

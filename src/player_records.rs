@@ -4,7 +4,6 @@ use std::{
     io::{ErrorKind, Write},
     ops::{Deref, DerefMut},
     path::PathBuf,
-    sync::Arc,
 };
 
 use anyhow::Context;
@@ -141,11 +140,9 @@ impl PlayerRecords {
         Settings::locate_config_directory().map(|dir| dir.join("playerlist.json"))
     }
 
-    pub fn update_name(&mut self, steamid: SteamID, name: Arc<str>) {
+    pub fn update_name(&mut self, steamid: SteamID, name: &str) {
         if let Some(record) = self.records.get_mut(&steamid) {
-            if !record.previous_names.contains(&name) {
-                record.add_previous_name(name);
-            }
+            record.add_previous_name(name);
         }
     }
 }
@@ -185,7 +182,8 @@ impl DerefMut for PlayerRecords {
 pub struct PlayerRecord {
     custom_data: serde_json::Value,
     verdict: Verdict,
-    previous_names: Vec<Arc<str>>,
+    previous_names: Vec<String>,
+    last_seen: Option<DateTime<Utc>>,
     /// Time of last manual change made by the user.
     modified: DateTime<Utc>,
     created: DateTime<Utc>,
@@ -210,6 +208,7 @@ impl Default for PlayerRecord {
             custom_data: default_custom_data(),
             verdict: Verdict::default(),
             previous_names: Vec::new(),
+            last_seen: None,
             modified: default_date(),
             created: default_date(),
         }
@@ -241,15 +240,16 @@ impl PlayerRecord {
         self
     }
     #[must_use]
-    pub fn previous_names(&self) -> &[Arc<str>] {
+    pub fn previous_names(&self) -> &[String] {
         &self.previous_names
     }
-    pub fn add_previous_name(&mut self, name: Arc<str>) -> &mut Self {
-        if self.previous_names.contains(&name) {
+    pub fn add_previous_name(&mut self, name: &str) -> &mut Self {
+        if self.previous_names.first().is_some_and(|n| n == name) {
             return self;
-        };
+        }
 
-        self.previous_names.push(name);
+        self.previous_names.retain(|n| n != name);
+        self.previous_names.insert(0, name.to_owned());
         self
     }
     #[must_use]
@@ -259,6 +259,15 @@ impl PlayerRecord {
     #[must_use]
     pub const fn created(&self) -> DateTime<Utc> {
         self.created
+    }
+
+    #[must_use]
+    pub const fn last_seen(&self) -> Option<DateTime<Utc>> {
+        self.last_seen
+    }
+
+    pub fn mark_seen(&mut self) {
+        self.last_seen = Some(Utc::now());
     }
 }
 

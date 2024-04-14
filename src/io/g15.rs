@@ -2,8 +2,6 @@
 #![allow(unused_variables)]
 #![allow(clippy::missing_errors_doc)]
 
-use std::sync::Arc;
-
 use anyhow::Result;
 use regex::{Captures, Regex};
 use steamid_ng::SteamID;
@@ -187,7 +185,7 @@ pub fn parse_userid(caps: &Captures, players: &mut [G15Player]) -> Result<()> {
 #[derive(Debug, Clone)]
 #[allow(clippy::module_name_repetitions)]
 pub struct G15Player {
-    pub name: Option<Arc<str>>,   // eg "Lilith"
+    pub name: Option<String>,     // eg "Lilith"
     pub ping: Option<u32>,        // eg 21
     pub score: Option<u32>,       // eg 16
     pub deaths: Option<u32>,      // eg 5
@@ -198,7 +196,7 @@ pub struct G15Player {
     pub connected: Option<bool>,  // eg true
     pub valid: Option<bool>,      // eg true
     pub alive: Option<bool>,      // eg true
-    pub userid: Option<Arc<str>>, // eg "301"
+    pub userid: Option<String>,   // eg "301"
 }
 impl G15Player {
     const fn new() -> Self {
