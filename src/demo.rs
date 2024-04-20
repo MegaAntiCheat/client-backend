@@ -327,7 +327,7 @@ impl DemoManager {
         settings: &Settings,
         header: &Header,
         demo_name: &str,
-    ) -> Option<event_loop::Handled<M>> {
+    ) -> Option<Handled<M>> {
         let host = settings.masterbase_host().to_owned();
         let key = settings.masterbase_key().to_owned();
         let map = header.map.clone();
@@ -361,7 +361,7 @@ impl DemoManager {
     fn upload_bytes<M: Is<DemoMessage>>(
         session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
         bytes: Vec<u8>,
-    ) -> Option<event_loop::Handled<M>> {
+    ) -> Option<Handled<M>> {
         // Loop while session is uninit
         Handled::future(async move {
             loop {
@@ -372,7 +372,7 @@ impl DemoManager {
                         if let Err(e) = session.send_bytes(bytes).await {
                             tracing::error!("Failed to upload demo chunk: {e}");
                             *guard = Err(SessionMissingReason::Error);
-                            std::mem::drop(guard);
+                            drop(guard);
                         } else {
                             tracing::debug!("Uploaded {len} bytes to masterbase.");
                         }
@@ -398,7 +398,7 @@ impl DemoManager {
         session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
         settings: &Settings,
         late_bytes: Vec<u8>,
-    ) -> Option<event_loop::Handled<M>> {
+    ) -> Option<Handled<M>> {
         let host = settings.masterbase_host().to_owned();
         let key = settings.masterbase_key().to_owned();
         let http = settings.use_masterbase_http();
@@ -449,7 +449,7 @@ where
         &mut self,
         state: &MACState,
         message: &IM,
-    ) -> Option<event_loop::Handled<OM>> {
+    ) -> Option<Handled<OM>> {
         let msg = try_get(message)?;
 
         tracing::debug!("Got {} bytes for demo {:?}", msg.bytes.len(), msg.file_path);
@@ -557,7 +557,7 @@ impl OpenDemo {
                     self.header = Some(header);
                     self.offset = stream.pos();
                 }
-                Err(bitbuffer::BitError::NotEnoughData {
+                Err(BitError::NotEnoughData {
                     requested,
                     bits_left,
                 }) => {
