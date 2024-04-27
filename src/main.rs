@@ -130,7 +130,7 @@ fn main() {
                 state.settings.upload_demos = false;
                 tracing::warn!("No masterbase key is set. If you would like to enable demo uploads, please provision a key at https://megaanticheat.com/provision");
             }
-            
+
             // Close any previous masterbase sessions that might not have finished up
             // properly.
             if state.settings.upload_demos() {
@@ -173,7 +173,7 @@ fn main() {
                 .ok()};
 
             // Web API
-            let (web_state, web_requests) = WebState::new(Some(&UI_DIR));
+            let (web_state, web_requests) = WebState::new(Some(&UI_DIR), state.settings.override_web_dir());
             tokio::task::spawn(async move {
                 web_main(web_state, web_port).await;
             });

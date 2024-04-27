@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     convert::Infallible,
     net::SocketAddr,
-    path::Path,
+    path::{Path, PathBuf},
     sync::{Arc, Mutex},
 };
 
@@ -269,13 +269,24 @@ impl Default for WebAPIHandler {
 pub struct WebState {
     pub request: UnboundedSender<WebRequest>,
     pub ui: Option<&'static Dir<'static>>,
+    pub override_web_dir: Option<PathBuf>,
 }
 
 impl WebState {
     #[must_use]
-    pub fn new(ui: Option<&'static Dir<'static>>) -> (Self, UnboundedReceiver<WebRequest>) {
+    pub fn new(
+        ui: Option<&'static Dir<'static>>,
+        override_web_dir: Option<PathBuf>,
+    ) -> (Self, UnboundedReceiver<WebRequest>) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        (Self { request: tx, ui }, rx)
+        (
+            Self {
+                request: tx,
+                ui,
+                override_web_dir,
+            },
+            rx,
+        )
     }
 }
 
@@ -328,37 +339,75 @@ async fn get_ui(
     State(state): State<WebState>,
     axum::extract::Path(path): axum::extract::Path<String>,
 ) -> impl IntoResponse {
-    state.ui.map_or_else(
-        || {
-            (
-            StatusCode::NOT_FOUND,
-            ([(header::CONTENT_TYPE, "text/html")]),
-            "<body><h1>There is no UI bundled with this version of the application.</h1></body>",
-        )
-            .into_response()
-        },
-        |ui| {
-            ui.get_file(&path).map_or_else(
+    match state.override_web_dir {
+        Some(override_web_dir) => {
+            let file_path = override_web_dir.join(&path);
+
+            if file_path.is_file() {
+                let contents = tokio::fs::read(&file_path).await;
+
+                match contents {
+                    Ok(contents) => {
+                        let content_type = guess_content_type(&file_path);
+                        let headers = [
+                            (header::CONTENT_TYPE, content_type),
+                            (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+                        ];
+                        (StatusCode::OK, headers, contents).into_response()
+                    }
+                    Err(e) => {
+                        tracing::error!("Failed to read file {:?}: {e}", &file_path);
+                        (
+                            StatusCode::INTERNAL_SERVER_ERROR,
+                            ([(header::CONTENT_TYPE, "text/html")]),
+                            "<body><h1>500 Internal Server Error</h1><p>Failed to read file in override web-ui directory</p></body>",
+                        )
+                            .into_response()
+                    }
+                }
+            } else {
+                (
+                    StatusCode::NOT_FOUND,
+                    ([(header::CONTENT_TYPE, "text/html")]),
+                    "<body><h1>404 Not Found</h1></body>",
+                )
+                    .into_response()
+            }
+        }
+        None => {
+            state.ui.map_or_else(
                 || {
                     (
-                        StatusCode::NOT_FOUND,
-                        ([(header::CONTENT_TYPE, "text/html")]),
-                        "<body><h1>404 Not Found</h1></body>",
-                    )
-                        .into_response()
+                    StatusCode::NOT_FOUND,
+                    ([(header::CONTENT_TYPE, "text/html")]),
+                    "<body><h1>There is no UI bundled with this version of the application.</h1></body>",
+                )
+                    .into_response()
                 },
-                |file| {
-                    // Serve included file
-                    let content_type = guess_content_type(file.path());
-                    let headers = [
-                        (header::CONTENT_TYPE, content_type),
-                        (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
-                    ];
-                    (StatusCode::OK, headers, file.contents()).into_response()
+                |ui| {
+                    ui.get_file(&path).map_or_else(
+                        || {
+                            (
+                                StatusCode::NOT_FOUND,
+                                ([(header::CONTENT_TYPE, "text/html")]),
+                                "<body><h1>404 Not Found</h1></body>",
+                            )
+                                .into_response()
+                        },
+                        |file| {
+                            // Serve included file
+                            let content_type = guess_content_type(file.path());
+                            let headers = [
+                                (header::CONTENT_TYPE, content_type),
+                                (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+                            ];
+                            (StatusCode::OK, headers, file.contents()).into_response()
+                        },
+                    )
                 },
             )
-        },
-    )
+        }
+    }
 }
 
 /// Attempts to guess the http MIME type of a given file extension.

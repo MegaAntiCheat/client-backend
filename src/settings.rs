@@ -89,6 +89,8 @@ pub struct Settings {
     override_masterbase_api_key: Option<String>,
     #[serde(skip)]
     override_masterbase_host: Option<String>,
+    #[serde(skip)]
+    override_web_dir: Option<PathBuf>,
 
     #[serde(skip)]
     pub upload_demos: bool,
@@ -303,6 +305,28 @@ impl Settings {
             val.to_owned()
         });
 
+        // Validate the provided directory from which to serve the web-ui, if any.
+        // This could still have TOCTOU errors, but I'd consider that to be
+        // something we can live with.
+        self.override_web_dir = match args.web_dir.as_ref() {
+            Some(val) => {
+                if val.is_dir() {
+                    tracing::info!(
+                        "Serving web-ui from {:?} rather than the bundled files.",
+                        val
+                    );
+                    Some(val.clone())
+                } else {
+                    tracing::warn!(
+                        "Path {:?} does not exist, is not a directory, or is not readable. Falling back to serving the bundled web-ui files.",
+                        val
+                    );
+                    None
+                }
+            }
+            None => None,
+        };
+
         self.minimal_demo_parsing = args.minimal_demo_parsing;
         self.upload_demos = !args.dont_upload_demos;
         self.masterbase_http = args.masterbase_http;
@@ -493,6 +517,11 @@ impl Settings {
         self.autokick_bots = kick;
     }
 
+    #[must_use]
+    pub fn override_web_dir(&self) -> Option<PathBuf> {
+        self.override_web_dir.clone()
+    }
+
     /// Attempts to find (and create) a directory to be used for configuration
     /// files
     ///
@@ -551,6 +580,7 @@ impl Default for Settings {
             override_rcon_port: None,
             override_masterbase_api_key: None,
             override_masterbase_host: None,
+            override_web_dir: None,
             external: serde_json::Value::Object(Map::new()),
             upload_demos: true,
             minimal_demo_parsing: false,
