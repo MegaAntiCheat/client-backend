@@ -1,0 +1,85 @@
+name: Build
+
+on:
+  push:
+    tags:
+      - "v*"
+    branches:
+      - "main"
+  pull_request:
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
+  CARGO_REGISTRIES_CRATES_IO_PROTOCOL: sparse
+
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    name: Check
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup install stable
+      - name: Check Formatting
+        run: cargo fmt --check
+      - name: Lint
+        run: cargo clippy --all-targets --all-features --release
+  
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        include:
+          - os: windows-latest
+            os-name: Windows
+            artifact-path: |
+              target/release/client_backend.exe
+          - os: ubuntu-latest
+            os-name: Linux
+            artifact-path: |
+              target/release/client_backend
+    
+    runs-on: ${{ matrix.os }}
+    name: ${{ matrix.os-name }} Build
+
+    needs: check
+
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup install stable
+      - name: Build
+        run: cargo build --verbose --release
+      - name: Test
+        run: cargo test --verbose --release
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.os-name }}
+          path: ${{ matrix.artifact-path }}
+  
+  release:
+    if: ${{ github.ref_type == 'tag' }}
+
+    runs-on: ubuntu-latest
+    name: Release Built Artifacts
+
+    needs: build
+
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Download 
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          draft: true
+          files: |
+            artifacts/Linux/client_backend
+            artifacts/Windows/client_backend.exe
