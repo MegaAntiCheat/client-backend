@@ -15,6 +15,10 @@ path = "src/lib.rs"
 [lints.rust]
 unsafe_code = "forbid"
 
+[lints.clippy]
+pedantic = "warn"
+unwrap_used = "warn"
+
 [profile.release-with-debug]
 inherits = "release"
 debug = true
@@ -29,13 +33,15 @@ clap_lex = "0.5.0"
 directories-next = "2.0.0"
 notify = { version = "6.1.1", default-features = false }
 open = "5.0.0"
-rcon = { version = "0.5.2", features = ["rt-tokio"], git = "https://github.com/MegaAntiCheat/rust-rcon" }
+rcon = { version = "0.5.2", features = [
+    "rt-tokio",
+], git = "https://github.com/MegaAntiCheat/rust-rcon" }
 regex = "1.8.4"
 serde = { version = "1.0.164", features = ["rc"] }
 serde_json = "1.0.99"
 serde_yaml = "0.9.22"
 steamid-ng = "1.0.0"
-tappet = { git = "https://github.com/saskenuba/SteamHelper-rs", rev = "208a6ad5e2484f9cea101110dc8e29d220475821"}
+tappet = { git = "https://github.com/saskenuba/SteamHelper-rs", rev = "208a6ad5e2484f9cea101110dc8e29d220475821" }
 thiserror = "1.0.43"
 tokio = { version = "1.29.1", features = ["full", "time"] }
 tokio-stream = "0.1.14"
@@ -48,7 +54,7 @@ substring = "1.4.5"
 tower-http = { version = "0.4.3", features = ["cors"] }
 include_dir = "0.7.3"
 steamlocate = "2.0.0-beta.2"
-watchman_client ={ version = "0.8.0" }
+watchman_client = { version = "0.8.0" }
 tf-demo-parser = { git = "https://github.com/MegaAntiCheat/parser" }
 bitbuffer = "0.10.9"
 chrono = { version = "0.4.32", features = ["serde"] }

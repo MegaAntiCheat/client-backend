@@ -134,7 +134,7 @@ fn main() {
                 state.settings.upload_demos = false;
                 tracing::warn!("No masterbase key is set. If you would like to enable demo uploads, please provision a key at https://megaanticheat.com/provision");
             }
-            
+
             // Close any previous masterbase sessions that might not have finished up
             // properly.
             if state.settings.upload_demos() {
