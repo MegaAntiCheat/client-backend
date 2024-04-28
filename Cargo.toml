@@ -16,6 +16,10 @@ path = "src/lib.rs"
 [lints.rust]
 unsafe_code = "forbid"
 
+[lints.clippy]
+pedantic = "warn"
+unwrap_used = "warn"
+
 [profile.release-with-debug]
 inherits = "release"
 debug = true
@@ -61,3 +65,4 @@ reqwest = "0.11.24"
 url = "2.5.0"
 tokio-tungstenite = { version = "0.21.0", features = ["native-tls"] }
 atomic-write-file = "0.1.3"
+pot = "3.0.0"

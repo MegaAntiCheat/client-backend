@@ -32,6 +32,8 @@ pub enum ConfigFilesError {
     Yaml(String, serde_yaml::Error),
     #[error("Failed to parse json file {0}, {1:?}")]
     Json(String, serde_json::Error),
+    #[error("Pot error with file {0}, {1:?}")]
+    Pot(String, pot::Error),
     #[error("{0:?}")]
     Other(#[from] anyhow::Error),
 }
