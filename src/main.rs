@@ -138,26 +138,30 @@ fn main() {
             // Close any previous masterbase sessions that might not have finished up
             // properly.
             if state.settings.upload_demos() {
-                match masterbase::force_close_session(
+                const TIMEOUT: u64 = 4;
+                match tokio::time::timeout(Duration::from_secs(TIMEOUT), async { masterbase::force_close_session(
                     state.settings.masterbase_host(),
                     state.settings.masterbase_key(),
                     state.settings.use_masterbase_http(),
-                )
+                ).await})
                 .await
                 {
-                    Ok(r) if r.status().is_success() => tracing::warn!(
+                    Ok(Ok(r)) if r.status().is_success() => tracing::warn!(
                         "User was previously in a Masterbase session that has now been closed."
                     ),
-                    Ok(r) if r.status().is_server_error() => tracing::error!(
+                    Ok(Ok(r)) if r.status().is_server_error() => tracing::error!(
                     "Error when trying to close any previous Masterbase sessions: Status code {}",
                     r.status()
                 ),
-                    Ok(r) if r.status() == StatusCode::UNAUTHORIZED => {
+                    Ok(Ok(r)) if r.status() == StatusCode::UNAUTHORIZED => {
                         tracing::warn!("Your Masterbase key is not valid, demo uploads will be disabled. Please provision a new one at https://megaanticheat.com/provision");
                         state.settings.upload_demos = false;
                     }
-                    Ok(_) => tracing::info!("Successfully authenticated with the Masterbase."),
-                    Err(e) => tracing::error!("Couldn't reach Masterbase: {e}"),
+                    Ok(Ok(_)) => tracing::info!("Successfully authenticated with the Masterbase."),
+                    Ok(Err(e)) => tracing::error!("Couldn't reach Masterbase: {e}"),
+                    Err(_) => {
+                        tracing::error!("Connection to masterbase timed out after {TIMEOUT} seconds");
+                    }
                 }
             }
 
