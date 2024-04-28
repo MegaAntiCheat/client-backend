@@ -4,7 +4,7 @@ use std::{
 };
 
 use chrono::{DateTime, Utc};
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use steamid_ng::SteamID;
 
 use crate::{
@@ -374,7 +374,7 @@ impl Serialize for Players {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 #[allow(clippy::module_name_repetitions)]
 pub enum PlayerState {
     Active,

@@ -30,6 +30,7 @@ use crate::{
     server::Gamemode,
     state::MACState,
     steam_api::{request_steam_info, ProfileLookupResult},
+    console::ConsoleOutput,
 };
 const HEADERS: [(header::HeaderName, &str); 2] = [
     (header::CONTENT_TYPE, "application/json"),
@@ -645,4 +646,41 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     }
 
     Sse::new(ReceiverStream::new(rx))
+}
+
+
+async fn broadcast_event(conosle_output: &ConsoleOutput) -> () {
+    let event_json = match conosle_output {
+        ConsoleOutput::Chat(message) => {
+            Some(serde_json::to_string(message).expect("Serialisation failure"))
+        },
+        ConsoleOutput::Kill(kill) => {
+            Some(serde_json::to_string(kill).expect("Serialisation failure"))
+        },
+        ConsoleOutput::DemoStop(ds) => {
+            Some(serde_json::to_string(ds).expect("Serialisation failure"))
+        },
+        _ => { None }
+    };
+    if event_json.is_none() {
+        return;
+    }
+    {
+        let event = event_json.unwrap();
+        let subscribers = SUBSCRIBERS.lock().expect("Lock poisoned");
+        if subscribers.is_some() {
+            let subs = subscribers.as_ref().expect("Vector to publish to");
+            let futs = subs.iter().map(|sender| sender.send(Ok(Event::default().data(event.clone()))));
+            let tasks: Vec<_> = futs.into_iter().map(tokio::spawn).collect();
+            // unwrap the Result because it is introduced by tokio::spawn()
+            // and isn't something our caller can handle
+            futures::future::join_all(tasks)
+                .await
+                .into_iter()
+                .map(Result::unwrap)
+                .collect::<Vec<_>>();
+        }
+    }
+
+
 }
