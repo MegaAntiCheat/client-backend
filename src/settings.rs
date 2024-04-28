@@ -7,13 +7,20 @@ use std::{
 use anyhow::{anyhow, Context, Result};
 use atomic_write_file::AtomicWriteFile;
 use directories_next::ProjectDirs;
+use include_dir::Dir;
 use keyvalues_parser::Vdf;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use steamid_ng::SteamID;
 use thiserror::Error;
 
-use crate::{args::Args, gamefinder, player_records::Verdict};
+use crate::{args::Args, gamefinder, player_records::Verdict, web::UISource};
+
+// if feature "include-ui" is enabled, bundle the web UI files
+#[cfg(feature = "include-ui")]
+static BUNDLED_UI: Option<Dir> = Some(include_dir::include_dir!("$CARGO_MANIFEST_DIR/ui"));
+#[cfg(not(feature = "include-ui"))]
+static BUNDLED_UI: Option<Dir> = None;
 
 #[derive(Debug, Error)]
 pub enum ConfigFilesError {
@@ -89,8 +96,9 @@ pub struct Settings {
     override_masterbase_api_key: Option<String>,
     #[serde(skip)]
     override_masterbase_host: Option<String>,
+
     #[serde(skip)]
-    override_web_dir: Option<PathBuf>,
+    web_ui_source: UISource,
 
     #[serde(skip)]
     pub upload_demos: bool,
@@ -305,27 +313,29 @@ impl Settings {
             val.to_owned()
         });
 
+        // Setup the web-ui source based on whether we're using bundled or not
+        if let Some(bundle) = &BUNDLED_UI {
+            tracing::info!("This binary was built with a bundled web UI.");
+            self.web_ui_source = UISource::Bundled(bundle);
+        } else {
+            tracing::info!("This binary was not built with a bundled web UI.");
+            self.web_ui_source = UISource::None;
+        }
+
         // Validate the provided directory from which to serve the web-ui, if any.
-        // This could still have TOCTOU errors, but I'd consider that to be
-        // something we can live with.
-        self.override_web_dir = match args.web_dir.as_ref() {
-            Some(val) => {
-                if val.is_dir() {
-                    tracing::info!(
-                        "Serving web-ui from {:?} rather than the bundled files.",
-                        val
-                    );
-                    Some(val.clone())
-                } else {
-                    tracing::warn!(
-                        "Path {:?} does not exist, is not a directory, or is not readable. Falling back to serving the bundled web-ui files.",
-                        val
-                    );
-                    None
-                }
+        // This could still have TOCTOU errors but that's fine.
+        // If valid, we'll set it as the web-ui source.
+        if let Some(dir) = args.web_dir.as_ref() {
+            if dir.is_dir() {
+                tracing::info!("Serving web-ui from {:?}.", dir);
+                self.web_ui_source = UISource::Dynamic(dir.clone());
+            } else {
+                tracing::warn!(
+                    "Provided path {:?} does not exist, is not a directory, or is not readable. Not attempting to serve the web UI from there.",
+                    dir
+                );
             }
-            None => None,
-        };
+        }
 
         self.minimal_demo_parsing = args.minimal_demo_parsing;
         self.upload_demos = !args.dont_upload_demos;
@@ -518,8 +528,8 @@ impl Settings {
     }
 
     #[must_use]
-    pub fn override_web_dir(&self) -> Option<PathBuf> {
-        self.override_web_dir.clone()
+    pub fn web_ui_source(&self) -> UISource {
+        self.web_ui_source.clone()
     }
 
     /// Attempts to find (and create) a directory to be used for configuration
@@ -580,12 +590,12 @@ impl Default for Settings {
             override_rcon_port: None,
             override_masterbase_api_key: None,
             override_masterbase_host: None,
-            override_web_dir: None,
             external: serde_json::Value::Object(Map::new()),
             upload_demos: true,
             minimal_demo_parsing: false,
             masterbase_http: false,
             autokick_bots: false,
+            web_ui_source: UISource::default(),
         }
     }
 }

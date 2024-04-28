@@ -8,7 +8,6 @@ use args::Args;
 use clap::Parser;
 use event_loop::{define_events, EventLoop};
 use events::emit_on_timer;
-use include_dir::{include_dir, Dir};
 use launchoptions::LaunchOptions;
 use player::Players;
 use player_records::PlayerRecords;
@@ -94,8 +93,6 @@ define_events!(
     },
 );
 
-static UI_DIR: Dir = include_dir!("ui");
-
 #[allow(clippy::too_many_lines)]
 fn main() {
     let _guard = init_tracing();
@@ -173,7 +170,7 @@ fn main() {
                 .ok()};
 
             // Web API
-            let (web_state, web_requests) = WebState::new(Some(&UI_DIR), state.settings.override_web_dir());
+            let (web_state, web_requests) = WebState::new(state.settings.web_ui_source());
             tokio::task::spawn(async move {
                 web_main(web_state, web_port).await;
             });

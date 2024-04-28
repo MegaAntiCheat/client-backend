@@ -268,25 +268,14 @@ impl Default for WebAPIHandler {
 #[allow(clippy::module_name_repetitions)]
 pub struct WebState {
     pub request: UnboundedSender<WebRequest>,
-    pub ui: Option<&'static Dir<'static>>,
-    pub override_web_dir: Option<PathBuf>,
+    pub ui: UISource,
 }
 
 impl WebState {
     #[must_use]
-    pub fn new(
-        ui: Option<&'static Dir<'static>>,
-        override_web_dir: Option<PathBuf>,
-    ) -> (Self, UnboundedReceiver<WebRequest>) {
+    pub fn new(ui: UISource) -> (Self, UnboundedReceiver<WebRequest>) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        (
-            Self {
-                request: tx,
-                ui,
-                override_web_dir,
-            },
-            rx,
-        )
+        (Self { request: tx, ui }, rx)
     }
 }
 
@@ -339,73 +328,88 @@ async fn get_ui(
     State(state): State<WebState>,
     axum::extract::Path(path): axum::extract::Path<String>,
 ) -> impl IntoResponse {
-    match state.override_web_dir {
-        Some(override_web_dir) => {
-            let file_path = override_web_dir.join(&path);
+    state.ui.get_ui(&path).await
+}
 
-            if file_path.is_file() {
-                let contents = tokio::fs::read(&file_path).await;
+#[derive(Clone, Debug, Default)]
+/// Where to get the web UI files to serve
+pub enum UISource {
+    Bundled(&'static Dir<'static>),
+    /// Load from disk
+    Dynamic(PathBuf),
+    #[default]
+    None,
+}
 
-                match contents {
-                    Ok(contents) => {
-                        let content_type = guess_content_type(&file_path);
-                        let headers = [
-                            (header::CONTENT_TYPE, content_type),
-                            (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
-                        ];
-                        (StatusCode::OK, headers, contents).into_response()
-                    }
-                    Err(e) => {
-                        tracing::error!("Failed to read file {:?}: {e}", &file_path);
-                        (
-                            StatusCode::INTERNAL_SERVER_ERROR,
-                            ([(header::CONTENT_TYPE, "text/html")]),
-                            "<body><h1>500 Internal Server Error</h1><p>Failed to read file in override web-ui directory</p></body>",
-                        )
-                            .into_response()
-                    }
-                }
-            } else {
+impl UISource {
+    pub async fn get_ui(&self, path: &str) -> impl IntoResponse {
+        match self {
+            UISource::Bundled(dir) => Self::get_bundled_ui(dir, path).into_response(),
+            UISource::Dynamic(dir) => Self::get_dynamic_ui(dir, path).await.into_response(),
+            UISource::None => {
+                (
+                    StatusCode::NOT_FOUND,
+                    ([(header::CONTENT_TYPE, "text/html")]),
+                    "<body><h1>There is no UI bundled with this version of the application.</h1></body>",
+                ).into_response()
+            }
+        }
+    }
+
+    fn get_bundled_ui(dir: &'static Dir<'static>, path: &str) -> impl IntoResponse {
+        dir.get_file(path).map_or_else(
+            || {
                 (
                     StatusCode::NOT_FOUND,
                     ([(header::CONTENT_TYPE, "text/html")]),
                     "<body><h1>404 Not Found</h1></body>",
                 )
                     .into_response()
-            }
-        }
-        None => {
-            state.ui.map_or_else(
-                || {
+            },
+            |file| {
+                // Serve included file
+                let content_type = guess_content_type(file.path());
+                let headers = [
+                    (header::CONTENT_TYPE, content_type),
+                    (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+                ];
+                (StatusCode::OK, headers, file.contents()).into_response()
+            },
+        )
+    }
+
+    async fn get_dynamic_ui(dir: &Path, path: &str) -> impl IntoResponse {
+        let file_path = dir.join(path);
+
+        if file_path.is_file() {
+            let contents = tokio::fs::read(&file_path).await;
+
+            match contents {
+                Ok(contents) => {
+                    let content_type = guess_content_type(&file_path);
+                    let headers = [
+                        (header::CONTENT_TYPE, content_type),
+                        (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
+                    ];
+                    (StatusCode::OK, headers, contents).into_response()
+                }
+                Err(e) => {
+                    tracing::error!("Failed to read file {:?}: {e}", &file_path);
                     (
-                    StatusCode::NOT_FOUND,
-                    ([(header::CONTENT_TYPE, "text/html")]),
-                    "<body><h1>There is no UI bundled with this version of the application.</h1></body>",
-                )
-                    .into_response()
-                },
-                |ui| {
-                    ui.get_file(&path).map_or_else(
-                        || {
-                            (
-                                StatusCode::NOT_FOUND,
-                                ([(header::CONTENT_TYPE, "text/html")]),
-                                "<body><h1>404 Not Found</h1></body>",
-                            )
-                                .into_response()
-                        },
-                        |file| {
-                            // Serve included file
-                            let content_type = guess_content_type(file.path());
-                            let headers = [
-                                (header::CONTENT_TYPE, content_type),
-                                (header::ACCESS_CONTROL_ALLOW_ORIGIN, "*"),
-                            ];
-                            (StatusCode::OK, headers, file.contents()).into_response()
-                        },
+                        StatusCode::INTERNAL_SERVER_ERROR,
+                        ([(header::CONTENT_TYPE, "text/html")]),
+                        "<body><h1>500 Internal Server Error</h1><p>Failed to read file in override web-ui directory</p></body>",
                     )
-                },
+                        .into_response()
+                }
+            }
+        } else {
+            (
+                StatusCode::NOT_FOUND,
+                ([(header::CONTENT_TYPE, "text/html")]),
+                "<body><h1>404 Not Found</h1></body>",
             )
+                .into_response()
         }
     }
 }
