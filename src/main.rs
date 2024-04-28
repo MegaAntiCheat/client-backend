@@ -161,6 +161,16 @@ fn main() {
                 }
             }
 
+            // Exit handler
+            let running = Arc::new(AtomicBool::new(true));
+            let r = running.clone();
+            tokio::task::spawn(async move {
+                if let Err(e) = tokio::signal::ctrl_c().await {
+                    tracing::error!("Error with Ctrl+C handler: {e}");
+                }
+                r.store(false, Ordering::SeqCst);
+            });
+
             // Autolaunch UI
             if args.autolaunch_ui || state.settings.autolaunch_ui() {
                 if let Err(e) = open::that(Path::new(&format!("http://localhost:{web_port}"))) {
@@ -214,16 +224,6 @@ fn main() {
             } else if let Some(dw) = demo_watcher {
                 event_loop = event_loop.add_source(Box::new(dw));
             }
-
-            // Exit handler
-            let running = Arc::new(AtomicBool::new(true));
-            let r = running.clone();
-            tokio::task::spawn(async move {
-                if let Err(e) = tokio::signal::ctrl_c().await {
-                    tracing::error!("Error with Ctrl+C handler: {e}");
-                }
-                r.store(false, Ordering::SeqCst);
-            });
 
             loop {
                 if !running.load(Ordering::SeqCst) {
