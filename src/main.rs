@@ -1,5 +1,3 @@
-#![warn(clippy::pedantic, clippy::unwrap_used)]
-
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
