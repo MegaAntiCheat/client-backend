@@ -12,7 +12,12 @@ use thiserror::Error;
 use tokio::{net::TcpStream, sync::Mutex, time::timeout};
 
 use super::console::RawConsoleOutput;
-use crate::{events::Refresh, player_records::Verdict, state::MACState, player::{PlayerState, Team}};
+use crate::{
+    events::Refresh,
+    player::{PlayerState, Team},
+    player_records::Verdict,
+    state::MACState,
+};
 
 #[derive(Debug, Deserialize, Clone)]
 #[serde(rename_all = "camelCase")]
@@ -350,7 +355,11 @@ where
                     .is_some_and(|r| r.verdict() == Verdict::Bot)
             })
             .filter_map(|s| state.players.game_info.get(s))
-            .filter(|gi| gi.team == user_team && gi.team != Team::Unassigned && gi.state == PlayerState::Active)
+            .filter(|gi| {
+                gi.team == user_team
+                    && gi.team != Team::Unassigned
+                    && gi.state == PlayerState::Active
+            })
             .map(|gi| gi.userid.clone())
             .map(|id| Command::Kick {
                 player: id,
