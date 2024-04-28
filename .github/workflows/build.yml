@@ -59,6 +59,7 @@ jobs:
         with:
           name: ${{ matrix.os-name }}
           path: ${{ matrix.artifact-path }}
+          if-no-files-found: error
   
   release:
     if: ${{ github.ref_type == 'tag' }}
@@ -80,6 +81,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           draft: true
+          fail_on_unmatched_files: true
           files: |
             artifacts/Linux/client_backend
             artifacts/Windows/client_backend.exe
