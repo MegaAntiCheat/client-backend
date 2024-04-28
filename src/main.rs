@@ -230,6 +230,7 @@ fn main() {
                     tracing::info!("Saving and exiting.");
                     state.players.records.save_ok();
                     state.settings.save_ok();
+                    state.players.save_steam_info_ok();
                     std::process::exit(0);
                 }
 
