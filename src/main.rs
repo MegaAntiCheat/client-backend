@@ -1,6 +1,10 @@
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -211,7 +215,24 @@ fn main() {
                 event_loop = event_loop.add_source(Box::new(dw));
             }
 
+            // Exit handler
+            let running = Arc::new(AtomicBool::new(true));
+            let r = running.clone();
+            tokio::task::spawn(async move {
+                if let Err(e) = tokio::signal::ctrl_c().await {
+                    tracing::error!("Error with Ctrl+C handler: {e}");
+                }
+                r.store(false, Ordering::SeqCst);
+            });
+
             loop {
+                if !running.load(Ordering::SeqCst) {
+                    tracing::info!("Saving and exiting.");
+                    state.players.records.save_ok();
+                    state.settings.save_ok();
+                    std::process::exit(0);
+                }
+
                 if event_loop.execute_cycle(&mut state).await.is_none() {
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 }
