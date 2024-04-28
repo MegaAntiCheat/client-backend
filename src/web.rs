@@ -273,9 +273,15 @@ pub struct WebState {
 
 impl WebState {
     #[must_use]
-    pub fn new(ui: UISource) -> (Self, UnboundedReceiver<WebRequest>) {
+    pub fn new(ui: &UISource) -> (Self, UnboundedReceiver<WebRequest>) {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
-        (Self { request: tx, ui }, rx)
+        (
+            Self {
+                request: tx,
+                ui: ui.clone(),
+            },
+            rx,
+        )
     }
 }
 

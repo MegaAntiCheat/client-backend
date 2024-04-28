@@ -317,10 +317,10 @@ impl Settings {
 
         // Setup the web-ui source based on whether we're using bundled or not
         if let Some(bundle) = &BUNDLED_UI {
-            tracing::info!("This binary was built with a bundled web UI.");
+            tracing::debug!("This binary was built with a bundled web UI.");
             self.web_ui_source = UISource::Bundled(bundle);
         } else {
-            tracing::info!("This binary was not built with a bundled web UI.");
+            tracing::debug!("This binary was not built with a bundled web UI.");
             self.web_ui_source = UISource::None;
         }
 
@@ -530,8 +530,8 @@ impl Settings {
     }
 
     #[must_use]
-    pub fn web_ui_source(&self) -> UISource {
-        self.web_ui_source.clone()
+    pub fn web_ui_source(&self) -> &UISource {
+        &self.web_ui_source
     }
 
     /// Attempts to find (and create) a directory to be used for configuration
