@@ -6,7 +6,6 @@ use std::{
     sync::Arc,
 };
 
-use anyhow::Error;
 use axum::{
     extract::{Query, State},
     http::{header, StatusCode},
@@ -16,7 +15,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use event_loop::{try_get, Handled, HandlerStruct, Is};
-use futures::{Future, Stream};
+use futures::Stream;
 use include_dir::Dir;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
