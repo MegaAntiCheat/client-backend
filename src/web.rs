@@ -3,7 +3,7 @@ use std::{
     convert::Infallible,
     net::SocketAddr,
     path::Path,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use anyhow::Error;
@@ -21,7 +21,7 @@ use include_dir::Dir;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
 use tappet::SteamAPI;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::{Mutex, mpsc::{UnboundedReceiver, UnboundedSender}};
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::command_manager::Command;
@@ -629,7 +629,7 @@ async fn post_commands(
 // Events
 
 type Subscriber = tokio::sync::mpsc::Sender<Result<Event, Infallible>>;
-static SUBSCRIBERS: Mutex<Option<Vec<Subscriber>>> = Mutex::new(None);
+static SUBSCRIBERS: Mutex<Option<Vec<Subscriber>>> = Mutex::const_new(None);
 
 /// Gets a SSE stream to listen for any updates the client can provide.
 async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
@@ -638,7 +638,7 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(16);
 
     {
-        let mut subscribers = SUBSCRIBERS.lock().expect("Lock poisoned");
+        let mut subscribers = SUBSCRIBERS.lock().await;
         if subscribers.is_none() {
             *subscribers = Some(Vec::new());
         }
@@ -652,14 +652,14 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
 
 pub async fn broadcast_event(conosle_output: &ConsoleOutput) {
     let event_json = match conosle_output {
-        ConsoleOutput::Chat(message) => {
-            Some(serde_json::to_string(message).expect("Serialisation failure"))
+        ConsoleOutput::Chat(m) => {
+            Some(serde_json::to_string(m).expect("Serialisation failure"))
         },
-        ConsoleOutput::Kill(kill) => {
-            Some(serde_json::to_string(kill).expect("Serialisation failure"))
+        ConsoleOutput::Kill(m) => {
+            Some(serde_json::to_string(m).expect("Serialisation failure"))
         },
-        ConsoleOutput::DemoStop(ds) => {
-            Some(serde_json::to_string(ds).expect("Serialisation failure"))
+        ConsoleOutput::DemoStop(m) => {
+            Some(serde_json::to_string(m).expect("Serialisation failure"))
         },
         _ => { None }
     };
@@ -669,10 +669,12 @@ pub async fn broadcast_event(conosle_output: &ConsoleOutput) {
     
     {
         let event = event_json.unwrap();
-        let subscribers = SUBSCRIBERS.lock().expect("Lock poisoned");
+        let subscribers = SUBSCRIBERS.lock().await;
         if subscribers.is_some() {
             let subs = subscribers.as_ref().expect("Vector to publish to");
-            let futs = subs.iter().map(|sender| sender.send(Ok(Event::default().data(event.clone()))));
+            let futs = subs.iter().map(
+                |sender| sender.send(Ok(Event::default().data(event.clone())))
+            );
 
             // unwrap the Result because it is introduced by tokio::spawn()
             // and isn't something our caller can handle

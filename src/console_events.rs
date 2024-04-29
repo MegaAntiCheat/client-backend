@@ -17,16 +17,15 @@ where
 {
     fn handle_message(
         &mut self,
-        state: &MACState,
+        _state: &MACState,
         message: &IM,
     ) -> Option<event_loop::Handled<OM>> {
         let console_out: &ConsoleOutput = try_get(message)?;
+        let cloned_co = console_out.clone();
         Handled::<OM>::future(async move {
-            broadcast_event(console_out).await;
+            broadcast_event(&cloned_co).await;
             None
         });
-        
-        
         return None;
     }
 }
