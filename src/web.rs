@@ -649,13 +649,27 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
 }
 
 
-pub async fn broadcast_event(conosle_output: &ConsoleOutput) {
+pub async fn broadcast_event(conosle_output: &mut ConsoleOutput, players: HashMap<String, SteamID>) {
+    // We also set the steam_id fields in the events here before we serialise
     let event_json = match conosle_output {
-        ConsoleOutput::Chat(m) => {
-            Some(serde_json::to_string(m).expect("Serialisation failure"))
+        ConsoleOutput::Chat(ref mut m) => {
+            let name = &m.player_name.clone();
+            if let Some(id) = players.get(name) {
+                m.set_steam_id(id);
+            }
+            Some(serde_json::to_string(&m).expect("Serialisation failure"))
         },
-        ConsoleOutput::Kill(m) => {
-            Some(serde_json::to_string(m).expect("Serialisation failure"))
+        ConsoleOutput::Kill(ref mut m) => {
+
+            let kname = &m.killer_name.clone();
+            let vname = &m.victim_name.clone();
+            if let Some(id) = players.get(kname) {
+                m.set_steam_id_killer(id) 
+            }
+            if let Some(id) = players.get(vname) {
+                m.set_steam_id_victim(id) 
+            }
+            Some(serde_json::to_string(&m).expect("Serialisation failure"))
         },
         ConsoleOutput::DemoStop(m) => {
             Some(serde_json::to_string(m).expect("Serialisation failure"))
@@ -668,21 +682,18 @@ pub async fn broadcast_event(conosle_output: &ConsoleOutput) {
     
     {
         let event = event_json.unwrap();
-        let subscribers = SUBSCRIBERS.lock().await;
+        let mut subscribers = SUBSCRIBERS.lock().await;
         if subscribers.is_some() {
-            let subs = subscribers.as_ref().expect("Vector to publish to");
-            
+            let subs = subscribers.as_mut().expect("Vector to publish to");
+            // prune closed tx/rx pairs out of the subscribers list
+            subs.retain(|sender| !sender.is_closed());
             let futs = subs.iter().map(
                 |sender| sender.send(Ok(Event::default().data(event.clone())))
             );
 
-            // unwrap the Result because it is introduced by tokio::spawn()
-            // and isn't something our caller can handle
-            futures::future::join_all(futs)
-                .await
-                .into_iter()
-                .for_each(drop);
-                // .collect::<Vec<_>>();
+            // We have created an iterator of Futures that promise to send the message down the channel
+            // So we await them all by calling join_all, which does this, but without promising true concurrency.
+            futures::future::join_all(futs).await;
         }
     }
 }

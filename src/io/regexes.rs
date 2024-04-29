@@ -98,6 +98,14 @@ impl PlayerKill {
             crit: caps.get(4).is_some(),
         }
     }
+
+    pub fn set_steam_id_killer(&mut self, id: &SteamID) {
+        self.killer_steamid = Some(format!("{}", u64::from(*id)));
+    }
+
+    pub fn set_steam_id_victim(&mut self, id: &SteamID) {
+        self.victim_steamid = Some(format!("{}", u64::from(*id)));
+    }
 }
 
 /// Chat message
@@ -121,6 +129,10 @@ impl ChatMessage {
             steamid: None,
             message: caps[2].into(),
         }
+    }
+
+    pub fn set_steam_id(&mut self, id: &SteamID) {
+        self.steamid = Some(format!("{}", u64::from(*id)));
     }
 }
 
