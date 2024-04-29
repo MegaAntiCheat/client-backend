@@ -3,8 +3,8 @@
 
 use anyhow::{Context, Ok, Result};
 use regex::Captures;
-use steamid_ng::SteamID;
 use serde::{Deserialize, Serialize};
+use steamid_ng::SteamID;
 
 use crate::player::PlayerState;
 
@@ -131,8 +131,8 @@ impl ChatMessage {
         }
     }
 
-    pub fn set_steam_id(&mut self, id: &SteamID) {
-        self.steamid = Some(format!("{}", u64::from(*id)));
+    pub fn set_steam_id(&mut self, id: SteamID) {
+        self.steamid = Some(format!("{}", u64::from(id)));
     }
 }
 

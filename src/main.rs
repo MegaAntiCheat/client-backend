@@ -44,10 +44,10 @@ mod web;
 
 use command_manager::{Command, CommandManager, DumbAutoKick};
 use console::{ConsoleLog, ConsoleOutput, ConsoleParser, RawConsoleOutput};
+use console_events::SseBroadcastMessages;
 use demo::{DemoBytes, DemoManager, DemoMessage, DemoWatcher, PrintVotes};
 use events::{Preferences, Refresh, UserUpdates};
 use new_players::{ExtractNewPlayers, NewPlayers};
-use console_events::SseBroadcastMessages;
 use steam_api::{
     FriendLookupResult, LookupFriends, LookupProfiles, ProfileLookupBatchTick, ProfileLookupResult,
 };
@@ -133,7 +133,6 @@ fn main() {
                 state.settings.upload_demos = false;
                 tracing::warn!("No masterbase key is set. If you would like to enable demo uploads, please provision a key at https://megaanticheat.com/provision");
             }
-            
             // Close any previous masterbase sessions that might not have finished up
             // properly.
             if state.settings.upload_demos() {

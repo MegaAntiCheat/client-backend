@@ -1,10 +1,10 @@
 use std::collections::HashMap;
 
+use super::console::ConsoleOutput;
+use super::web::broadcast_event;
+use crate::state::MACState;
 use event_loop::{try_get, Handled, HandlerStruct, Is};
 use steamid_ng::SteamID;
-use super::console::ConsoleOutput;
-use crate::state::MACState;
-use super::web::broadcast_event;
 
 // Messages *********************
 
@@ -16,7 +16,7 @@ use super::web::broadcast_event;
 pub struct SseBroadcastMessages;
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for SseBroadcastMessages
 where
-    IM: Is<ConsoleOutput>
+    IM: Is<ConsoleOutput>,
 {
     fn handle_message(
         &mut self,
@@ -24,16 +24,24 @@ where
         message: &IM,
     ) -> Option<event_loop::Handled<OM>> {
         let console_out: &ConsoleOutput = try_get(message)?;
-        let mut cloned_co = console_out.clone();
+        let cloned_co = console_out.clone();
 
-        let mut player_names_to_ids: HashMap<String, SteamID> = HashMap::new();
-        for (player_id, info) in &state.players.steam_info {
-            player_names_to_ids.insert(info.account_name.clone(), player_id.clone());
-        }
-        
-        return Handled::<OM>::future(async move {
-            broadcast_event(&mut cloned_co, player_names_to_ids).await;
+        let player_names_to_ids: HashMap<String, SteamID> = state
+            .players
+            .connected
+            .iter()
+            .filter_map(|s| {
+                state
+                    .players
+                    .game_info
+                    .get(s)
+                    .map(|gi| (gi.name.clone(), *s))
+            })
+            .collect();
+
+        Handled::<OM>::future(async move {
+            broadcast_event(cloned_co, player_names_to_ids).await;
             None
-        });
+        })
     }
 }

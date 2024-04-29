@@ -1,10 +1,4 @@
-use std::{
-    collections::HashMap,
-    convert::Infallible,
-    net::SocketAddr,
-    path::Path,
-    sync::Arc,
-};
+use std::{collections::HashMap, convert::Infallible, net::SocketAddr, path::Path, sync::Arc};
 
 use axum::{
     extract::{Query, State},
@@ -20,17 +14,20 @@ use include_dir::Dir;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
 use tappet::SteamAPI;
-use tokio::sync::{Mutex, mpsc::{UnboundedReceiver, UnboundedSender}};
+use tokio::sync::{
+    mpsc::{UnboundedReceiver, UnboundedSender},
+    Mutex,
+};
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::command_manager::Command;
 use crate::{
+    console::ConsoleOutput,
     events::{InternalPreferences, Preferences, UserUpdate, UserUpdates},
     player::{serialize_steamid_as_string, Friend, FriendInfo, Player, Players, SteamInfo},
     server::Gamemode,
     state::MACState,
     steam_api::{request_steam_info, ProfileLookupResult},
-    console::ConsoleOutput,
 };
 const HEADERS: [(header::HeaderName, &str); 2] = [
     (header::CONTENT_TYPE, "application/json"),
@@ -648,48 +645,37 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     Sse::new(ReceiverStream::new(rx))
 }
 
-
-pub async fn broadcast_event(conosle_output: &mut ConsoleOutput, players: HashMap<String, SteamID>) {
+pub async fn broadcast_event(conosle_output: ConsoleOutput, players: HashMap<String, SteamID>) {
     // We also set the steam_id fields in the events here before we serialise
-    let event_json = match conosle_output {
-        ConsoleOutput::Chat(ref mut m) => {
-            let name = &m.player_name.clone();
-            if let Some(id) = players.get(name) {
-                m.set_steam_id(id);
+    if let Some(event_json) = match conosle_output {
+        ConsoleOutput::Chat(mut m) => {
+            if let Some(id) = players.get(&m.player_name) {
+                m.set_steam_id(*id);
             }
             Some(serde_json::to_string(&m).expect("Serialisation failure"))
-        },
-        ConsoleOutput::Kill(ref mut m) => {
-
-            let kname = &m.killer_name.clone();
-            let vname = &m.victim_name.clone();
-            if let Some(id) = players.get(kname) {
-                m.set_steam_id_killer(id) 
+        }
+        ConsoleOutput::Kill(mut m) => {
+            if let Some(id) = players.get(&m.killer_name) {
+                m.set_steam_id_killer(id)
             }
-            if let Some(id) = players.get(vname) {
-                m.set_steam_id_victim(id) 
+            if let Some(id) = players.get(&m.victim_name) {
+                m.set_steam_id_victim(id)
             }
             Some(serde_json::to_string(&m).expect("Serialisation failure"))
-        },
+        }
         ConsoleOutput::DemoStop(m) => {
-            Some(serde_json::to_string(m).expect("Serialisation failure"))
-        },
-        _ => { None }
-    };
-    if event_json.is_none() {
-        return;
-    }
-    
-    {
-        let event = event_json.unwrap();
+            Some(serde_json::to_string(&m).expect("Serialisation failure"))
+        }
+        _ => None,
+    } {
         let mut subscribers = SUBSCRIBERS.lock().await;
         if subscribers.is_some() {
             let subs = subscribers.as_mut().expect("Vector to publish to");
             // prune closed tx/rx pairs out of the subscribers list
             subs.retain(|sender| !sender.is_closed());
-            let futs = subs.iter().map(
-                |sender| sender.send(Ok(Event::default().data(event.clone())))
-            );
+            let futs = subs
+                .iter()
+                .map(|sender| sender.send(Ok(Event::default().data(&event_json))));
 
             // We have created an iterator of Futures that promise to send the message down the channel
             // So we await them all by calling join_all, which does this, but without promising true concurrency.
