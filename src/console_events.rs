@@ -5,8 +5,6 @@ use event_loop::{try_get, Handled, HandlerStruct, Is};
 
 // Messages *********************
 
-// pub struct NewConsoleMessage(pub Option<String>);
-
 // Handlers *********************
 
 
