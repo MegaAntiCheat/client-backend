@@ -22,7 +22,7 @@ use tokio_stream::wrappers::ReceiverStream;
 
 use super::command_manager::Command;
 use crate::{
-    console::ConsoleOutput,
+    console::{ConsoleOutput, SerializableEvent},
     events::{InternalPreferences, Preferences, UserUpdate, UserUpdates},
     player::{serialize_steamid_as_string, Friend, FriendInfo, Player, Players, SteamInfo},
     server::Gamemode,
@@ -652,19 +652,22 @@ pub async fn broadcast_event(conosle_output: ConsoleOutput, players: HashMap<Str
             if let Some(id) = players.get(&m.player_name) {
                 m.set_steam_id(*id);
             }
-            Some(serde_json::to_string(&m).expect("Serialisation failure"))
+            let event = SerializableEvent::make_from(m);
+            Some(serde_json::to_string(&event).expect("Serialisation failure"))
         }
         ConsoleOutput::Kill(mut m) => {
             if let Some(id) = players.get(&m.killer_name) {
-                m.set_steam_id_killer(id)
+                m.set_steam_id_killer(*id)
             }
             if let Some(id) = players.get(&m.victim_name) {
-                m.set_steam_id_victim(id)
+                m.set_steam_id_victim(*id)
             }
-            Some(serde_json::to_string(&m).expect("Serialisation failure"))
+            let event = SerializableEvent::make_from(m);
+            Some(serde_json::to_string(&event).expect("Serialisation failure"))
         }
         ConsoleOutput::DemoStop(m) => {
-            Some(serde_json::to_string(&m).expect("Serialisation failure"))
+            let event = SerializableEvent::make_from(m);
+            Some(serde_json::to_string(&event).expect("Serialisation failure"))
         }
         _ => None,
     } {

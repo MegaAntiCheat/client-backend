@@ -99,12 +99,12 @@ impl PlayerKill {
         }
     }
 
-    pub fn set_steam_id_killer(&mut self, id: &SteamID) {
-        self.killer_steamid = Some(format!("{}", u64::from(*id)));
+    pub fn set_steam_id_killer(&mut self, id: SteamID) {
+        self.killer_steamid = Some(format!("{}", u64::from(id)));
     }
 
-    pub fn set_steam_id_victim(&mut self, id: &SteamID) {
-        self.victim_steamid = Some(format!("{}", u64::from(*id)));
+    pub fn set_steam_id_victim(&mut self, id: SteamID) {
+        self.victim_steamid = Some(format!("{}", u64::from(id)));
     }
 }
 

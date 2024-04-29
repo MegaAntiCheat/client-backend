@@ -1,8 +1,11 @@
 use std::path::PathBuf;
 
+use chrono::{DateTime, Utc};
 use event_loop::{Handled, HandlerStruct, Is, MessageSource, StateUpdater};
 use regex::Regex;
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver};
+use uuid::Uuid;
 
 use crate::{
     io::{
@@ -53,6 +56,62 @@ impl ConsoleLog {
         Self {
             recv: console_rx,
             logged_error: false,
+        }
+    }
+}
+
+pub trait SerializableConsoleOutput {
+    fn serialise(&self) -> Option<String>;
+    fn get_type(&self) -> String;
+}
+
+impl SerializableConsoleOutput for ChatMessage {
+    fn serialise(&self) -> Option<String> {
+        serde_json::to_string(self).ok()
+    }
+
+    fn get_type(&self) -> String {
+        "ChatMessage".to_string()
+    }
+}
+impl SerializableConsoleOutput for PlayerKill {
+    fn serialise(&self) -> Option<String> {
+        serde_json::to_string(self).ok()
+    }
+
+    fn get_type(&self) -> String {
+        "PlayerKill".to_string()
+    }
+}
+impl SerializableConsoleOutput for DemoStop {
+    fn serialise(&self) -> Option<String> {
+        serde_json::to_string(self).ok()
+    }
+
+    fn get_type(&self) -> String {
+        "DemoStop".to_string()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct SerializableEvent<T: SerializableConsoleOutput> {
+    #[serde(rename = "type")]
+    event_type: String,
+    uuid: Uuid,
+    time: DateTime<Utc>,
+    event: T,
+}
+
+impl<T> SerializableEvent<T>
+where
+    T: SerializableConsoleOutput,
+{
+    pub fn make_from(console_output: T) -> Self {
+        SerializableEvent {
+            event_type: console_output.get_type(),
+            uuid: Uuid::new_v4(),
+            time: Utc::now(),
+            event: console_output,
         }
     }
 }
