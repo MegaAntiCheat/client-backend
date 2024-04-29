@@ -671,6 +671,7 @@ pub async fn broadcast_event(conosle_output: &ConsoleOutput) {
         let subscribers = SUBSCRIBERS.lock().await;
         if subscribers.is_some() {
             let subs = subscribers.as_ref().expect("Vector to publish to");
+            
             let futs = subs.iter().map(
                 |sender| sender.send(Ok(Event::default().data(event.clone())))
             );

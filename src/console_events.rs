@@ -10,8 +10,8 @@ use super::web::broadcast_event;
 // Handlers *********************
 
 #[allow(clippy::module_name_repetitions)]
-pub struct BroadcastNewConsoleMessages;
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for BroadcastNewConsoleMessages
+pub struct SseBroadcastMessages;
+impl<IM, OM> HandlerStruct<MACState, IM, OM> for SseBroadcastMessages
 where
     IM: Is<ConsoleOutput>
 {
@@ -22,10 +22,9 @@ where
     ) -> Option<event_loop::Handled<OM>> {
         let console_out: &ConsoleOutput = try_get(message)?;
         let cloned_co = console_out.clone();
-        Handled::<OM>::future(async move {
+        return Handled::<OM>::future(async move {
             broadcast_event(&cloned_co).await;
             None
         });
-        return None;
     }
 }

@@ -47,7 +47,7 @@ use console::{ConsoleLog, ConsoleOutput, ConsoleParser, RawConsoleOutput};
 use demo::{DemoBytes, DemoManager, DemoMessage, DemoWatcher, PrintVotes};
 use events::{Preferences, Refresh, UserUpdates};
 use new_players::{ExtractNewPlayers, NewPlayers};
-use console_events::BroadcastNewConsoleMessages;
+use console_events::SseBroadcastMessages;
 use steam_api::{
     FriendLookupResult, LookupFriends, LookupProfiles, ProfileLookupBatchTick, ProfileLookupResult,
 };
@@ -81,7 +81,7 @@ define_events!(
         CommandManager,
 
         ConsoleParser,
-        BroadcastNewConsoleMessages,
+        SseBroadcastMessages,
 
         ExtractNewPlayers,
 
@@ -203,7 +203,7 @@ fn main() {
                 .add_handler(LookupFriends::new())
                 .add_handler(DumbAutoKick)
                 .add_handler(WebAPIHandler::new())
-                .add_handler(BroadcastNewConsoleMessages);
+                .add_handler(SseBroadcastMessages);
 
             if args.print_votes {
                 event_loop = event_loop.add_handler(PrintVotes::new());
