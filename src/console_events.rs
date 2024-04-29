@@ -7,22 +7,21 @@ use event_loop::{try_get, Handled, HandlerStruct, Is};
 
 // Handlers *********************
 
-
 #[allow(clippy::module_name_repetitions)]
 pub struct SseBroadcastMessages;
 
-/// Handler that parses through all ConsoleOutput events, taking the relevant messages and broadcasting them
+/// Handler that parses through all `ConsoleOutput` events, taking the relevant messages and broadcasting them
 /// via the SSE (Server Sent Events) channels that clients have subscribed to.
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for SseBroadcastMessages
 where
     IM: Is<ConsoleOutput>,
 {
-    /// Takes a clone of the message and throws it off to the broadcast_event method in web.rs.
+    /// Takes a clone of the message and throws it off to the `broadcast_event` method in web.rs.
     /// Returns a Handled future for the event loop infrastructure to await. Makes no modifications to state,
     /// does not add any new messages to the queue.
-    /// 
-    /// The current state is used to construct a map of player names to SteamID64s, useful for injecting
-    /// SteamID64 values into ConsoleOutput messaages that only have a name. 
+    ///
+    /// The current state is used to construct a map of player names to `SteamID64s`, useful for injecting
+    /// `SteamID64` values into `ConsoleOutput` messaages that only have a name.
     fn handle_message(
         &mut self,
         state: &MACState,

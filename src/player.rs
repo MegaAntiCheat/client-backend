@@ -374,14 +374,11 @@ impl Players {
         None
     }
 
+    #[must_use]
     pub fn get_name_to_steam_ids_map(&self) -> HashMap<String, SteamID> {
         self.connected
             .iter()
-            .filter_map(|s| {
-                self.game_info
-                    .get(s)
-                    .map(|gi| (gi.name.clone(), *s))
-            })
+            .filter_map(|s| self.game_info.get(s).map(|gi| (gi.name.clone(), *s)))
             .collect()
     }
 

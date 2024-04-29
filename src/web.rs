@@ -1,9 +1,5 @@
 use std::{
-    collections::HashMap,
-    convert::Infallible,
-    net::SocketAddr,
-    path::{Path, PathBuf},
-    sync::Arc,
+    collections::HashMap, convert::Infallible, hash::BuildHasher, net::SocketAddr, path::{Path, PathBuf}, sync::Arc
 };
 
 use axum::{
@@ -710,17 +706,21 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     Sse::new(ReceiverStream::new(rx))
 }
 
-/// Given a ConsoleOutput 'message', and a set of players in the current context, broadcast the ConsoleOutput event to
+/// Given a `ConsoleOutput` 'message', and a set of players in the current context, broadcast the `ConsoleOutput` event to
 /// all subscribers (i.e. everyone thats grabbed an SSE stream channel). This also prunes closed channels from the subscribers
 /// list.
-/// 
-/// This function is responsible for inserting the steam id fields into various ConsoleOutput events that don't have it populated
+///
+/// This function is responsible for inserting the steam id fields into various `ConsoleOutput` events that don't have it populated
 /// due to them being constructed in a stateless manner. The players map is constructed from the current MAC State at the message
 /// handling phase.
-/// 
+///
 /// Note: this function is 'fire and forget'. It does not check that the messages were succesfully sent or recieved on any of
 ///       the channels, nor does it check anything about the channels beyond whether or not the sending side is currently open.
-pub async fn broadcast_event(conosle_output: ConsoleOutput, players: HashMap<String, SteamID>) {
+/// 
+/// # Panics
+/// May panic if the types wrapped by the `ConsoleOuput` type fail to serialise. These types are required to derive Serialise and
+/// Deserialise.
+pub async fn broadcast_event<S: BuildHasher>(conosle_output: ConsoleOutput, players: HashMap<String, SteamID, S>) {
     // We also set the steam_id fields in the events here before we serialise
     if let Some(event_json) = match conosle_output {
         ConsoleOutput::Chat(mut m) => {
@@ -732,10 +732,10 @@ pub async fn broadcast_event(conosle_output: ConsoleOutput, players: HashMap<Str
         }
         ConsoleOutput::Kill(mut m) => {
             if let Some(id) = players.get(&m.killer_name) {
-                m.set_steam_id_killer(*id)
+                m.set_steam_id_killer(*id);
             }
             if let Some(id) = players.get(&m.victim_name) {
-                m.set_steam_id_victim(*id)
+                m.set_steam_id_victim(*id);
             }
             let event = SerializableEvent::make_from(m);
             Some(serde_json::to_string(&event).expect("Serialisation failure"))
