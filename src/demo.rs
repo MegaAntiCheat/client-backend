@@ -445,11 +445,7 @@ where
     IM: Is<DemoBytes>,
     OM: Is<DemoMessage>,
 {
-    fn handle_message(
-        &mut self,
-        state: &MACState,
-        message: &IM,
-    ) -> Option<Handled<OM>> {
+    fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
         let msg = try_get(message)?;
 
         tracing::debug!("Got {} bytes for demo {:?}", msg.bytes.len(), msg.file_path);
