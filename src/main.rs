@@ -26,6 +26,7 @@ use web::{web_main, WebState};
 mod args;
 mod command_manager;
 mod console;
+mod console_events;
 mod demo;
 mod events;
 mod gamefinder;

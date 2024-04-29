@@ -6,6 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
+use anyhow::Error;
 use axum::{
     extract::{Query, State},
     http::{header, StatusCode},
@@ -15,7 +16,7 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use event_loop::{try_get, Handled, HandlerStruct, Is};
-use futures::Stream;
+use futures::{Future, Stream};
 use include_dir::Dir;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
@@ -649,7 +650,7 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
 }
 
 
-async fn broadcast_event(conosle_output: &ConsoleOutput) -> () {
+pub async fn broadcast_event(conosle_output: &ConsoleOutput) {
     let event_json = match conosle_output {
         ConsoleOutput::Chat(message) => {
             Some(serde_json::to_string(message).expect("Serialisation failure"))
@@ -665,22 +666,22 @@ async fn broadcast_event(conosle_output: &ConsoleOutput) -> () {
     if event_json.is_none() {
         return;
     }
+    
     {
         let event = event_json.unwrap();
         let subscribers = SUBSCRIBERS.lock().expect("Lock poisoned");
         if subscribers.is_some() {
             let subs = subscribers.as_ref().expect("Vector to publish to");
             let futs = subs.iter().map(|sender| sender.send(Ok(Event::default().data(event.clone()))));
-            let tasks: Vec<_> = futs.into_iter().map(tokio::spawn).collect();
+
             // unwrap the Result because it is introduced by tokio::spawn()
             // and isn't something our caller can handle
-            futures::future::join_all(tasks)
+            futures::future::join_all(futs)
                 .await
                 .into_iter()
                 .map(Result::unwrap)
-                .collect::<Vec<_>>();
+                .for_each(drop);
+                // .collect::<Vec<_>>();
         }
     }
-
-
 }
