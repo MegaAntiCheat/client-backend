@@ -681,7 +681,6 @@ pub async fn broadcast_event(conosle_output: &ConsoleOutput) {
             futures::future::join_all(futs)
                 .await
                 .into_iter()
-                .map(Result::unwrap)
                 .for_each(drop);
                 // .collect::<Vec<_>>();
         }
