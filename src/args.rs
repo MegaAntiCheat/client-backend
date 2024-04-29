@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use clap::{ArgAction, Parser};
 
 #[allow(clippy::struct_excessive_bools)]
@@ -53,4 +55,8 @@ pub struct Args {
     /// Print player votes parsed from demos (requires demo parsing to be enabled)
     #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
     pub print_votes: bool,
+
+    /// Serve web-ui files from this directory
+    #[arg(short, long)]
+    pub web_dir: Option<PathBuf>,
 }

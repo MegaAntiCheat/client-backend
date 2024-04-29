@@ -1,6 +1,10 @@
 use std::{
     path::{Path, PathBuf},
     str::FromStr,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
     time::Duration,
 };
 
@@ -8,7 +12,6 @@ use args::Args;
 use clap::Parser;
 use event_loop::{define_events, EventLoop};
 use events::emit_on_timer;
-use include_dir::{include_dir, Dir};
 use launchoptions::LaunchOptions;
 use player::Players;
 use player_records::PlayerRecords;
@@ -97,8 +100,6 @@ define_events!(
     },
 );
 
-static UI_DIR: Dir = include_dir!("ui");
-
 #[allow(clippy::too_many_lines)]
 fn main() {
     let _guard = init_tracing();
@@ -133,31 +134,46 @@ fn main() {
                 state.settings.upload_demos = false;
                 tracing::warn!("No masterbase key is set. If you would like to enable demo uploads, please provision a key at https://megaanticheat.com/provision");
             }
+
             // Close any previous masterbase sessions that might not have finished up
             // properly.
             if state.settings.upload_demos() {
-                match masterbase::force_close_session(
+                const TIMEOUT: u64 = 4;
+                match tokio::time::timeout(Duration::from_secs(TIMEOUT), async { masterbase::force_close_session(
                     state.settings.masterbase_host(),
                     state.settings.masterbase_key(),
                     state.settings.use_masterbase_http(),
-                )
+                ).await})
                 .await
                 {
-                    Ok(r) if r.status().is_success() => tracing::warn!(
+                    Ok(Ok(r)) if r.status().is_success() => tracing::warn!(
                         "User was previously in a Masterbase session that has now been closed."
                     ),
-                    Ok(r) if r.status().is_server_error() => tracing::error!(
+                    Ok(Ok(r)) if r.status().is_server_error() => tracing::error!(
                     "Error when trying to close any previous Masterbase sessions: Status code {}",
                     r.status()
                 ),
-                    Ok(r) if r.status() == StatusCode::UNAUTHORIZED => {
+                    Ok(Ok(r)) if r.status() == StatusCode::UNAUTHORIZED => {
                         tracing::warn!("Your Masterbase key is not valid, demo uploads will be disabled. Please provision a new one at https://megaanticheat.com/provision");
                         state.settings.upload_demos = false;
                     }
-                    Ok(_) => tracing::info!("Successfully authenticated with the Masterbase."),
-                    Err(e) => tracing::error!("Couldn't reach Masterbase: {e}"),
+                    Ok(Ok(_)) => tracing::info!("Successfully authenticated with the Masterbase."),
+                    Ok(Err(e)) => tracing::error!("Couldn't reach Masterbase: {e}"),
+                    Err(_) => {
+                        tracing::error!("Connection to masterbase timed out after {TIMEOUT} seconds");
+                    }
                 }
             }
+
+            // Exit handler
+            let running = Arc::new(AtomicBool::new(true));
+            let r = running.clone();
+            tokio::task::spawn(async move {
+                if let Err(e) = tokio::signal::ctrl_c().await {
+                    tracing::error!("Error with Ctrl+C handler: {e}");
+                }
+                r.store(false, Ordering::SeqCst);
+            });
 
             // Autolaunch UI
             if args.autolaunch_ui || state.settings.autolaunch_ui() {
@@ -175,7 +191,7 @@ fn main() {
                 .ok()};
 
             // Web API
-            let (web_state, web_requests) = WebState::new(Some(&UI_DIR));
+            let (web_state, web_requests) = WebState::new(state.settings.web_ui_source());
             tokio::task::spawn(async move {
                 web_main(web_state, web_port).await;
             });
@@ -215,6 +231,14 @@ fn main() {
             }
 
             loop {
+                if !running.load(Ordering::SeqCst) {
+                    tracing::info!("Saving and exiting.");
+                    state.players.records.save_ok();
+                    state.settings.save_ok();
+                    state.players.save_steam_info_ok();
+                    std::process::exit(0);
+                }
+
                 if event_loop.execute_cycle(&mut state).await.is_none() {
                     tokio::time::sleep(Duration::from_millis(50)).await;
                 }

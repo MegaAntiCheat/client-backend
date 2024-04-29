@@ -1,6 +1,7 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
     ops::{Deref, DerefMut},
+    path::{Path, PathBuf},
 };
 
 use chrono::{DateTime, Utc};
@@ -13,6 +14,7 @@ use crate::{
         regexes::StatusLine,
     },
     player_records::{default_custom_data, PlayerRecords, Verdict},
+    settings::{ConfigFilesError, Settings},
 };
 
 pub mod tags {
@@ -38,7 +40,7 @@ pub struct Players {
 impl Players {
     #[must_use]
     pub fn new(records: PlayerRecords, user: Option<SteamID>) -> Self {
-        Self {
+        let mut players = Self {
             game_info: HashMap::new(),
             steam_info: HashMap::new(),
             friend_info: HashMap::new(),
@@ -48,7 +50,20 @@ impl Players {
             connected: Vec::new(),
             history: VecDeque::new(),
             user,
+        };
+
+        match players.load_steam_info() {
+            Ok(()) => tracing::info!(
+                "Loaded steam info cache with {} entries.",
+                players.steam_info.len()
+            ),
+            Err(ConfigFilesError::IO(_, e)) if e.kind() == std::io::ErrorKind::NotFound => {
+                tracing::warn!("No steam info cache was found, creating a new one.");
+            }
+            Err(e) => tracing::error!("Failed to load steam info cache: {e}"),
         }
+
+        players
     }
 
     /// Check if a player has a particular tag set
@@ -369,6 +384,51 @@ impl Players {
             })
             .collect()
     }
+
+    fn locate_steam_info_cache_path() -> Result<PathBuf, ConfigFilesError> {
+        Settings::locate_config_directory().map(|p| p.join("steam_cache.bin"))
+    }
+
+    /// # Errors
+    /// If the file could not be read from disk or the data could not be deserialized
+    pub fn load_steam_info(&mut self) -> Result<(), ConfigFilesError> {
+        let path = Self::locate_steam_info_cache_path()?;
+        self.load_steam_info_from(&path)
+    }
+
+    /// # Errors
+    /// If the data could not be serialized or the file could not be written back to disk
+    pub fn save_steam_info(&self) -> Result<(), ConfigFilesError> {
+        let path = Self::locate_steam_info_cache_path()?;
+        self.save_steam_info_to(&path)
+    }
+
+    pub fn save_steam_info_ok(&self) {
+        if let Err(e) = self.save_steam_info() {
+            tracing::error!("Failed to save steam info cache: {e}");
+        } else {
+            tracing::debug!("Saved steam info cache.");
+        }
+    }
+
+    fn load_steam_info_from(&mut self, path: &Path) -> Result<(), ConfigFilesError> {
+        let contents = std::fs::read(path)
+            .map_err(|e| ConfigFilesError::IO(path.to_string_lossy().into(), e))?;
+        let steam_info = pot::from_slice(&contents)
+            .map_err(|e| ConfigFilesError::Pot(path.to_string_lossy().into(), e))?;
+
+        self.steam_info = steam_info;
+        Ok(())
+    }
+
+    fn save_steam_info_to(&self, path: &Path) -> Result<(), ConfigFilesError> {
+        let contents = pot::to_vec(&self.steam_info)
+            .map_err(|e| ConfigFilesError::Pot(path.to_string_lossy().into(), e))?;
+        std::fs::write(path, contents)
+            .map_err(|e| ConfigFilesError::IO(path.to_string_lossy().into(), e))?;
+
+        Ok(())
+    }
 }
 
 impl Serialize for Players {
@@ -423,7 +483,7 @@ impl Serialize for Team {
     }
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SteamInfo {
     #[serde(rename = "name")]
@@ -441,7 +501,7 @@ pub struct SteamInfo {
     pub fetched: DateTime<Utc>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProfileVisibility {
     Private = 1,
     FriendsOnly = 2,
