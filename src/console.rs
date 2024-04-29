@@ -60,8 +60,16 @@ impl ConsoleLog {
     }
 }
 
+/// This is useful, but not implemented well. This needs to be either reworked and reimplemented, or utilised better.
+/// TODO: fix this
 pub trait SerializableConsoleOutput {
+    /// It isn't likely that you'll ever call this, as you would instead directly invoke
+    /// `serde_json::to_string(thing: SerializableEvent<T>)`
+    /// But this still ensures that there is a serialisation pathway for the implemented trait (i.e. it derives
+    /// serialize)
     fn serialise(&self) -> Option<String>;
+    /// Just returns a string name for the child wrapped by the ConsoleOutput type
+    /// i.e. `ConsoleOutput(ChatMessage)` -> `"ChatMessage"`
     fn get_type(&self) -> String;
 }
 
@@ -93,6 +101,8 @@ impl SerializableConsoleOutput for DemoStop {
     }
 }
 
+/// Wraps the type (that is wrapped by ConsoleOutput) with use json data, such as the event type,
+/// timestamp and even a uuid.  
 #[derive(Serialize, Deserialize)]
 pub struct SerializableEvent<T: SerializableConsoleOutput> {
     #[serde(rename = "type")]
@@ -106,12 +116,14 @@ impl<T> SerializableEvent<T>
 where
     T: SerializableConsoleOutput,
 {
-    pub fn make_from(console_output: T) -> Self {
+    /// Make a SerializableEvent from the type wrapped by ConsoleOutput, only if that type
+    /// implements the SerializableConsoleOutput trait 
+    pub fn make_from(console_output_child: T) -> Self {
         SerializableEvent {
-            event_type: console_output.get_type(),
+            event_type: console_output_child.get_type(),
             uuid: Uuid::new_v4(),
             time: Utc::now(),
-            event: console_output,
+            event: console_output_child,
         }
     }
 }

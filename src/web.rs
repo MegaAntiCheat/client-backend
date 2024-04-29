@@ -645,6 +645,16 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     Sse::new(ReceiverStream::new(rx))
 }
 
+/// Given a ConsoleOutput 'message', and a set of players in the current context, broadcast the ConsoleOutput event to
+/// all subscribers (i.e. everyone thats grabbed an SSE stream channel). This also prunes closed channels from the subscribers
+/// list.
+/// 
+/// This function is responsible for inserting the steam id fields into various ConsoleOutput events that don't have it populated
+/// due to them being constructed in a stateless manner. The players map is constructed from the current MAC State at the message
+/// handling phase.
+/// 
+/// Note: this function is 'fire and forget'. It does not check that the messages were succesfully sent or recieved on any of
+///       the channels, nor does it check anything about the channels beyond whether or not the sending side is currently open.
 pub async fn broadcast_event(conosle_output: ConsoleOutput, players: HashMap<String, SteamID>) {
     // We also set the steam_id fields in the events here before we serialise
     if let Some(event_json) = match conosle_output {

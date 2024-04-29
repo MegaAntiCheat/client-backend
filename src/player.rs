@@ -358,6 +358,17 @@ impl Players {
 
         None
     }
+
+    pub fn get_name_to_steam_ids_map(&self) -> HashMap<String, SteamID> {
+        self.connected
+            .iter()
+            .filter_map(|s| {
+                self.game_info
+                    .get(s)
+                    .map(|gi| (gi.name.clone(), *s))
+            })
+            .collect()
+    }
 }
 
 impl Serialize for Players {
