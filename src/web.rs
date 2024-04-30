@@ -692,6 +692,8 @@ type Subscriber = tokio::sync::mpsc::Sender<Result<Event, Infallible>>;
 static SUBSCRIBERS: Mutex<Option<Vec<Subscriber>>> = Mutex::const_new(None);
 
 /// Gets a SSE stream to listen for any updates the client can provide.
+/// This returns the `rx` channel to the client that hit this endpoint. The corresponding `tx` channel is stored in the SUBSCRIBERS
+/// Mutex lock. You may send events to these subscribed clients by calling 'Send' on the `tx` channel.
 async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     tracing::debug!("API: Events subcription");
 
@@ -702,7 +704,7 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
         if subscribers.is_none() {
             *subscribers = Some(Vec::new());
         }
-
+        // subscribers will never be None here, so calling expect will never panic.
         subscribers.as_mut().expect("Just set it to Some").push(tx);
     }
 
@@ -710,6 +712,10 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
 }
 
 /// Given a serialised JSON string (we do not actually verify the string is json, but it is expected), broadcast to all subscribers.
+/// Iterates all `tx` channels in the SUBSCRIBERS Mutex. calling 'send' on each of them an `Axum::response::sse::Event` containing
+/// the input event_json as the Event data. This is fire and forget, as in, we do not care if the message fails to send for whatever
+/// reason. We just attempt best efforts to shove a message down the channel, and ignore any failures. We also prune any closed
+/// `tx` channels out of the SUBSCRIBERS Mutex.
 ///
 /// # Panics
 /// Will panic if the subscribers Mutex does not actually contain a mutable vector we can broadcast into.
@@ -719,6 +725,7 @@ pub async fn broadcast_event(event_json: String) {
         let subs = subscribers.as_mut().expect("Vector to publish to");
         // prune closed tx/rx pairs out of the subscribers list
         subs.retain(|sender| !sender.is_closed());
+        // futs stands for Futures, not... hentai women
         let futs = subs
             .iter()
             .map(|sender| sender.send(Ok(Event::default().data(&event_json))));
