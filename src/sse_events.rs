@@ -148,6 +148,10 @@ impl BroadcastableEvent {
                 let res = VoteRelatedEvent::make_from(wrapper);
                 Some(serde_json::to_string(&res).expect("Serialization failure"))
             }
+            DemoEvent::VoteCreated(event) => {
+                let res = VoteRelatedEvent::make_from(event);
+                Some(serde_json::to_string(&res).expect("Serialisation failure"))
+            }
             DemoEvent::LastestTick => None,
         }
     }

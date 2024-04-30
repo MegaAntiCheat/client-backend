@@ -17,7 +17,7 @@ use notify::{event::ModifyKind, Config, Event, RecommendedWatcher, RecursiveMode
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
 use tf_demo_parser::demo::{
-    gameevent_gen::{VoteCastEvent, VoteOptionsEvent},
+    gameevent_gen::{VoteCastEvent, VoteOptionsEvent, VoteStartedEvent},
     gamevent::GameEvent,
     header::Header,
     message::{gameevent::GameEventMessage, Message},
@@ -47,6 +47,7 @@ pub struct DemoMessage {
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
 pub enum DemoEvent {
+    VoteCreated(VoteStartedEvent),
     VoteStarted(Box<VoteOptionsEvent>),
     VoteCast(VoteCastEvent, Option<SteamID>),
     LastestTick,
@@ -485,6 +486,12 @@ impl SerializableVoteEventContent for VoteCastEventWrapped {
     }
 }
 
+impl SerializableVoteEventContent for VoteStartedEvent {
+    fn event_name(&self) -> String {
+        "VoteCreated".to_string()
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct VoteRelatedEvent<T: SerializableVoteEventContent> {
     #[serde(rename = "type")]
@@ -694,9 +701,10 @@ fn handle_packet(packet: &Packet, state: &GameState) -> Vec<DemoMessage> {
             };
 
             match event {
-                // GameEvent::VoteStarted(e) => {
-                //     tracing::info!("Vote started: {:?}", e);
-                // }
+                GameEvent::VoteStarted(e) => out.push(DemoMessage {
+                    tick: tick.0,
+                    event: DemoEvent::VoteCreated(e.clone()),
+                }),
                 GameEvent::VoteOptions(e) => out.push(DemoMessage {
                     tick: tick.0,
                     event: DemoEvent::VoteStarted(e.clone()),
@@ -808,6 +816,11 @@ where
                     .map_or::<&str, _>("Invalid vote", |s| s);
 
                 tracing::info!("{vote} - {name}");
+            }
+            DemoEvent::VoteCreated(event) => {
+                let issue = event.issue.as_ref();
+                let initiator = event.initiator;
+                tracing::info!("{issue} - called by {initiator}");
             }
             DemoEvent::LastestTick => {}
         }
