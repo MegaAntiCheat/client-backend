@@ -31,6 +31,7 @@ mod command_manager;
 mod console;
 mod console_events;
 mod demo;
+mod demo_events;
 mod events;
 mod gamefinder;
 mod io;
@@ -49,6 +50,7 @@ use command_manager::{Command, CommandManager, DumbAutoKick};
 use console::{ConsoleLog, ConsoleOutput, ConsoleParser, RawConsoleOutput};
 use console_events::SseBroadcastMessages;
 use demo::{DemoBytes, DemoManager, DemoMessage, DemoWatcher, PrintVotes};
+use demo_events::SseBroadcastVotes;
 use events::{Preferences, Refresh, UserUpdates};
 use new_players::{ExtractNewPlayers, NewPlayers};
 use steam_api::{
@@ -95,6 +97,7 @@ define_events!(
 
         DemoManager,
         PrintVotes,
+        SseBroadcastVotes,
 
         DumbAutoKick,
     },
@@ -218,7 +221,8 @@ fn main() {
                 .add_handler(LookupFriends::new())
                 .add_handler(DumbAutoKick)
                 .add_handler(WebAPIHandler::new())
-                .add_handler(SseBroadcastMessages);
+                .add_handler(SseBroadcastMessages)
+                .add_handler(SseBroadcastVotes::new());
 
             if args.print_votes {
                 event_loop = event_loop.add_handler(PrintVotes::new());
