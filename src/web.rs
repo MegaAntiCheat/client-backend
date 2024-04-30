@@ -713,7 +713,7 @@ async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
 
 /// Given a serialised JSON string (we do not actually verify the string is json, but it is expected), broadcast to all subscribers.
 /// Iterates all `tx` channels in the SUBSCRIBERS Mutex. calling 'send' on each of them an `Axum::response::sse::Event` containing
-/// the input event_json as the Event data. This is fire and forget, as in, we do not care if the message fails to send for whatever
+/// the input `event_json` as the Event data. This is fire and forget, as in, we do not care if the message fails to send for whatever
 /// reason. We just attempt best efforts to shove a message down the channel, and ignore any failures. We also prune any closed
 /// `tx` channels out of the SUBSCRIBERS Mutex.
 ///

@@ -1,14 +1,14 @@
 use crate::{
+    console::{ConsoleOutput, SerializableEvent},
     demo::{DemoEvent, DemoMessage, VoteCastEventWrapped, VoteRelatedEvent},
     state::MACState,
-    console::{ConsoleOutput, SerializableEvent},
     web::broadcast_event,
 };
 use event_loop::{try_get, Handled, HandlerStruct, Is};
 use std::collections::HashMap;
 
 /// This struct will house the relevant vars used by various message handlers when broadcasting
-/// Encapsulates a set of functions to invoke the `web::broadcast_event` function with the 
+/// Encapsulates a set of functions to invoke the `web::broadcast_event` function with the
 /// appropriately serialised JSON messages.
 pub struct BroadcastableEvent {
     /// Used when handling certain `DemoMessage` messages (I.e. `VoteStarted`)
@@ -33,14 +33,14 @@ impl Default for BroadcastableEvent {
 /// We 'broadcast' events to subscribers using SSE (Server Sent Events) publishing to push events to
 /// clients without them having to poll us. This is essentially a reverse API, where we expose the
 /// endpoint, but data is shipped when _we_ want and the clients have to respond.
-/// 
-/// See `broadcast_event` in `crate::web` for more info 
+///
+/// See `broadcast_event` in `crate::web` for more info
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for BroadcastableEvent
 where
     IM: Is<DemoMessage> + Is<ConsoleOutput>,
 {
     /// `IM` can be a message that is either a `DemoMessage` or a `ConsoleOutput` message
-    /// These are then dispatched to the appropriate discrete message handler, which take the 
+    /// These are then dispatched to the appropriate discrete message handler, which take the
     /// direct message (i.e. not wrapped in Is<> or as a generic), then return `Option<String>` for
     /// the message serialisation.
     /// If a `String` was returned, we broadcast that message to all subscribers.
@@ -106,7 +106,7 @@ impl BroadcastableEvent {
     }
 
     /// Handling `DemoMessages` often requires inspecting or modifying the list of votes that have been
-    /// cast. I.e. a `VoteCast` event wont contain information about what the vote options were. So we 
+    /// cast. I.e. a `VoteCast` event wont contain information about what the vote options were. So we
     /// have to keep this context ourselves.
     fn handle_demo_message(&mut self, state: &MACState, message: &DemoMessage) -> Option<String> {
         let cloned_msg = message.clone();
