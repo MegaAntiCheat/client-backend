@@ -180,7 +180,7 @@ where
                 broadcast_event(json).await;
                 None
             });
-        } 
+        }
         None
     }
 }
