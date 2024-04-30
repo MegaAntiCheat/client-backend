@@ -1,11 +1,7 @@
-use std::path::PathBuf;
-
-use chrono::{DateTime, Utc};
 use event_loop::{Handled, HandlerStruct, Is, MessageSource, StateUpdater};
 use regex::Regex;
-use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
 use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver};
-use uuid::Uuid;
 
 use crate::{
     io::{
@@ -56,74 +52,6 @@ impl ConsoleLog {
         Self {
             recv: console_rx,
             logged_error: false,
-        }
-    }
-}
-
-/// This is useful, but not implemented well. This needs to be either reworked and reimplemented, or utilised better.
-/// TODO: fix this
-pub trait SerializableConsoleOutput {
-    /// It isn't likely that you'll ever call this, as you would instead directly invoke
-    /// `serde_json::to_string(thing: SerializableEvent<T>)`
-    /// But this still ensures that there is a serialisation pathway for the implemented trait (i.e. it derives
-    /// serialize)
-    fn serialise(&self) -> Option<String>;
-    /// Just returns a string name for the child wrapped by the `ConsoleOutput` type
-    /// i.e. `ConsoleOutput(ChatMessage)` -> `"ChatMessage"`
-    fn get_type(&self) -> String;
-}
-
-impl SerializableConsoleOutput for ChatMessage {
-    fn serialise(&self) -> Option<String> {
-        serde_json::to_string(self).ok()
-    }
-
-    fn get_type(&self) -> String {
-        "ChatMessage".to_string()
-    }
-}
-impl SerializableConsoleOutput for PlayerKill {
-    fn serialise(&self) -> Option<String> {
-        serde_json::to_string(self).ok()
-    }
-
-    fn get_type(&self) -> String {
-        "PlayerKill".to_string()
-    }
-}
-impl SerializableConsoleOutput for DemoStop {
-    fn serialise(&self) -> Option<String> {
-        serde_json::to_string(self).ok()
-    }
-
-    fn get_type(&self) -> String {
-        "DemoStop".to_string()
-    }
-}
-
-/// Wraps the type (that is wrapped by `ConsoleOutput`) with use json data, such as the event type,
-/// timestamp and even a uuid.  
-#[derive(Serialize, Deserialize)]
-pub struct SerializableEvent<T: SerializableConsoleOutput> {
-    #[serde(rename = "type")]
-    event_type: String,
-    uuid: Uuid,
-    time: DateTime<Utc>,
-    event: T,
-}
-
-impl<T> SerializableEvent<T>
-where
-    T: SerializableConsoleOutput,
-{
-    /// Make a `SerializableEvent` from the type wrapped by `ConsoleOutput`, only if that type
-    /// implements the `SerializableConsoleOutput` trait
-    pub fn make_from(console_output_child: T) -> Self {
-        SerializableEvent {
-            event_type: console_output_child.get_type(),
-            uuid: Uuid::new_v4(),
-            time: Utc::now(),
-            event: console_output_child,
         }
     }
 }

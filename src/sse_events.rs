@@ -1,21 +1,143 @@
 use crate::{
-    console::{ConsoleOutput, SerializableEvent},
-    demo::{DemoEvent, DemoMessage, VoteCastEventWrapped, VoteRelatedEvent},
+    console::ConsoleOutput,
+    demo::{DemoEvent, DemoMessage},
+    io::regexes::{ChatMessage, DemoStop, PlayerKill},
     state::MACState,
     web::broadcast_event,
 };
+use chrono::{DateTime, Utc};
 use event_loop::{try_get, Handled, HandlerStruct, Is};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use steamid_ng::SteamID;
+use tf_demo_parser::demo::gameevent_gen::{VoteCastEvent, VoteOptionsEvent, VoteStartedEvent};
+use uuid::Uuid;
+
+/// This is useful, but not implemented well. This needs to be either reworked and reimplemented, or utilised better.
+/// TODO: fix this
+pub trait SerializableConsoleOutput {
+    /// Just returns a string name for the child wrapped by the `ConsoleOutput` type
+    /// i.e. `ConsoleOutput(ChatMessage)` -> `"ChatMessage"`
+    fn get_type(&self) -> String;
+}
+
+impl SerializableConsoleOutput for ChatMessage {
+    fn get_type(&self) -> String {
+        "ChatMessage".to_string()
+    }
+}
+impl SerializableConsoleOutput for PlayerKill {
+    fn get_type(&self) -> String {
+        "PlayerKill".to_string()
+    }
+}
+impl SerializableConsoleOutput for DemoStop {
+    fn get_type(&self) -> String {
+        "DemoStop".to_string()
+    }
+}
+
+/// Wraps the type (that is wrapped by `ConsoleOutput`) with use json data, such as the event type,
+/// timestamp and even a uuid.  
+#[derive(Serialize, Deserialize)]
+pub struct SerializableEvent<T: SerializableConsoleOutput> {
+    #[serde(rename = "type")]
+    event_type: String,
+    uuid: Uuid,
+    time: DateTime<Utc>,
+    event: T,
+}
+
+impl<T> SerializableEvent<T>
+where
+    T: SerializableConsoleOutput,
+{
+    /// Make a `SerializableEvent` from the type wrapped by `ConsoleOutput`, only if that type
+    /// implements the `SerializableConsoleOutput` trait
+    pub fn make_from(console_output_child: T) -> Self {
+        SerializableEvent {
+            event_type: console_output_child.get_type(),
+            uuid: Uuid::new_v4(),
+            time: Utc::now(),
+            event: console_output_child,
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct VoteCastEventWrapped {
+    pub voter: Option<SteamID>,
+    pub voter_name: Option<String>,
+    pub choice: Option<String>,
+    event: VoteCastEvent,
+}
+
+impl VoteCastEventWrapped {
+    #[must_use]
+    pub fn from_vote_cast_event(event: VoteCastEvent, voter: Option<SteamID>) -> Self {
+        Self {
+            voter,
+            voter_name: None,
+            choice: None,
+            event,
+        }
+    }
+}
+
+pub trait SerializableVoteEventContent {
+    fn event_name(&self) -> String;
+}
+
+impl SerializableVoteEventContent for Box<VoteOptionsEvent> {
+    fn event_name(&self) -> String {
+        "VoteStarted".to_string()
+    }
+}
+
+impl SerializableVoteEventContent for VoteCastEventWrapped {
+    fn event_name(&self) -> String {
+        "VoteCast".to_string()
+    }
+}
+
+impl SerializableVoteEventContent for VoteStartedEvent {
+    fn event_name(&self) -> String {
+        "VoteCreated".to_string()
+    }
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct VoteRelatedEvent<T: SerializableVoteEventContent> {
+    #[serde(rename = "type")]
+    event_type: String,
+    content: T,
+    time: DateTime<Utc>,
+    uuid: Uuid,
+}
+
+impl<T> VoteRelatedEvent<T>
+where
+    T: SerializableVoteEventContent,
+{
+    pub fn make_from(vote_event: T) -> Self {
+        Self {
+            event_type: vote_event.event_name(),
+            content: vote_event,
+            time: Utc::now(),
+            uuid: Uuid::new_v4(),
+        }
+    }
+}
 
 /// This struct will house the relevant vars used by various message handlers when broadcasting
 /// Encapsulates a set of functions to invoke the `web::broadcast_event` function with the
 /// appropriately serialised JSON messages.
-pub struct BroadcastableEvent {
+pub struct SseEventBroadcaster {
     /// Used when handling certain `DemoMessage` messages (I.e. `VoteStarted`)
     votes: HashMap<u32, Vec<String>>,
 }
 
-impl BroadcastableEvent {
+impl SseEventBroadcaster {
     #[must_use]
     pub fn new() -> Self {
         Self {
@@ -24,7 +146,7 @@ impl BroadcastableEvent {
     }
 }
 
-impl Default for BroadcastableEvent {
+impl Default for SseEventBroadcaster {
     fn default() -> Self {
         Self::new()
     }
@@ -35,7 +157,7 @@ impl Default for BroadcastableEvent {
 /// endpoint, but data is shipped when _we_ want and the clients have to respond.
 ///
 /// See `broadcast_event` in `crate::web` for more info
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for BroadcastableEvent
+impl<IM, OM> HandlerStruct<MACState, IM, OM> for SseEventBroadcaster
 where
     IM: Is<DemoMessage> + Is<ConsoleOutput>,
 {
@@ -46,27 +168,24 @@ where
     /// If a `String` was returned, we broadcast that message to all subscribers.
     #[allow(clippy::cognitive_complexity)]
     fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
-        let event_json = if try_get::<DemoMessage>(message).is_some() {
-            let demo_msg = try_get::<DemoMessage>(message)?;
+        let event_json = if let Some(demo_msg) = try_get::<DemoMessage>(message) {
             self.handle_demo_message(state, demo_msg)
-        } else if try_get::<ConsoleOutput>(message).is_some() {
-            let con_msg = try_get::<ConsoleOutput>(message)?;
+        } else if let Some(con_msg) = try_get::<ConsoleOutput>(message) {
             self.handle_console_message(state, con_msg)
         } else {
             None
         };
         if let Some(json) = event_json {
-            Handled::<OM>::future(async move {
+            return Handled::<OM>::future(async move {
                 broadcast_event(json).await;
                 None
-            })
-        } else {
-            None
-        }
+            });
+        } 
+        None
     }
 }
 
-impl BroadcastableEvent {
+impl SseEventBroadcaster {
     /// Handling the console message requires injecting certain variables into the `ConsoleOutput` wrapped values,
     /// as not all of them are populated when instantiated. We use the current `MACState` to pull out the relevant
     /// values, then insert in the necessary place on a case-by-case basis.
@@ -133,18 +252,18 @@ impl BroadcastableEvent {
                 let name = steamid
                     .as_ref()
                     .and_then(|&id| state.players.get_name(id))
-                    .unwrap_or("Someone");
+                    .map(std::string::ToString::to_string);
 
-                let vote: &str = self
+                let vote = self
                     .votes
                     .get(&event.voteidx)
                     .and_then(|v| v.get(event.vote_option as usize))
-                    .map_or::<&str, _>("Invalid vote", |s| s);
+                    .map(std::string::ToString::to_string);
 
                 let mut wrapper = VoteCastEventWrapped::from_vote_cast_event(event, steamid);
-                wrapper.set_choice(vote.to_string());
-                wrapper.set_voter(steamid);
-                wrapper.set_vote_name(name.to_string());
+                wrapper.voter = steamid;
+                wrapper.voter_name = name;
+                wrapper.choice = vote;
                 let res = VoteRelatedEvent::make_from(wrapper);
                 Some(serde_json::to_string(&res).expect("Serialization failure"))
             }

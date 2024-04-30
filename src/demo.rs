@@ -11,10 +11,8 @@ use std::{
 };
 
 use bitbuffer::{BitError, BitRead, BitReadBuffer, BitReadStream, LittleEndian};
-use chrono::{DateTime, Utc};
 use event_loop::{try_get, Handled, HandlerStruct, Is, MessageSource};
 use notify::{event::ModifyKind, Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
-use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
 use tf_demo_parser::demo::{
     gameevent_gen::{VoteCastEvent, VoteOptionsEvent, VoteStartedEvent},
@@ -29,7 +27,6 @@ use tf_demo_parser::demo::{
 };
 use thiserror::Error;
 use tokio::sync::Mutex;
-use uuid::Uuid;
 
 use crate::{
     masterbase::{new_demo_session, send_late_bytes, DemoSession},
@@ -435,83 +432,6 @@ impl DemoManager {
 
             None
         })
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct VoteCastEventWrapped {
-    voter: Option<SteamID>,
-    voter_name: Option<String>,
-    choice: Option<String>,
-    event: VoteCastEvent,
-}
-
-impl VoteCastEventWrapped {
-    #[must_use]
-    pub fn from_vote_cast_event(event: VoteCastEvent, voter: Option<SteamID>) -> Self {
-        Self {
-            voter,
-            voter_name: None,
-            choice: None,
-            event,
-        }
-    }
-
-    pub fn set_choice(&mut self, choice: String) {
-        self.choice = Some(choice);
-    }
-
-    pub fn set_voter(&mut self, voter: Option<SteamID>) {
-        self.voter = voter;
-    }
-
-    pub fn set_vote_name(&mut self, name: String) {
-        self.voter_name = Some(name);
-    }
-}
-
-pub trait SerializableVoteEventContent {
-    fn event_name(&self) -> String;
-}
-
-impl SerializableVoteEventContent for Box<VoteOptionsEvent> {
-    fn event_name(&self) -> String {
-        "VoteStarted".to_string()
-    }
-}
-
-impl SerializableVoteEventContent for VoteCastEventWrapped {
-    fn event_name(&self) -> String {
-        "VoteCast".to_string()
-    }
-}
-
-impl SerializableVoteEventContent for VoteStartedEvent {
-    fn event_name(&self) -> String {
-        "VoteCreated".to_string()
-    }
-}
-
-#[derive(Serialize, Deserialize)]
-pub struct VoteRelatedEvent<T: SerializableVoteEventContent> {
-    #[serde(rename = "type")]
-    event_type: String,
-    content: T,
-    time: DateTime<Utc>,
-    uuid: Uuid,
-}
-
-impl<T> VoteRelatedEvent<T>
-where
-    T: SerializableVoteEventContent,
-{
-    pub fn make_from(vote_event: T) -> Self {
-        Self {
-            event_type: vote_event.event_name(),
-            content: vote_event,
-            time: Utc::now(),
-            uuid: Uuid::new_v4(),
-        }
     }
 }
 
