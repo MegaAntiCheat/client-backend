@@ -109,6 +109,12 @@ impl LookupProfiles {
     }
 }
 
+impl Default for LookupProfiles {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for LookupProfiles
 where
     IM: Is<NewPlayers> + Is<ProfileLookupBatchTick> + Is<Preferences>,
