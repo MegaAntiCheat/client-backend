@@ -97,9 +97,9 @@ pub async fn new_demo_session(
 ) -> Result<DemoSession, Error> {
     let params: [(&str, &str); 4] = [
         ("api_key", &key),
-        ("fake_ip", &fake_ip),
-        ("map", &map),
-        ("demo_name", &demo_name),
+        ("fake_ip", fake_ip),
+        ("map", map),
+        ("demo_name", demo_name),
     ];
 
     // Request to start session

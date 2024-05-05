@@ -99,6 +99,12 @@ pub struct LookupProfiles {
     in_progress: Vec<SteamID>,
 }
 
+impl Default for LookupProfiles {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl LookupProfiles {
     #[must_use]
     pub const fn new() -> Self {

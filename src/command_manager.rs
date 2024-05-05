@@ -78,11 +78,11 @@ impl PartialEq for Error {
 /// Current(CommandManagerError)
 #[derive(PartialEq)]
 enum ErrorState {
-    /// Never had an error, never been connected to RCon
+    /// Never had an error, never been connected to `RCon`
     Never,
-    /// Currently connected to RCon, logged no error state
+    /// Currently connected to `RCon`, logged no error state
     Okay,
-    /// No longer or never was connected to RCon due to the wrapped error
+    /// No longer or never was connected to `RCon` due to the wrapped error
     Current(Error),
 }
 
@@ -96,8 +96,8 @@ pub enum Command {
     Say(String),
     SayTeam(String),
     Kick {
-        /// The uid of the player as returned by [Command::Status] or
-        /// [Command::G15]
+        /// The uid of the player as returned by [`Command::Status`] or
+        /// [`Command::G15`]
         player: String,
         #[serde(default)]
         reason: KickReason,
