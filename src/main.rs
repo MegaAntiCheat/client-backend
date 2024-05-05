@@ -81,8 +81,6 @@ define_events!(
         DemoMessage,
     },
     Handler {
-        SseEventBroadcaster,
-
         CommandManager,
         ConsoleParser,
         ExtractNewPlayers,
@@ -91,6 +89,7 @@ define_events!(
         LookupFriends,
 
         WebAPIHandler,
+        SseEventBroadcaster,
 
         DemoManager,
         PrintVotes,
