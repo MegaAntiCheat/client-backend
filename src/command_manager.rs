@@ -236,7 +236,7 @@ impl CommandManagerInner {
             // Windows will try and connect to an unbound port up to 3 times, with 500ms intervals
             // 2000ms was too little time on the average system to accurately return the
             // 'Connection Refused' error, and would instead return Elapsed.
-            Duration::from_millis(2500),
+            Duration::from_millis(3000),
             Connection::connect(format!("127.0.0.1:{}", self.port), &self.password),
         )
         .await

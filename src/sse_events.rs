@@ -90,7 +90,7 @@ pub trait SerializableVoteEventContent {
 
 impl SerializableVoteEventContent for Box<VoteOptionsEvent> {
     fn event_name(&self) -> String {
-        "VoteStarted".to_string()
+        "VoteOptions".to_string()
     }
 }
 
@@ -102,7 +102,7 @@ impl SerializableVoteEventContent for VoteCastEventWrapped {
 
 impl SerializableVoteEventContent for VoteStartedEvent {
     fn event_name(&self) -> String {
-        "VoteCreated".to_string()
+        "VoteStarted".to_string()
     }
 }
 

@@ -689,6 +689,7 @@ fn handle_packet(packet: &Packet, state: &GameState) -> Vec<DemoMessage> {
 
 pub struct PrintVotes {
     votes: HashMap<u32, Vec<String>>,
+    shunted_messages: Vec<(u32, DemoMessage)>,
 }
 
 impl PrintVotes {
@@ -696,7 +697,27 @@ impl PrintVotes {
     pub fn new() -> Self {
         Self {
             votes: HashMap::new(),
+            shunted_messages: vec![],
         }
+    }
+
+    fn process_vote_cast_event(
+        &self,
+        event: &VoteCastEvent,
+        steamid: &Option<SteamID>,
+        state: &MACState,
+    ) -> Option<String> {
+        let name = steamid
+            .as_ref()
+            .and_then(|&id| state.players.get_name(id))
+            .unwrap_or("Someone");
+
+        let vote = self
+            .votes
+            .get(&event.voteidx)
+            .and_then(|v| v.get(event.vote_option as usize));
+
+        vote.map(|matched_vote| format!("{matched_vote} - {name}"))
     }
 }
 
@@ -715,7 +736,7 @@ where
         let msg = try_get(message)?;
 
         match &msg.event {
-            DemoEvent::VoteOptions(options) => {
+            DemoEvent::VoteOptions(options) => 'voteEvent: {
                 let mut values = Vec::new();
                 tracing::info!("Vote options:");
                 for i in 0..options.count {
@@ -731,22 +752,61 @@ where
                     tracing::info!("\t{}", opt);
                     values.push(opt);
                 }
-
                 self.votes.insert(options.voteidx, values);
+
+                // Replay shunted messages if we have them. This ensures that we don't print VoteCast events for Vote we haven't seen the
+                // VoteOptions event for yet.
+                if !self.shunted_messages.is_empty() {
+                    let mut indices: Vec<usize> = vec![];
+                    for (idx, (vote_idx, shunted_msg)) in
+                        <Vec<(u32, DemoMessage)> as Clone>::clone(&self.shunted_messages)
+                            .into_iter()
+                            .enumerate()
+                    {
+                        if vote_idx == options.voteidx || self.votes.contains_key(&vote_idx) {
+                            // We only care about VoteCast event messages in the shunted messages queue.
+                            if let DemoEvent::VoteCast(_, _) = shunted_msg.event {
+                                indices.push(idx);
+                            }
+                        }
+                    }
+                    // early escape if no shunted messages to handle
+                    if indices.is_empty() {
+                        break 'voteEvent;
+                    }
+                    // Sort and reverse as we are REMOVING elements from shunted_messages, which will IMPACT every idx after.
+                    // So we start with the highest idx and move backwards
+                    indices.sort_unstable();
+                    indices.reverse();
+                    tracing::info!("Recalled {} shunted messages.", indices.len());
+                    for idx in indices {
+                        let (_, msg) = self.shunted_messages.remove(idx);
+                        // No other events will never actually be added to this shunted queue, or if they are,
+                        // they shouldn't be handled here. (And won't have been extracted here)
+                        if let DemoEvent::VoteCast(event, steamid) = msg.event {
+                            let resp = self.process_vote_cast_event(&event, &steamid, state);
+                            // These messages are guaranteed to have an output string due to the previous check for vote_idx
+                            if let Some(output) = resp {
+                                tracing::info!("{}", output);
+                            }
+                        }
+                    }
+                }
             }
             DemoEvent::VoteCast(event, steamid) => {
-                let name = steamid
-                    .as_ref()
-                    .and_then(|&id| state.players.get_name(id))
-                    .unwrap_or("Someone");
-
-                let vote: &str = self
-                    .votes
-                    .get(&event.voteidx)
-                    .and_then(|v| v.get(event.vote_option as usize))
-                    .map_or::<&str, _>("Invalid vote", |s| s);
-
-                tracing::info!("{vote} - {name}");
+                let resp = self.process_vote_cast_event(event, steamid, state);
+                // If we get a None back, it means we don't have a vote idx stored yet for the vote
+                // this is cast on. I.e. we haven't processed a VoteOptions event yet. So we shunt
+                // these messages until we do.
+                if let Some(output) = resp {
+                    tracing::info!("{}", output);
+                } else {
+                    tracing::info!(
+                        "Shunted a VoteCast message. Total in limbo: {}",
+                        self.shunted_messages.len()
+                    );
+                    self.shunted_messages.push((event.voteidx, msg.clone()));
+                }
             }
             DemoEvent::VoteStarted(event) => {
                 let issue = event.issue.as_ref();
