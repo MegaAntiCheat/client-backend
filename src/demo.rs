@@ -44,8 +44,8 @@ pub struct DemoMessage {
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
 pub enum DemoEvent {
-    VoteCreated(VoteStartedEvent),
-    VoteStarted(Box<VoteOptionsEvent>),
+    VoteStarted(VoteStartedEvent),
+    VoteOptions(Box<VoteOptionsEvent>),
     VoteCast(VoteCastEvent, Option<SteamID>),
     LastestTick,
 }
@@ -621,14 +621,28 @@ fn handle_packet(packet: &Packet, state: &GameState) -> Vec<DemoMessage> {
             };
 
             match event {
-                GameEvent::VoteStarted(e) => out.push(DemoMessage {
-                    tick: tick.0,
-                    event: DemoEvent::VoteCreated(e.clone()),
-                }),
-                GameEvent::VoteOptions(e) => out.push(DemoMessage {
-                    tick: tick.0,
-                    event: DemoEvent::VoteStarted(e.clone()),
-                }),
+                // This event exists as per the Source Demo spec, but has never been extracted by tf-demo-parser
+                // We should not rely on it ever occuring, but ideally it should. This may 'just work (tm)' in
+                // the future after a dependency bump.
+                GameEvent::VoteStarted(e) => {
+                    // output a message if we ever do actually see this event, because we should break out
+                    // the wine and celebrate 
+                    tracing::info!("New vote started -> {e:?}");
+                    out.push(DemoMessage {
+                        tick: tick.0,
+                        event: DemoEvent::VoteStarted(e.clone()),
+                    })
+                },
+                // This is actually the first vote event we should see, since we don't see VoteStarted events.
+                // If the options are Yes/No (and not map/mode selects), then its MOST LIKELY a votekick. The
+                // next immediate VoteCast options should indicate the caller and the target.
+                GameEvent::VoteOptions(e) => {
+                    out.push(DemoMessage {
+                        tick: tick.0,
+                        event: DemoEvent::VoteOptions(e.clone()),
+                    })
+                },
+                // Simply indicates the player who voted, and what VoteOption they selected, and on what VoteIdx
                 GameEvent::VoteCast(e) => out.push(DemoMessage {
                     tick: tick.0,
                     event: DemoEvent::VoteCast(
@@ -704,9 +718,9 @@ where
         let msg = try_get(message)?;
 
         match &msg.event {
-            DemoEvent::VoteStarted(options) => {
+            DemoEvent::VoteOptions(options) => {
                 let mut values = Vec::new();
-                tracing::info!("Vote started:");
+                tracing::info!("Vote options:");
                 for i in 0..options.count {
                     let opt = match i {
                         0 => options.option_1.to_string(),
@@ -737,7 +751,7 @@ where
 
                 tracing::info!("{vote} - {name}");
             }
-            DemoEvent::VoteCreated(event) => {
+            DemoEvent::VoteStarted(event) => {
                 let issue = event.issue.as_ref();
                 let initiator = event.initiator;
                 tracing::info!("{issue} - called by {initiator}");
