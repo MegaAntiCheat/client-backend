@@ -1,3 +1,6 @@
+use bitbuffer::{BitError, BitRead, BitReadBuffer, BitReadStream, LittleEndian};
+use event_loop::{try_get, Handled, HandlerStruct, Is, MessageSource};
+use notify::{event::ModifyKind, Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     collections::HashMap,
     fs::{metadata, File},
@@ -9,10 +12,6 @@ use std::{
     },
     time::{Duration, Instant},
 };
-
-use bitbuffer::{BitError, BitRead, BitReadBuffer, BitReadStream, LittleEndian};
-use event_loop::{try_get, Handled, HandlerStruct, Is, MessageSource};
-use notify::{event::ModifyKind, Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use steamid_ng::SteamID;
 use tf_demo_parser::demo::{
     gameevent_gen::{VoteCastEvent, VoteOptionsEvent, VoteStartedEvent},
@@ -626,22 +625,20 @@ fn handle_packet(packet: &Packet, state: &GameState) -> Vec<DemoMessage> {
                 // the future after a dependency bump.
                 GameEvent::VoteStarted(e) => {
                     // output a message if we ever do actually see this event, because we should break out
-                    // the wine and celebrate 
+                    // the wine and celebrate
                     tracing::info!("New vote started -> {e:?}");
                     out.push(DemoMessage {
                         tick: tick.0,
                         event: DemoEvent::VoteStarted(e.clone()),
-                    })
-                },
+                    });
+                }
                 // This is actually the first vote event we should see, since we don't see VoteStarted events.
                 // If the options are Yes/No (and not map/mode selects), then its MOST LIKELY a votekick. The
                 // next immediate VoteCast options should indicate the caller and the target.
-                GameEvent::VoteOptions(e) => {
-                    out.push(DemoMessage {
-                        tick: tick.0,
-                        event: DemoEvent::VoteOptions(e.clone()),
-                    })
-                },
+                GameEvent::VoteOptions(e) => out.push(DemoMessage {
+                    tick: tick.0,
+                    event: DemoEvent::VoteOptions(e.clone()),
+                }),
                 // Simply indicates the player who voted, and what VoteOption they selected, and on what VoteIdx
                 GameEvent::VoteCast(e) => out.push(DemoMessage {
                     tick: tick.0,
