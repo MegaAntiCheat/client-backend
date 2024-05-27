@@ -230,7 +230,7 @@ impl SseEventBroadcaster {
     fn handle_demo_message(&mut self, state: &MACState, message: &DemoMessage) -> Option<String> {
         let cloned_msg = message.clone();
         match cloned_msg.event {
-            DemoEvent::VoteStarted(options) => {
+            DemoEvent::VoteOptions(options) => {
                 let mut values = Vec::new();
                 for i in 0..options.count {
                     let opt = match i {
@@ -267,7 +267,7 @@ impl SseEventBroadcaster {
                 let res = VoteRelatedEvent::make_from(wrapper);
                 Some(serde_json::to_string(&res).expect("Serialization failure"))
             }
-            DemoEvent::VoteCreated(event) => {
+            DemoEvent::VoteStarted(event) => {
                 let res = VoteRelatedEvent::make_from(event);
                 Some(serde_json::to_string(&res).expect("Serialisation failure"))
             }
