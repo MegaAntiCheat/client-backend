@@ -689,7 +689,7 @@ fn handle_packet(packet: &Packet, state: &GameState) -> Vec<DemoMessage> {
 
 pub struct PrintVotes {
     votes: HashMap<u32, Vec<String>>,
-    shunted_messages: Vec<(u32, DemoMessage)>,
+    shunted_vote_cast_messages: Vec<(u32, VoteCastEvent, Option<SteamID>)>,
 }
 
 impl PrintVotes {
@@ -697,11 +697,14 @@ impl PrintVotes {
     pub fn new() -> Self {
         Self {
             votes: HashMap::new(),
-            shunted_messages: vec![],
+            shunted_vote_cast_messages: vec![],
         }
     }
 
-    fn process_vote_cast_event(
+    /// Given a VoteCastEvent, Optional SteamID and the current MACState, either return a VoteCast string 
+    /// ('vote option' - 'alias associated with steamID'), or None if there is no recognised VoteIdx currently
+    /// stored
+    fn get_vote_cast_event_message(
         &self,
         event: &VoteCastEvent,
         steamid: &Option<SteamID>,
@@ -736,7 +739,7 @@ where
         let msg = try_get(message)?;
 
         match &msg.event {
-            DemoEvent::VoteOptions(options) => 'voteEvent: {
+            DemoEvent::VoteOptions(options) => 'voteOptionsEvent: {
                 let mut values = Vec::new();
                 tracing::info!("Vote options:");
                 for i in 0..options.count {
@@ -756,56 +759,41 @@ where
 
                 // Replay shunted messages if we have them. This ensures that we don't print VoteCast events for Vote we haven't seen the
                 // VoteOptions event for yet.
-                if !self.shunted_messages.is_empty() {
-                    let mut indices: Vec<usize> = vec![];
-                    for (idx, (vote_idx, shunted_msg)) in
-                        <Vec<(u32, DemoMessage)> as Clone>::clone(&self.shunted_messages)
-                            .into_iter()
-                            .enumerate()
-                    {
-                        if vote_idx == options.voteidx || self.votes.contains_key(&vote_idx) {
-                            // We only care about VoteCast event messages in the shunted messages queue.
-                            if let DemoEvent::VoteCast(_, _) = shunted_msg.event {
-                                indices.push(idx);
-                            }
-                        }
-                    }
-                    // early escape if no shunted messages to handle
-                    if indices.is_empty() {
-                        break 'voteEvent;
-                    }
-                    // Sort and reverse as we are REMOVING elements from shunted_messages, which will IMPACT every idx after.
-                    // So we start with the highest idx and move backwards
-                    indices.sort_unstable();
-                    indices.reverse();
-                    tracing::info!("Recalled {} shunted messages.", indices.len());
-                    for idx in indices {
-                        let (_, msg) = self.shunted_messages.remove(idx);
-                        // No other events will never actually be added to this shunted queue, or if they are,
-                        // they shouldn't be handled here. (And won't have been extracted here)
-                        if let DemoEvent::VoteCast(event, steamid) = msg.event {
-                            let resp = self.process_vote_cast_event(&event, &steamid, state);
-                            // These messages are guaranteed to have an output string due to the previous check for vote_idx
-                            if let Some(output) = resp {
-                                tracing::info!("{}", output);
-                            }
-                        }
-                    }
+                if self.shunted_vote_cast_messages.is_empty() {
+                    break 'voteOptionsEvent;
                 }
+                
+                // We need to temporarily move the event queue into a local buffer so we can immutably borrow self
+                // inside the closure. Once we are done, we move the queue back into self.shunted_vote_cast_messages
+                let mut temp = Vec::new();
+                std::mem::swap(&mut temp, &mut self.shunted_vote_cast_messages);
+                temp.retain(|(voteidx, event, steamid)| {
+                    // If we have a shunted message for this voteidx (because we saw the vote cast event before the vote options event)
+                    // Then retrieve it and print it now.
+                    if *voteidx == options.voteidx || self.votes.contains_key(voteidx) {
+                        if let Some(event_str) = self.get_vote_cast_event_message(event, steamid, state) {
+                            tracing::debug!("Recalled a shunted VoteCastEvent message.");
+                            tracing::info!("{event_str}");
+                            return false;
+                        }
+                    } 
+                    true
+                });
+                std::mem::swap(&mut temp, &mut self.shunted_vote_cast_messages);
             }
             DemoEvent::VoteCast(event, steamid) => {
-                let resp = self.process_vote_cast_event(event, steamid, state);
+                let resp = self.get_vote_cast_event_message(event, steamid, state);
                 // If we get a None back, it means we don't have a vote idx stored yet for the vote
                 // this is cast on. I.e. we haven't processed a VoteOptions event yet. So we shunt
                 // these messages until we do.
                 if let Some(output) = resp {
                     tracing::info!("{}", output);
                 } else {
-                    tracing::info!(
+                    tracing::debug!(
                         "Shunted a VoteCast message. Total in limbo: {}",
-                        self.shunted_messages.len()
+                        self.shunted_vote_cast_messages.len()
                     );
-                    self.shunted_messages.push((event.voteidx, msg.clone()));
+                    self.shunted_vote_cast_messages.push((event.voteidx, event.clone(), *steamid));
                 }
             }
             DemoEvent::VoteStarted(event) => {
