@@ -143,18 +143,26 @@ fn main() {
                 ).await})
                 .await
                 {
+                    // Successfully closed existing session
                     Ok(Ok(r)) if r.status().is_success() => tracing::warn!(
                         "User was previously in a Masterbase session that has now been closed."
                     ),
+                    // Server error
                     Ok(Ok(r)) if r.status().is_server_error() => tracing::error!(
-                    "Error when trying to close any previous Masterbase sessions: Status code {}",
-                    r.status()
-                ),
+                        "Server error when trying to close previous Masterbase sessions: Status code {}",
+                        r.status()
+                    ),
+                    // Not authorized, invalid key
                     Ok(Ok(r)) if r.status() == StatusCode::UNAUTHORIZED => {
                         tracing::warn!("Your Masterbase key is not valid, demo uploads will be disabled. Please provision a new one at https://megaanticheat.com/provision");
                         state.settings.upload_demos = false;
                     }
-                    Ok(Ok(_)) => tracing::info!("Successfully authenticated with the Masterbase."),
+                    // Forbidden, no session was open
+                    Ok(Ok(r)) if r.status() == StatusCode::FORBIDDEN => {
+                        tracing::info!("Successfully authenticated with the Masterbase.");
+                    }
+                    // Remaining responses will be client failures
+                    Ok(Ok(r)) => tracing::info!("Client error when trying to contact masterbase: Status code {}", r.status()),
                     Ok(Err(e)) => tracing::error!("Couldn't reach Masterbase: {e}"),
                     Err(_) => {
                         tracing::error!("Connection to masterbase timed out after {TIMEOUT} seconds");
