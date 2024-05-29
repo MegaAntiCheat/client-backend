@@ -701,8 +701,8 @@ impl PrintVotes {
         }
     }
 
-    /// Given a VoteCastEvent, Optional SteamID and the current MACState, either return a VoteCast string 
-    /// ('vote option' - 'alias associated with steamID'), or None if there is no recognised VoteIdx currently
+    /// Given a `VoteCastEvent`, Optional `SteamID` and the current `MACState`, either return a vote cast string
+    /// ('vote option' - 'alias associated with steamID'), or `None` if there is no recognised vote index currently
     /// stored
     fn get_vote_cast_event_message(
         &self,
@@ -762,7 +762,7 @@ where
                 if self.shunted_vote_cast_messages.is_empty() {
                     break 'voteOptionsEvent;
                 }
-                
+
                 // We need to temporarily move the event queue into a local buffer so we can immutably borrow self
                 // inside the closure. Once we are done, we move the queue back into self.shunted_vote_cast_messages
                 let mut temp = Vec::new();
@@ -771,12 +771,14 @@ where
                     // If we have a shunted message for this voteidx (because we saw the vote cast event before the vote options event)
                     // Then retrieve it and print it now.
                     if *voteidx == options.voteidx || self.votes.contains_key(voteidx) {
-                        if let Some(event_str) = self.get_vote_cast_event_message(event, steamid, state) {
+                        if let Some(event_str) =
+                            self.get_vote_cast_event_message(event, steamid, state)
+                        {
                             tracing::debug!("Recalled a shunted VoteCastEvent message.");
                             tracing::info!("{event_str}");
                             return false;
                         }
-                    } 
+                    }
                     true
                 });
                 std::mem::swap(&mut temp, &mut self.shunted_vote_cast_messages);
@@ -793,7 +795,8 @@ where
                         "Shunted a VoteCast message. Total in limbo: {}",
                         self.shunted_vote_cast_messages.len()
                     );
-                    self.shunted_vote_cast_messages.push((event.voteidx, event.clone(), *steamid));
+                    self.shunted_vote_cast_messages
+                        .push((event.voteidx, event.clone(), *steamid));
                 }
             }
             DemoEvent::VoteStarted(event) => {
