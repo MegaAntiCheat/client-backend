@@ -689,7 +689,7 @@ fn handle_packet(packet: &Packet, state: &GameState) -> Vec<DemoMessage> {
 
 pub struct PrintVotes {
     votes: HashMap<u32, Vec<String>>,
-    shunted_vote_cast_messages: Vec<(u32, VoteCastEvent, Option<SteamID>)>,
+    shunted_vote_cast_messages: Vec<(VoteCastEvent, Option<SteamID>)>,
 }
 
 impl PrintVotes {
@@ -758,7 +758,7 @@ where
                 self.votes.insert(options.voteidx, values);
 
                 // Replay shunted messages if we have them. This ensures that we don't print VoteCast events for Vote we haven't seen the
-                // VoteOptions event for yet.
+                // VoteOptions event for yet. Saves
                 if self.shunted_vote_cast_messages.is_empty() {
                     break 'voteOptionsEvent;
                 }
@@ -767,17 +767,14 @@ where
                 // inside the closure. Once we are done, we move the queue back into self.shunted_vote_cast_messages
                 let mut temp = Vec::new();
                 std::mem::swap(&mut temp, &mut self.shunted_vote_cast_messages);
-                temp.retain(|(voteidx, event, steamid)| {
+                temp.retain(|(event, steamid)| {
                     // If we have a shunted message for this voteidx (because we saw the vote cast event before the vote options event)
                     // Then retrieve it and print it now.
-                    if *voteidx == options.voteidx || self.votes.contains_key(voteidx) {
-                        if let Some(event_str) =
-                            self.get_vote_cast_event_message(event, steamid, state)
-                        {
-                            tracing::debug!("Recalled a shunted VoteCastEvent message.");
-                            tracing::info!("{event_str}");
-                            return false;
-                        }
+                    if let Some(event_str) = self.get_vote_cast_event_message(event, steamid, state)
+                    {
+                        tracing::debug!("Recalled a shunted VoteCastEvent message.");
+                        tracing::info!("{event_str}");
+                        return false;
                     }
                     true
                 });
@@ -796,7 +793,7 @@ where
                         self.shunted_vote_cast_messages.len()
                     );
                     self.shunted_vote_cast_messages
-                        .push((event.voteidx, event.clone(), *steamid));
+                        .push((event.clone(), *steamid));
                 }
             }
             DemoEvent::VoteStarted(event) => {
