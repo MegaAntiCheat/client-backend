@@ -99,12 +99,6 @@ pub struct LookupProfiles {
     in_progress: Vec<SteamID>,
 }
 
-impl Default for LookupProfiles {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl LookupProfiles {
     #[must_use]
     pub const fn new() -> Self {
@@ -112,6 +106,12 @@ impl LookupProfiles {
             batch_buffer: VecDeque::new(),
             in_progress: Vec::new(),
         }
+    }
+}
+
+impl Default for LookupProfiles {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

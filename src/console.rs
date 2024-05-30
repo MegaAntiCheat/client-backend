@@ -1,7 +1,6 @@
-use std::path::PathBuf;
-
 use event_loop::{Handled, HandlerStruct, Is, MessageSource, StateUpdater};
 use regex::Regex;
+use std::path::PathBuf;
 use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver};
 
 use crate::{

@@ -1,3 +1,6 @@
+use bitbuffer::{BitError, BitRead, BitReadBuffer, BitReadStream, LittleEndian};
+use event_loop::{try_get, Handled, HandlerStruct, Is, MessageSource};
+use notify::{event::ModifyKind, Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     collections::HashMap,
     fs::{metadata, File},
@@ -9,13 +12,9 @@ use std::{
     },
     time::{Duration, Instant},
 };
-
-use bitbuffer::{BitError, BitRead, BitReadBuffer, BitReadStream, LittleEndian};
-use event_loop::{try_get, Handled, HandlerStruct, Is, MessageSource};
-use notify::{event::ModifyKind, Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use steamid_ng::SteamID;
 use tf_demo_parser::demo::{
-    gameevent_gen::{VoteCastEvent, VoteOptionsEvent},
+    gameevent_gen::{VoteCastEvent, VoteOptionsEvent, VoteStartedEvent},
     gamevent::GameEvent,
     header::Header,
     message::{gameevent::GameEventMessage, Message},
@@ -44,7 +43,8 @@ pub struct DemoMessage {
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
 pub enum DemoEvent {
-    VoteStarted(Box<VoteOptionsEvent>),
+    VoteStarted(VoteStartedEvent),
+    VoteOptions(Box<VoteOptionsEvent>),
     VoteCast(VoteCastEvent, Option<SteamID>),
     LastestTick,
 }
@@ -620,13 +620,26 @@ fn handle_packet(packet: &Packet, state: &GameState) -> Vec<DemoMessage> {
             };
 
             match event {
-                // GameEvent::VoteStarted(e) => {
-                //     tracing::info!("Vote started: {:?}", e);
-                // }
+                // This event exists as per the Source Demo spec, but has never been extracted by tf-demo-parser
+                // We should not rely on it ever occuring, but ideally it should. This may 'just work (tm)' in
+                // the future after a dependency bump.
+                GameEvent::VoteStarted(e) => {
+                    // output a message if we ever do actually see this event, because we should break out
+                    // the wine and celebrate
+                    tracing::info!("New vote started -> {e:?}");
+                    out.push(DemoMessage {
+                        tick: tick.0,
+                        event: DemoEvent::VoteStarted(e.clone()),
+                    });
+                }
+                // This is actually the first vote event we should see, since we don't see VoteStarted events.
+                // If the options are Yes/No (and not map/mode selects), then its MOST LIKELY a votekick. The
+                // next immediate VoteCast options should indicate the caller and the target.
                 GameEvent::VoteOptions(e) => out.push(DemoMessage {
                     tick: tick.0,
-                    event: DemoEvent::VoteStarted(e.clone()),
+                    event: DemoEvent::VoteOptions(e.clone()),
                 }),
+                // Simply indicates the player who voted, and what VoteOption they selected, and on what VoteIdx
                 GameEvent::VoteCast(e) => out.push(DemoMessage {
                     tick: tick.0,
                     event: DemoEvent::VoteCast(
@@ -676,6 +689,7 @@ fn handle_packet(packet: &Packet, state: &GameState) -> Vec<DemoMessage> {
 
 pub struct PrintVotes {
     votes: HashMap<u32, Vec<String>>,
+    shunted_vote_cast_messages: Vec<(VoteCastEvent, Option<SteamID>)>,
 }
 
 impl PrintVotes {
@@ -683,7 +697,30 @@ impl PrintVotes {
     pub fn new() -> Self {
         Self {
             votes: HashMap::new(),
+            shunted_vote_cast_messages: vec![],
         }
+    }
+
+    /// Given a `VoteCastEvent`, Optional `SteamID` and the current `MACState`, either return a vote cast string
+    /// ('vote option' - 'alias associated with steamID'), or `None` if there is no recognised vote index currently
+    /// stored
+    fn get_vote_cast_event_message(
+        &self,
+        event: &VoteCastEvent,
+        steamid: &Option<SteamID>,
+        state: &MACState,
+    ) -> Option<String> {
+        let name = steamid
+            .as_ref()
+            .and_then(|&id| state.players.get_name(id))
+            .unwrap_or("Someone");
+
+        let vote = self
+            .votes
+            .get(&event.voteidx)
+            .and_then(|v| v.get(event.vote_option as usize));
+
+        vote.map(|matched_vote| format!("{matched_vote} - {name}"))
     }
 }
 
@@ -702,9 +739,9 @@ where
         let msg = try_get(message)?;
 
         match &msg.event {
-            DemoEvent::VoteStarted(options) => {
+            DemoEvent::VoteOptions(options) => 'voteOptionsEvent: {
                 let mut values = Vec::new();
-                tracing::info!("Vote started:");
+                tracing::info!("Vote options:");
                 for i in 0..options.count {
                     let opt = match i {
                         0 => options.option_1.to_string(),
@@ -718,22 +755,51 @@ where
                     tracing::info!("\t{}", opt);
                     values.push(opt);
                 }
-
                 self.votes.insert(options.voteidx, values);
+
+                // Replay shunted messages if we have them. This ensures that we don't print VoteCast events for Vote we haven't seen the
+                // VoteOptions event for yet. Saves
+                if self.shunted_vote_cast_messages.is_empty() {
+                    break 'voteOptionsEvent;
+                }
+
+                // We need to temporarily move the event queue into a local buffer so we can immutably borrow self
+                // inside the closure. Once we are done, we move the queue back into self.shunted_vote_cast_messages
+                let mut temp = Vec::new();
+                std::mem::swap(&mut temp, &mut self.shunted_vote_cast_messages);
+                temp.retain(|(event, steamid)| {
+                    // If we have a shunted message for this voteidx (because we saw the vote cast event before the vote options event)
+                    // Then retrieve it and print it now.
+                    if let Some(event_str) = self.get_vote_cast_event_message(event, steamid, state)
+                    {
+                        tracing::debug!("Recalled a shunted VoteCastEvent message.");
+                        tracing::info!("{event_str}");
+                        return false;
+                    }
+                    true
+                });
+                std::mem::swap(&mut temp, &mut self.shunted_vote_cast_messages);
             }
             DemoEvent::VoteCast(event, steamid) => {
-                let name = steamid
-                    .as_ref()
-                    .and_then(|&id| state.players.get_name(id))
-                    .unwrap_or("Someone");
-
-                let vote: &str = self
-                    .votes
-                    .get(&event.voteidx)
-                    .and_then(|v| v.get(event.vote_option as usize))
-                    .map_or::<&str, _>("Invalid vote", |s| s);
-
-                tracing::info!("{vote} - {name}");
+                let resp = self.get_vote_cast_event_message(event, steamid, state);
+                // If we get a None back, it means we don't have a vote idx stored yet for the vote
+                // this is cast on. I.e. we haven't processed a VoteOptions event yet. So we shunt
+                // these messages until we do.
+                if let Some(output) = resp {
+                    tracing::info!("{}", output);
+                } else {
+                    tracing::debug!(
+                        "Shunted a VoteCast message. Total in limbo: {}",
+                        self.shunted_vote_cast_messages.len()
+                    );
+                    self.shunted_vote_cast_messages
+                        .push((event.clone(), *steamid));
+                }
+            }
+            DemoEvent::VoteStarted(event) => {
+                let issue = event.issue.as_ref();
+                let initiator = event.initiator;
+                tracing::info!("{issue} - called by {initiator}");
             }
             DemoEvent::LastestTick => {}
         }

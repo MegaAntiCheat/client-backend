@@ -3,6 +3,7 @@
 
 use anyhow::{Context, Ok, Result};
 use regex::Captures;
+use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
 
 use crate::player::PlayerState;
@@ -18,7 +19,7 @@ use crate::player::PlayerState;
 */
 
 pub const REGEX_HOSTNAME: &str = r"^hostname: (.*)$";
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Hostname(pub String);
 impl Hostname {
     #[must_use]
@@ -28,7 +29,7 @@ impl Hostname {
 }
 
 pub const REGEX_IP: &str = r"^udp/ip  : (.*)$";
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ServerIP(pub String);
 impl ServerIP {
     #[must_use]
@@ -38,7 +39,7 @@ impl ServerIP {
 }
 
 pub const REGEX_MAP: &str = r"^map     : (.+) at: .*$";
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Map(pub String);
 impl Map {
     #[must_use]
@@ -48,7 +49,7 @@ impl Map {
 }
 
 pub const REGEX_PLAYERCOUNT: &str = r"^players : (\d+) humans, (\d+) bots \((\d+) max\)$";
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PlayerCount {
     pub players: u32,
     pub bots: u32,
@@ -75,7 +76,7 @@ impl PlayerCount {
 ///    2: Weapon
 ///    3: Crit?
 pub const REGEX_KILL: &str = r"^(.*)\skilled\s(.*)\swith\s(.*)\.(\s\(crit\))?$";
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PlayerKill {
     pub killer_name: String,
     pub killer_steamid: Option<String>,
@@ -97,6 +98,14 @@ impl PlayerKill {
             crit: caps.get(4).is_some(),
         }
     }
+
+    pub fn set_steam_id_killer(&mut self, id: SteamID) {
+        self.killer_steamid = Some(format!("{}", u64::from(id)));
+    }
+
+    pub fn set_steam_id_victim(&mut self, id: SteamID) {
+        self.victim_steamid = Some(format!("{}", u64::from(id)));
+    }
 }
 
 /// Chat message
@@ -105,7 +114,7 @@ impl PlayerKill {
 ///    1: Message
 pub const REGEX_CHAT: &str = r"^(?:\*DEAD\*)?(?:\(TEAM\))?\s?(.*)\s:\s\s(.*)$";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ChatMessage {
     pub player_name: String,
     pub steamid: Option<String>,
@@ -121,6 +130,10 @@ impl ChatMessage {
             message: caps[2].into(),
         }
     }
+
+    pub fn set_steam_id(&mut self, id: SteamID) {
+        self.steamid = Some(format!("{}", u64::from(id)));
+    }
 }
 
 // Reads lines from output of the "status" command
@@ -130,7 +143,7 @@ impl ChatMessage {
 pub const REGEX_STATUS: &str =
     r#"^#\s*(\d+)\s"(.*)"\s+(\[U:\d:\d+\])\s+((?:[\ds]+:?)+)\s+(\d+)\s*(\d+)\s*(\w+).*$"#;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct StatusLine {
     pub userid: String,
     pub name: String,
@@ -167,7 +180,7 @@ impl StatusLine {
 // Example: Completed demo, recording time 1.8, game frames 115.
 pub const REGEX_DEMOSTOP: &str = r"Completed demo, recording time ([\d.]+), game frames (\d+).";
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct DemoStop {
     pub seconds: f32,
     pub frames: u32,

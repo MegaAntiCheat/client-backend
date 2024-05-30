@@ -374,6 +374,14 @@ impl Players {
         None
     }
 
+    #[must_use]
+    pub fn get_name_to_steam_ids_map(&self) -> HashMap<String, SteamID> {
+        self.connected
+            .iter()
+            .filter_map(|s| self.game_info.get(s).map(|gi| (gi.name.clone(), *s)))
+            .collect()
+    }
+
     fn locate_steam_info_cache_path() -> Result<PathBuf, ConfigFilesError> {
         Settings::locate_config_directory().map(|p| p.join("steam_cache.bin"))
     }
@@ -434,7 +442,7 @@ impl Serialize for Players {
     }
 }
 
-#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Serialize, Deserialize)]
 #[allow(clippy::module_name_repetitions)]
 pub enum PlayerState {
     Active,

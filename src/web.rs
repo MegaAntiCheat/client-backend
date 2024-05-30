@@ -3,7 +3,7 @@ use std::{
     convert::Infallible,
     net::SocketAddr,
     path::{Path, PathBuf},
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
 
 use axum::{
@@ -20,7 +20,10 @@ use include_dir::Dir;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
 use tappet::SteamAPI;
-use tokio::sync::mpsc::{UnboundedReceiver, UnboundedSender};
+use tokio::sync::{
+    mpsc::{UnboundedReceiver, UnboundedSender},
+    Mutex,
+};
 use tokio_stream::wrappers::ReceiverStream;
 
 use super::command_manager::Command;
@@ -686,22 +689,49 @@ async fn post_commands(
 // Events
 
 type Subscriber = tokio::sync::mpsc::Sender<Result<Event, Infallible>>;
-static SUBSCRIBERS: Mutex<Option<Vec<Subscriber>>> = Mutex::new(None);
+static SUBSCRIBERS: Mutex<Option<Vec<Subscriber>>> = Mutex::const_new(None);
 
 /// Gets a SSE stream to listen for any updates the client can provide.
+/// This returns the `rx` channel to the client that hit this endpoint. The corresponding `tx` channel is stored in the SUBSCRIBERS
+/// Mutex lock. You may send events to these subscribed clients by calling 'Send' on the `tx` channel.
 async fn get_events() -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     tracing::debug!("API: Events subcription");
 
     let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, Infallible>>(16);
 
     {
-        let mut subscribers = SUBSCRIBERS.lock().expect("Lock poisoned");
+        let mut subscribers = SUBSCRIBERS.lock().await;
         if subscribers.is_none() {
             *subscribers = Some(Vec::new());
         }
-
+        // subscribers will never be None here, so calling expect will never panic.
         subscribers.as_mut().expect("Just set it to Some").push(tx);
     }
 
     Sse::new(ReceiverStream::new(rx))
+}
+
+/// Given a serialised JSON string (we do not actually verify the string is json, but it is expected), broadcast to all subscribers.
+/// Iterates all `tx` channels in the SUBSCRIBERS Mutex. calling 'send' on each of them an `Axum::response::sse::Event` containing
+/// the input `event_json` as the Event data. This is fire and forget, as in, we do not care if the message fails to send for whatever
+/// reason. We just attempt best efforts to shove a message down the channel, and ignore any failures. We also prune any closed
+/// `tx` channels out of the SUBSCRIBERS Mutex.
+///
+/// # Panics
+/// Will panic if the subscribers Mutex does not actually contain a mutable vector we can broadcast into.
+pub async fn broadcast_event(event_json: String) {
+    let mut subscribers = SUBSCRIBERS.lock().await;
+    if subscribers.is_some() {
+        let subs = subscribers.as_mut().expect("Vector to publish to");
+        // prune closed tx/rx pairs out of the subscribers list
+        subs.retain(|sender| !sender.is_closed());
+        // futs stands for Futures, not... hentai women
+        let futs = subs
+            .iter()
+            .map(|sender| sender.send(Ok(Event::default().data(&event_json))));
+
+        // We have created an iterator of Futures that promise to send the message down the channel
+        // So we await them all by calling join_all, which does this, but without promising true concurrency.
+        futures::future::join_all(futs).await;
+    }
 }

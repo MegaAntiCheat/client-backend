@@ -55,9 +55,8 @@ substring = "1.4.5"
 tower-http = { version = "0.4.3", features = ["cors"] }
 include_dir = "0.7.3"
 steamlocate = "2.0.0-beta.2"
-watchman_client = { version = "0.8.0" }
-tf-demo-parser = { git = "https://github.com/MegaAntiCheat/parser" }
-bitbuffer = "0.10.9"
+tf-demo-parser = { git = "https://github.com/MegaAntiCheat/parser", branch = "Depends-update" }
+bitbuffer = { version = "0.11.0", features = ["serde"] }
 chrono = { version = "0.4.32", features = ["serde"] }
 futures = "0.3.30"
 event_loop = { version = "0.1.0", path = "event_loop" }
@@ -65,4 +64,5 @@ reqwest = "0.11.24"
 url = "2.5.0"
 tokio-tungstenite = { version = "0.21.0", features = ["native-tls"] }
 atomic-write-file = "0.1.3"
+uuid = { version = "1.8.0", features = ["serde", "v4"] }
 pot = "3.0.0"
