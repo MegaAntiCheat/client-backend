@@ -17,7 +17,7 @@ net_start
 6. Run the application
 7. Click on the link in your console window or visit `localhost:3621` in your browser
 8. Get yourself a Steam Web API key from [here](https://steamcommunity.com/dev/apikey)
-9. You should get a webpage with the MAC UI in it, when you connect to a match it should show all the players in the match!
+9. You should get a webpage with the UI in it, when you connect to a match it should show all the players in the match!
 
 ## Troubleshooting
 
@@ -29,16 +29,16 @@ net_start
     - If you see this line, `autoexec.cfg` it is being executed
     - If you do not have this line in your console, your `autoexec.cfg` is not being executed
   - Restart TF2, then paste the commands `ip 0.0.0.0`, `rcon_password mac_rcon` and `net_start` into your console manually
-    - Restart MAC and see if it can connect afterwards
+    - Restart client-backend and see if it can connect afterwards
     - If it successfully connects after that, your `autoexec.cfg` file is not executing
   - Another program may be using that port, you can try change the rcon port that MAC will use
     - This is common if you have installed iTunes before
     1. Add`-port 27069` to your TF2 launch options
-    2. In the MAC UI, go to settings and change the port number to `27069`
-    3. Restart TF2 and MAC
+    2. In the web UI, go to settings and change the port number to `27069`
+    3. Restart TF2 and client-backend
 - **RCon authentication error**
   - Your rcon password is not being accepted
-  - Try change the password you set in your `autoexec.cfg` and update it in the MAC UI
+  - Try change the password you set in your `autoexec.cfg` and update it in the web UI
   - Choose a password that does not contain any spaces or special characters, a single word is fine
   - The password is required to be set but does not have to be secure as nobody else will have access to your Rcon
 - **No players show up in the UI when I join a match**
@@ -65,7 +65,7 @@ Documentation for the API can be found at https://github.com/MegaAntiCheat/clien
 
 Config files for the application can be found at:
 - Windows: `C:\Users\<Your Name>\AppData\Roaming\MAC\MACClient\config`
-- Mac OS: TODO - work out what this is, nobody games on MAC
+- Mac OS: TODO - work out what this is, nobody games on MacOS
 - Linux: `~/.config/macclient/`
 
 ## Building
