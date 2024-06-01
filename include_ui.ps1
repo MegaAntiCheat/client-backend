@@ -41,7 +41,7 @@ if (-Not (Test-CommandExists cargo)) {
 
 $rustupVer = rustup --version 2>&1
 $rustupVerRed = ($rustupVer -split "info:")[0]
-Write-Host "INFO: rustup version $rustupVerRed installed."
+Write-Host "INFO: $rustupVerRed installed."
 
 if (-Not (Test-CommandExists npm)) {
     if ($wingetPresent) {
