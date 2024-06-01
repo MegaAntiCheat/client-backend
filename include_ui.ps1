@@ -19,17 +19,6 @@ Function Get-LatestCommitHash
    RETURN $hash
 }
 
-Function Get-LatestTagCommit
-{
-    $commit = Invoke-WebRequest https://api.github.com/repos/MegaAntiCheat/MegaAntiCheat-UI/tags `
-    | Select-Object content `
-    | ForEach-Object { $_.content } `
-    | ConvertFrom-Json `
-    | Select-Object SyncRoot `
-    | Select-Object -First 1 -ExpandProperty commit
-    RETURN $commit
-}
-
 if (-Not (Test-CommandExists git)) {
     Write-Error "ERROR: git is not installed! Please install git for Windows."
     Exit
