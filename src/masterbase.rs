@@ -1,4 +1,7 @@
-use std::fmt::{Debug, Display, Write};
+use std::{
+    collections::HashMap,
+    fmt::{Debug, Display, Write},
+};
 
 use futures::SinkExt;
 use reqwest::{Client, RequestBuilder, Response};
@@ -85,6 +88,8 @@ impl DemoSession {
         demo_name: &str,
         http: bool,
     ) -> Result<Self, Error> {
+        tracing::debug!("Opening demo session");
+
         let params: [(&str, &str); 4] = [
             ("api_key", &key),
             ("fake_ip", fake_ip),
@@ -159,6 +164,7 @@ impl DemoSession {
         &mut self,
         bytes: Vec<u8>,
     ) -> Result<(), tokio_tungstenite::tungstenite::Error> {
+        tracing::debug!("Sending demo bytes to masterbase");
         self.ws_client
             .send(tokio_tungstenite::tungstenite::Message::Binary(bytes))
             .await
@@ -167,10 +173,12 @@ impl DemoSession {
     /// # Errors
     /// If the web request failed for some reason
     pub async fn report_player(&mut self, player: SteamID) -> Result<Response, Error> {
+        tracing::debug!("Reporting player {}", u64::from(player));
+
         let params: [(&str, &str); 3] = [
             ("api_key", &self.key),
-            ("target_steam_id", &format!("{}", u64::from(player))),
             ("session_id", &format!("{}", self.session_id)),
+            ("target_steam_id", &format!("{}", u64::from(player))),
         ];
 
         let endpoint = if self.http {
@@ -179,8 +187,18 @@ impl DemoSession {
             format!("https://{}/report", self.host)
         };
         let url = reqwest::Url::parse_with_params(&endpoint, params)?;
+        // let url = reqwest::Url::parse(&endpoint)?;
+
+        let target = format!("{}", u64::from(player));
+        let session_id = format!("{}", self.session_id);
+
+        // let mut map = HashMap::new();
+        // map.insert("api_key", &self.key);
+        // map.insert("target_steam_id", &target);
+        // map.insert("session_id", &session_id);
 
         let client = reqwest::Client::builder().build()?;
+        // let resp = client.execute(client.post(url).json(&map).build()?).await?;
         let resp = client.execute(client.post(url).build()?).await?;
 
         Ok(resp)
@@ -193,6 +211,8 @@ impl DemoSession {
         struct LateBytes {
             late_bytes: String,
         }
+
+        tracing::debug!("Sending late bytes");
 
         let params = [("api_key", &self.key)];
 

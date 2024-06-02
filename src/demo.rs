@@ -29,8 +29,8 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
-    masterbase::DemoSession, new_players::NewPlayers, player_records::Verdict, settings::Settings,
-    state::MACState,
+    events::UserUpdates, masterbase::DemoSession, new_players::NewPlayers, player_records::Verdict,
+    settings::Settings, state::MACState,
 };
 
 #[allow(clippy::module_name_repetitions)]
@@ -213,6 +213,7 @@ impl<M: Is<DemoBytes>> MessageSource<M> for DemoWatcher {
 
 enum SessionMissingReason {
     Uninit,
+    Disabled,
     Error,
     Closed,
 }
@@ -246,8 +247,8 @@ impl PartialEq for OpenDemo {
 }
 
 impl DemoManagerSession {
-    pub fn new() -> Self {
-        Self(Arc::new(Mutex::new(Err(SessionMissingReason::Uninit))))
+    pub fn new(missing: SessionMissingReason) -> Self {
+        Self(Arc::new(Mutex::new(Err(missing))))
     }
 
     /// Returns an event which opens a new session.
@@ -304,13 +305,13 @@ impl DemoManager {
             previous_demos: Vec::new(),
             current_demo: None,
 
-            session: DemoManagerSession::new(),
+            session: DemoManagerSession::new(SessionMissingReason::Disabled),
         }
     }
 
     /// Start tracking a new demo file. A demo must be being tracked before
     /// bytes can be appended.
-    fn new_demo(&mut self, path: PathBuf, id: usize) {
+    fn new_demo(&mut self, path: PathBuf, id: usize, uploads_enabled: bool) {
         if let Some(old) = self.current_demo.take() {
             self.previous_demos.push(old);
         }
@@ -326,7 +327,11 @@ impl DemoManager {
             offset: 0,
         });
 
-        self.session = DemoManagerSession::new();
+        self.session = DemoManagerSession::new(if uploads_enabled {
+            SessionMissingReason::Uninit
+        } else {
+            SessionMissingReason::Disabled
+        });
     }
 
     fn current_demo_path(&self) -> Option<&Path> {
@@ -395,12 +400,16 @@ impl DemoManager {
                         }
                         break;
                     }
-                    Err(SessionMissingReason::Uninit) => continue,
+                    Err(SessionMissingReason::Uninit) => {
+                        drop(guard);
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                        continue;
+                    }
                     Err(SessionMissingReason::Closed) => {
                         tracing::error!("Tried to upload bytes after demo session was closed.");
                         break;
                     }
-                    Err(SessionMissingReason::Error) => break,
+                    Err(SessionMissingReason::Error | SessionMissingReason::Disabled) => break,
                 }
             }
 
@@ -446,51 +455,58 @@ impl DemoManager {
         })
     }
 
-    /// Reports any new players joining as bots
-    fn handle_new_players<'a, M: Is<DemoMessage>>(
+    /// Reports any other the players provided who are marked as bots to the masterbase
+    fn report_players<'a, M: Is<DemoMessage>>(
         &mut self,
-        state: &MACState,
         players: impl Iterator<Item = &'a SteamID>,
     ) -> Option<Handled<M>> {
-        return Handled::multiple(
+        Handled::multiple(
             players
-                // Get bots
-                .filter(|&p| {
-                    state
-                        .players
-                        .records
-                        .get(p)
-                        .is_some_and(|r| r.verdict() == Verdict::Bot)
-                })
                 // Report them
                 .map(|&p| {
                     let session = self.session.clone();
                     Handled::future(async move {
-                        let Ok(session) = &mut *session.lock().await else {
-                            return None;
-                        };
+                        loop {
+                            let mut session = session.lock().await;
+                            let session = match &mut *session {
+                                Ok(session) => session,
+                                // Wait for session to init
+                                Err(SessionMissingReason::Uninit) => {
+                                    drop(session);
+                                    tokio::time::sleep(Duration::from_millis(10)).await;
+                                    continue;
+                                }
+                                Err(_) => return None,
+                            };
 
-                        match session.report_player(p).await {
-                            Ok(resp) => {
-                                if resp.status().is_success() {
-                                    tracing::debug!("Reported {} as a bot", u64::from(p));
-                                } else {
+                            match session.report_player(p).await {
+                                Ok(resp) => {
+                                    if resp.status().is_success() {
+                                        tracing::info!("Reported {} as a bot", u64::from(p));
+                                    } else {
+                                        tracing::error!(
+                                            "Failed to report account {}: {}",
+                                            u64::from(p),
+                                            resp.status()
+                                        );
+                                    }
+                                }
+                                Err(e) => {
                                     tracing::error!(
                                         "Failed to report account {}: {}",
                                         u64::from(p),
-                                        resp.status()
+                                        e
                                     );
                                 }
                             }
-                            Err(e) => {
-                                tracing::error!("Failed to report account {}: {}", u64::from(p), e);
-                            }
+
+                            break;
                         }
 
                         None
                     })
                 }),
-        );
+        )
     }
 
     fn handle_demo_bytes<M: Is<DemoMessage>>(
@@ -506,7 +522,7 @@ impl DemoManager {
             .as_ref()
             .map_or(true, |d| !(d.file_path == msg.file_path && d.id == msg.id))
         {
-            self.new_demo(msg.file_path.clone(), msg.id);
+            self.new_demo(msg.file_path.clone(), msg.id, state.settings.upload_demos);
         }
 
         let demo = self
@@ -546,6 +562,17 @@ impl DemoManager {
                     self.session
                         .open_new_session(&state.settings, header, &file_name),
                 );
+
+                // Once a new session is opened, report any bots already on the server
+                events.push(
+                    self.report_players(state.players.connected.iter().filter(|&p| {
+                        state
+                            .players
+                            .records
+                            .get(p)
+                            .is_some_and(|r| r.verdict() == Verdict::Bot)
+                    })),
+                );
             }
         }
 
@@ -570,14 +597,33 @@ impl Default for DemoManager {
 
 impl<IM, OM> HandlerStruct<MACState, IM, OM> for DemoManager
 where
-    IM: Is<DemoBytes> + Is<NewPlayers>,
+    IM: Is<DemoBytes> + Is<NewPlayers> + Is<UserUpdates>,
     OM: Is<DemoMessage>,
 {
     fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
+        // Report newly connecting bots
         if let Some(players) = try_get::<NewPlayers>(message) {
-            return self.handle_new_players(state, players.0.iter());
+            return self.report_players(players.0.iter().filter(|&p| {
+                state
+                    .players
+                    .records
+                    .get(p)
+                    .is_some_and(|r| r.verdict() == Verdict::Bot)
+            }));
         }
 
+        // Report newly marked bots
+        if let Some(updates) = try_get::<UserUpdates>(message) {
+            return self.report_players(
+                updates
+                    .0
+                    .iter()
+                    .filter(|(_, u)| u.local_verdict.is_some_and(|v| v == Verdict::Bot))
+                    .map(|(s, _)| s),
+            );
+        }
+
+        // Demo bytes
         if let Some(demo_bytes) = try_get::<DemoBytes>(message) {
             return self.handle_demo_bytes(state, demo_bytes);
         }
