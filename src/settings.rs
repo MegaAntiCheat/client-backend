@@ -250,6 +250,7 @@ impl Settings {
 
     /// Pull all values from the args struct and set to our override values,
     /// make sure to add tracing for any values overridden!
+    #[allow(clippy::cognitive_complexity)]
     pub fn apply_args(&mut self, args: &Args) {
         // Override (and log if) the Port used to host the middleware API (default 3621)
         self.override_webui_port = args.port.map(|val| {
@@ -530,7 +531,7 @@ impl Settings {
     }
 
     #[must_use]
-    pub fn web_ui_source(&self) -> &UISource {
+    pub const fn web_ui_source(&self) -> &UISource {
         &self.web_ui_source
     }
 

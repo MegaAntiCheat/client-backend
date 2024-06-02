@@ -5,6 +5,7 @@ use std::{
     collections::HashMap,
     fs::{metadata, File},
     io::{Read, Seek},
+    ops::Deref,
     path::{Path, PathBuf},
     sync::{
         mpsc::{self, Receiver, TryRecvError},
@@ -28,8 +29,7 @@ use thiserror::Error;
 use tokio::sync::Mutex;
 
 use crate::{
-    masterbase::{new_demo_session, send_late_bytes, DemoSession},
-    settings::Settings,
+    masterbase::DemoSession, new_players::NewPlayers, player_records::Verdict, settings::Settings,
     state::MACState,
 };
 
@@ -222,8 +222,12 @@ pub struct DemoManager {
     previous_demos: Vec<OpenDemo>,
     current_demo: Option<OpenDemo>,
 
-    session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
+    session: DemoManagerSession,
 }
+
+#[allow(clippy::module_name_repetitions)]
+#[derive(Clone)]
+struct DemoManagerSession(Arc<Mutex<Result<DemoSession, SessionMissingReason>>>);
 
 #[allow(clippy::module_name_repetitions)]
 pub struct OpenDemo {
@@ -241,6 +245,57 @@ impl PartialEq for OpenDemo {
     }
 }
 
+impl DemoManagerSession {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(Err(SessionMissingReason::Uninit))))
+    }
+
+    /// Returns an event which opens a new session.
+    /// This event needs to be handled by the event loop to take effect.
+    fn open_new_session<M: Is<DemoMessage>>(
+        &mut self,
+        settings: &Settings,
+        header: &Header,
+        demo_name: &str,
+    ) -> Option<Handled<M>> {
+        let host = settings.masterbase_host().to_owned();
+        let key = settings.masterbase_key().to_owned();
+        let map = header.map.clone();
+        let fake_ip = header.server.clone();
+        let http = settings.use_masterbase_http();
+        let demo_name = demo_name.to_owned();
+        let session = self.0.clone();
+
+        Handled::future(async move {
+            let session = session;
+            let mut maybe_session = session.lock().await;
+            assert!(maybe_session.is_err());
+
+            // Create session
+            match DemoSession::new(host, key, &fake_ip, &map, &demo_name, http).await {
+                Ok(session) => {
+                    tracing::info!("Opened new demo session with Masterbase: {session:?}");
+                    *maybe_session = Ok(session);
+                }
+                Err(e) => {
+                    tracing::error!("Could not open new demo session: {e}");
+                    *maybe_session = Err(SessionMissingReason::Error);
+                }
+            }
+
+            None
+        })
+    }
+}
+
+impl Deref for DemoManagerSession {
+    type Target = Arc<Mutex<Result<DemoSession, SessionMissingReason>>>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
 impl DemoManager {
     /// Create a new `DemoManager`
     #[must_use]
@@ -249,13 +304,13 @@ impl DemoManager {
             previous_demos: Vec::new(),
             current_demo: None,
 
-            session: Arc::new(Mutex::new(Err(SessionMissingReason::Uninit))),
+            session: DemoManagerSession::new(),
         }
     }
 
     /// Start tracking a new demo file. A demo must be being tracked before
     /// bytes can be appended.
-    pub fn new_demo(&mut self, path: PathBuf, id: usize) {
+    fn new_demo(&mut self, path: PathBuf, id: usize) {
         if let Some(old) = self.current_demo.take() {
             self.previous_demos.push(old);
         }
@@ -271,10 +326,10 @@ impl DemoManager {
             offset: 0,
         });
 
-        self.session = Arc::new(Mutex::new(Err(SessionMissingReason::Uninit)));
+        self.session = DemoManagerSession::new();
     }
 
-    pub fn current_demo_path(&self) -> Option<&Path> {
+    fn current_demo_path(&self) -> Option<&Path> {
         self.current_demo.as_ref().map(|d| d.file_path.as_path())
     }
 
@@ -320,49 +375,11 @@ impl DemoManager {
         }
     }
 
-    /// Returns an event which opens a new session.
-    /// This event needs to be handled by the event loop to take effect.
-    fn open_new_session<M: Is<DemoMessage>>(
-        session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
-        settings: &Settings,
-        header: &Header,
-        demo_name: &str,
-    ) -> Option<Handled<M>> {
-        let host = settings.masterbase_host().to_owned();
-        let key = settings.masterbase_key().to_owned();
-        let map = header.map.clone();
-        let fake_ip = header.server.clone();
-        let http = settings.use_masterbase_http();
-        let demo_name = demo_name.to_owned();
-
-        Handled::future(async move {
-            let session = session;
-            let mut maybe_session = session.lock().await;
-            assert!(maybe_session.is_err());
-
-            // Create session
-            match new_demo_session(host, key, &fake_ip, &map, &demo_name, http).await {
-                Ok(session) => {
-                    tracing::info!("Opened new demo session with Masterbase: {session:?}");
-                    *maybe_session = Ok(session);
-                }
-                Err(e) => {
-                    tracing::error!("Could not open new demo session: {e}");
-                    *maybe_session = Err(SessionMissingReason::Error);
-                }
-            }
-
-            None
-        })
-    }
-
     /// Returns an event that uploads the given bytes to the current session.
     /// This event needs to be handled by the event loop to take effect.
-    fn upload_bytes<M: Is<DemoMessage>>(
-        session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
-        bytes: Vec<u8>,
-    ) -> Option<Handled<M>> {
+    fn upload_bytes<M: Is<DemoMessage>>(&mut self, bytes: Vec<u8>) -> Option<Handled<M>> {
         // Loop while session is uninit
+        let session = self.session.clone();
         Handled::future(async move {
             loop {
                 let mut guard = session.lock().await;
@@ -394,19 +411,17 @@ impl DemoManager {
     /// Returns an event that checks for and handles the late bytes for the
     /// current demo.
     /// This event needs to be handled by the event loop to take effect.
-    fn handle_late_bytes<M: Is<DemoMessage>>(
-        session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
-        settings: &Settings,
-        late_bytes: Vec<u8>,
-    ) -> Option<Handled<M>> {
-        let host = settings.masterbase_host().to_owned();
-        let key = settings.masterbase_key().to_owned();
-        let http = settings.use_masterbase_http();
-
+    fn handle_late_bytes<M: Is<DemoMessage>>(&self, late_bytes: Vec<u8>) -> Option<Handled<M>> {
+        let session = self.session.clone();
         Handled::future(async move {
-            let send_result = send_late_bytes(&host, &key, http, late_bytes).await;
+            let mut session_lock = session.lock().await;
+            let Ok(session) = &mut *session_lock else {
+                // Drop session
+                *session_lock = Err(SessionMissingReason::Closed);
+                return None;
+            };
 
-            match send_result {
+            match session.send_late_bytes(late_bytes).await {
                 Ok(send_response) => {
                     let status = send_response.status();
                     if status.is_success() {
@@ -426,28 +441,63 @@ impl DemoManager {
             }
 
             // Drop session
-            let mut session = session.lock().await;
-            *session = Err(SessionMissingReason::Closed);
-
+            *session_lock = Err(SessionMissingReason::Closed);
             None
         })
     }
-}
 
-impl Default for DemoManager {
-    fn default() -> Self {
-        Self::new()
+    /// Reports any new players joining as bots
+    fn handle_new_players<'a, M: Is<DemoMessage>>(
+        &mut self,
+        state: &MACState,
+        players: impl Iterator<Item = &'a SteamID>,
+    ) -> Option<Handled<M>> {
+        return Handled::multiple(
+            players
+                // Get bots
+                .filter(|&p| {
+                    state
+                        .players
+                        .records
+                        .get(p)
+                        .is_some_and(|r| r.verdict() == Verdict::Bot)
+                })
+                // Report them
+                .map(|&p| {
+                    let session = self.session.clone();
+                    Handled::future(async move {
+                        let Ok(session) = &mut *session.lock().await else {
+                            return None;
+                        };
+
+                        match session.report_player(p).await {
+                            Ok(resp) => {
+                                if resp.status().is_success() {
+                                    tracing::debug!("Reported {} as a bot", u64::from(p));
+                                } else {
+                                    tracing::error!(
+                                        "Failed to report account {}: {}",
+                                        u64::from(p),
+                                        resp.status()
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                tracing::error!("Failed to report account {}: {}", u64::from(p), e);
+                            }
+                        }
+
+                        None
+                    })
+                }),
+        );
     }
-}
 
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for DemoManager
-where
-    IM: Is<DemoBytes>,
-    OM: Is<DemoMessage>,
-{
-    fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
-        let msg = try_get(message)?;
-
+    fn handle_demo_bytes<M: Is<DemoMessage>>(
+        &mut self,
+        state: &MACState,
+        msg: &DemoBytes,
+    ) -> Option<Handled<M>> {
         tracing::debug!("Got {} bytes for demo {:?}", msg.bytes.len(), msg.file_path);
 
         // New or different demo
@@ -492,37 +542,54 @@ where
         // Open new demo session if we've extracted the header
         if let Some(header) = demo.header.as_ref() {
             if !parsed_header {
-                events.push(Self::open_new_session(
-                    self.session.clone(),
-                    &state.settings,
-                    header,
-                    &file_name,
-                ));
+                events.push(
+                    self.session
+                        .open_new_session(&state.settings, header, &file_name),
+                );
             }
         }
 
         // Upload bytes
-        let session = self.session.clone();
         let bytes = msg.bytes.clone();
-        events.push(Self::upload_bytes(session, bytes));
+        events.push(self.upload_bytes(bytes));
 
         // Check for late bytes
         if let Ok(Some(late_bytes)) = self.read_late_bytes() {
-            events.push(Self::handle_late_bytes(
-                self.session.clone(),
-                &state.settings,
-                late_bytes,
-            ));
+            events.push(self.handle_late_bytes(late_bytes));
         }
 
         Handled::multiple(events)
     }
 }
 
+impl Default for DemoManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<IM, OM> HandlerStruct<MACState, IM, OM> for DemoManager
+where
+    IM: Is<DemoBytes> + Is<NewPlayers>,
+    OM: Is<DemoMessage>,
+{
+    fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
+        if let Some(players) = try_get::<NewPlayers>(message) {
+            return self.handle_new_players(state, players.0.iter());
+        }
+
+        if let Some(demo_bytes) = try_get::<DemoBytes>(message) {
+            return self.handle_demo_bytes(state, demo_bytes);
+        }
+
+        None
+    }
+}
+
 impl OpenDemo {
     /// Append the provided bytes to the current demo being watched, and handle
     /// any packets
-    pub fn append_bytes(&mut self, bytes: &[u8]) -> Vec<DemoMessage> {
+    fn append_bytes(&mut self, bytes: &[u8]) -> Vec<DemoMessage> {
         if bytes.is_empty() {
             return Vec::new();
         }
