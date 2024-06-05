@@ -139,6 +139,13 @@ impl Command {
         return format!("{}", u64::from(steam_id));
     }
 
+    fn is_custom_command(&self) -> bool {
+        if let Self::Custom { .. } = self {
+            return true;
+        }
+        false
+    }
+
     fn parse_steam_id_argument(steamid_str: &str) -> anyhow::Result<String> {
         if let Some(output_type) = steamid_str.split("::").last() {
             let sid_str = steamid_str.split("::").next().unwrap();
@@ -396,7 +403,12 @@ where
             return self.run_command(&Command::G15, port, pwd.to_owned());
         }
         let cmd: &Command = try_get(message)?;
-        self.run_command(cmd, port, pwd.to_owned())
+        // Don't run command if its a custom command and custom commands have not been enabled in the preferences.
+        if cmd.is_custom_command() && state.settings.custom_commands_enabled() || !cmd.is_custom_command() {
+            self.run_command(cmd, port, pwd.to_owned())
+        } else {
+            None
+        }
     }
 }
 
