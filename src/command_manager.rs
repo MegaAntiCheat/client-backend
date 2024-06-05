@@ -1,13 +1,16 @@
 use std::{
     fmt::{Debug, Display},
     io::ErrorKind,
+    num::ParseIntError,
     sync::Arc,
     time::Duration,
 };
 
+use anyhow::anyhow;
 use event_loop::{try_get, Handled, HandlerStruct, Is};
 use rcon::Connection;
 use serde::Deserialize;
+use steamid_ng::SteamID;
 use thiserror::Error;
 use tokio::{net::TcpStream, sync::Mutex, time::timeout};
 
@@ -85,16 +88,19 @@ enum ErrorState {
     /// No longer or never was connected to `RCon` due to the wrapped error
     Current(Error),
 }
-
 // Messages ***************************
 
 #[derive(Deserialize, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
 pub enum Command {
+    #[serde(rename = "g15")]
     G15,
+    #[serde(rename = "status")]
     Status,
+    #[serde(rename = "say")]
     Say(String),
+    #[serde(rename = "sayTeam")]
     SayTeam(String),
+    #[serde(rename = "kick")]
     Kick {
         /// The uid of the player as returned by [`Command::Status`] or
         /// [`Command::G15`]
@@ -102,8 +108,71 @@ pub enum Command {
         #[serde(default)]
         reason: KickReason,
     },
-    Custom(String),
+    /// Format this like:
+    /// "custom": { "command": "command_name", "args": ["string", "args", "here"]}
+    /// 
+    /// I.e.
+    /// "custom": { "command": "sm_ban", "args": ["76561198071482715::to_sid2_sm", "0"]}
+    #[serde(rename = "custom")]
+    Custom {
+        /// The command that is desired to be run, i.e. sm_ban, cc_random, voice_enable, fov_desired, etc...
+        command: String,
+        /// Optional list of string arguments for the command, with some (WIP) format specifiers to encourage the backend to
+        /// format or manipulate data for you.
+        /// I.e. for `SteamID64`'s, you may specify `<the sid64 value>::to_sid3` to have the backend replace it with the corresponding
+        /// `SteamID3` value. 
+        /// Other formatters:
+        /// - `to_sid2` to replace a `SteamID64` with a `SteamID2`
+        /// - `to_sid2_sm` to replace a `SteamID64` with a SourceMod admin-command-formatted `SteamID2` (i.e. 765611... -> "#STEAM_0_...")
+        #[serde(default)] 
+        args: Vec<String>,
+    },
 }
+
+impl Command {
+    fn get_steam_id64(steamid_str: &str) -> Result<SteamID, ParseIntError> {
+        let sid_int = steamid_str.parse::<u64>()?;
+        return Ok(SteamID::from(sid_int));
+    }
+
+    fn get_steam_id64_as_str(steam_id: SteamID) -> String {
+        return format!("{}", u64::from(steam_id));
+    }
+
+    fn parse_steam_id_argument(steamid_str: &str) -> anyhow::Result<String> {
+        if let Some(output_type) = steamid_str.split("::").last() {
+            let sid_str = steamid_str.split("::").next().unwrap();
+            let sid = Command::get_steam_id64(sid_str)?;
+            match output_type {
+                "to_sid2" => Ok(sid.steam2()),
+                "to_sid3" => Ok(sid.steam3()),
+                "to_sid2_sm" => Ok(format!("\"#{}\"", sid.steam2())),
+                _ => Ok(Command::get_steam_id64_as_str(sid))
+            }
+        } else {
+            Err(anyhow!("String contained no translator arguments"))
+        }
+
+    }
+
+    fn parse_custom_args(&self) -> anyhow::Result<Vec<String>> {
+        let Self::Custom { command, args } = self else {
+            return Err(anyhow!("Not a Custom command invocation, no args to parse!"));
+        };
+        
+        let mut command_parts: Vec<String> = vec![command.into()];
+        args.iter().for_each(|arg| {
+            if arg.starts_with("765611") && arg.contains("::") {
+                let new_part = Command::parse_steam_id_argument(arg).unwrap_or(arg.into());
+                command_parts.push(new_part);
+            } else {
+                command_parts.push(arg.into());
+            }
+        });
+        Ok(command_parts)
+    }
+}
+
 
 impl Display for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -115,7 +184,12 @@ impl Display for Command {
             }
             Self::Say(message) => write!(f, "say \"{message}\""),
             Self::SayTeam(message) => write!(f, "say_team \"{message}\""),
-            Self::Custom(command) => write!(f, "{command}"),
+            Self::Custom {command, ..} => {
+                let command = self.parse_custom_args().map_or(command.into(), |x| {
+                    x.join(" ")
+                });
+                write!(f, "{command}")
+            },
         }
     }
 }
@@ -137,73 +211,75 @@ struct CommandManagerInner {
 }
 
 impl CommandManagerInner {
+    async fn attempt_reconnect(&mut self, port: u16, password: String) {
+        self.port = port;
+        self.password = password;
+
+        match self.try_reconnect().await {
+            Ok(()) => {
+                // Current error state now presents a historical view
+                // on what the error was. Since we are now connected, if the error state
+                // indicates never connected, we can assume first time
+                // connect Otherwise this is a reconnect.
+                match self.current_err_state {
+                    ErrorState::Current(_) => {
+                        tracing::info!("Succesfully reconnected to RCon");
+                    }
+                    ErrorState::Never => {
+                        tracing::info!("Succesfully established a connection with RCon");
+                    }
+                    ErrorState::Okay => {}
+                };
+                std::mem::swap(&mut self.current_err_state, &mut self.previous_err_state);
+                self.current_err_state = ErrorState::Okay;
+            }
+            Err(e) => {
+                std::mem::swap(&mut self.current_err_state, &mut self.previous_err_state);
+                self.current_err_state = ErrorState::Current(e);
+
+                if self.current_err_state != self.previous_err_state {
+                    match &self.current_err_state {
+                        // If we have just launched/reset RCon state, and we get connection
+                        // refused, just warn about it instead as TF2 likely isn't open
+                        ErrorState::Current(e @ Error::Rcon(rcon::Error::Io(err)))
+                            if self.previous_err_state == ErrorState::Never
+                                && err.kind() == ErrorKind::ConnectionRefused =>
+                        {
+                            tracing::warn!(
+                                "{e} (This is expected behaviour if TF2 is not open)"
+                            );
+                        }
+                        // We have entered an error state from some other state, or the error
+                        // state has changed. Report it!
+                        ErrorState::Current(err) => {
+                            tracing::error!("{}", err);
+                        }
+                        _ => {}
+                    };
+                }
+            }
+        }
+    }
+
     async fn run_command<M: Is<RawConsoleOutput>>(
         &mut self,
         cmd: Command,
         port: u16,
         password: String,
     ) -> Option<M> {
-        let needs_reconnect = password != self.password
+        if password != self.password
             || port != self.port
             || match self.current_err_state {
                 // Don't try to keep reconnecting on bad auth, otherwise TF2 will shunt the
                 // connection for spam
                 ErrorState::Current(Error::Rcon(rcon::Error::Auth)) | ErrorState::Okay => false,
                 _ => true,
-            };
-
-        // Known issue: if the user changes the rcon_password _in TF2_, this will not
-        // trigger a reconnect
-        if needs_reconnect {
-            self.port = port;
-            self.password = password;
-
-            match self.try_reconnect().await {
-                Ok(()) => {
-                    // Current error state now presents a historical view
-                    // on what the error was. Since we are now connected, if the error state
-                    // indicates never connected, we can assume first time
-                    // connect Otherwise this is a reconnect.
-                    match self.current_err_state {
-                        ErrorState::Current(_) => {
-                            tracing::info!("Succesfully reconnected to RCon");
-                        }
-                        ErrorState::Never => {
-                            tracing::info!("Succesfully established a connection with RCon");
-                        }
-                        ErrorState::Okay => {}
-                    };
-                    std::mem::swap(&mut self.current_err_state, &mut self.previous_err_state);
-                    self.current_err_state = ErrorState::Okay;
-                }
-                Err(e) => {
-                    std::mem::swap(&mut self.current_err_state, &mut self.previous_err_state);
-                    self.current_err_state = ErrorState::Current(e);
-
-                    if self.current_err_state != self.previous_err_state {
-                        match &self.current_err_state {
-                            // If we have just launched/reset RCon state, and we get connection
-                            // refused, just warn about it instead as TF2 likely isn't open
-                            ErrorState::Current(e @ Error::Rcon(rcon::Error::Io(err)))
-                                if self.previous_err_state == ErrorState::Never
-                                    && err.kind() == ErrorKind::ConnectionRefused =>
-                            {
-                                tracing::warn!(
-                                    "{e} (This is expected behaviour if TF2 is not open)"
-                                );
-                            }
-                            // We have entered an error state from some other state, or the error
-                            // state has changed. Report it!
-                            ErrorState::Current(err) => {
-                                tracing::error!("{}", err);
-                            }
-                            _ => {}
-                        };
-                    }
-                }
-            }
+            } {
+                // Known issue: if the user changes the rcon_password _in TF2_, this will not
+                // trigger a reconnect
+                self.attempt_reconnect(port, password).await;
         }
-
+        
         if let Some(rcon) = &mut self.connection {
             tracing::debug!("Running command \"{}\"", cmd);
             let result = rcon.cmd(&format!("{cmd}")).await.map_err(|e| {
@@ -319,8 +395,8 @@ where
             }
             return self.run_command(&Command::G15, port, pwd.to_owned());
         }
-
-        self.run_command(try_get::<Command>(message)?, port, pwd.to_owned())
+        let cmd: &Command = try_get(message)?;
+        self.run_command(cmd, port, pwd.to_owned())
     }
 }
 

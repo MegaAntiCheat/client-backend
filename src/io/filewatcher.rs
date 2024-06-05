@@ -1,4 +1,4 @@
-use std::{path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration, fs::metadata};
 
 use anyhow::{anyhow, Context, Result};
 use clap_lex::SeekFrom;
@@ -84,16 +84,15 @@ impl FileWatcher {
     /// Attempts to read the new contents of the observed file and updates the
     /// internal state with any new lines that have been appended since last
     /// call.
+    /// 
+    /// Assumptions: self.open_file is both Some and valid 
     async fn read_new_file_lines(&mut self) -> Result<()> {
-        if self.open_file.is_none() {
-            return Err(anyhow!(
-                "read_new_file_lines wasn't meant to be called when self.file is None"
-            ));
-        }
-        let mut file = self.open_file.as_mut().expect("Just checked for Some");
+        let Some(mut file) = self.open_file.as_mut() else {
+            return Err(anyhow!("this function is uncallable when self.file is None!"));
+        };
 
         let meta =
-            std::fs::metadata(&self.file_path).context("Failed to fetch metadata for log file.")?;
+            metadata(&self.file_path).context("Failed to fetch metadata for log file.")?;
 
         // No new data
         if meta.len() == file.last_size || meta.len() == 0 {
@@ -102,7 +101,9 @@ impl FileWatcher {
 
         // Reset if file has been remade (i.e. is shorter) and update state
         if meta.len() < file.last_size {
-            tracing::warn!("File has shortened, the file may have been replaced. Reopening.");
+            // PR Lilith/sourcemod-enhancement: I don't think this should warn. It only has ever
+            // appeared when people actually open TF2 and it causes more confusion. Made debug instead of warn.
+            tracing::debug!("Detected new instance of file, reading from start.");
             file = self
                 .reopen_file()
                 .await

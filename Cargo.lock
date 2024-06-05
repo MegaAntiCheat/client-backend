@@ -373,6 +373,7 @@ dependencies = [
  "keyvalues-parser 0.1.0",
  "keyvalues-serde 0.1.0",
  "notify",
+ "once_cell",
  "open",
  "pot",
  "rcon",

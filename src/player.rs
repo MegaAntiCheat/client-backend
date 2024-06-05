@@ -471,6 +471,20 @@ impl TryFrom<u32> for Team {
     }
 }
 
+impl TryFrom<&str> for Team {
+    type Error = &'static str;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        match value {
+            "0" => Ok(Self::Unassigned),
+            "1" => Ok(Self::Spectators),
+            "2" => Ok(Self::Red),
+            "3" => Ok(Self::Blu),
+            _ => Err("Not a valid team value"),
+        }
+    }
+}
+
 impl Serialize for Team {
     fn serialize<S>(&self, s: S) -> Result<S::Ok, S::Error>
     where
