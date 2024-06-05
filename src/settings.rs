@@ -81,7 +81,7 @@ pub struct Settings {
     rcon_port: u16,
     external: serde_json::Value,
     autokick_bots: bool,
-    enable_sourcemod_commands: bool,
+    enable_custom_commands: bool,
 
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
@@ -523,11 +523,11 @@ impl Settings {
     }
 
     #[must_use]
-    pub const fn sourcemod_commands_enabled(&self) -> bool {
-        self.enable_sourcemod_commands
+    pub const fn custom_commands_enabled(&self) -> bool {
+        self.enable_custom_commands
     }
-    pub fn set_sourcemod_commands_toggle(&mut self, sourcemod_enable: bool) {
-        self.enable_sourcemod_commands = sourcemod_enable;
+    pub fn set_custom_commands_toggle(&mut self, custom_enable: bool) {
+        self.enable_custom_commands = custom_enable;
     }
 
     #[must_use]
@@ -606,7 +606,7 @@ impl Default for Settings {
             minimal_demo_parsing: false,
             masterbase_http: false,
             autokick_bots: false,
-            enable_sourcemod_commands: false,
+            enable_custom_commands: false,
             web_ui_source: UISource::default(),
         }
     }
