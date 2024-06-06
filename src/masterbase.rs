@@ -175,11 +175,7 @@ impl DemoSession {
     pub async fn report_player(&mut self, player: SteamID) -> Result<Response, Error> {
         tracing::debug!("Reporting player {}", u64::from(player));
 
-        let params: [(&str, &str); 3] = [
-            ("api_key", &self.key),
-            ("session_id", &format!("{}", self.session_id)),
-            ("target_steam_id", &format!("{}", u64::from(player))),
-        ];
+        let params: &[(&str, &str)] = &[("api_key", &self.key)];
 
         let endpoint = if self.http {
             format!("http://{}/report", self.host)
@@ -187,19 +183,16 @@ impl DemoSession {
             format!("https://{}/report", self.host)
         };
         let url = reqwest::Url::parse_with_params(&endpoint, params)?;
-        // let url = reqwest::Url::parse(&endpoint)?;
 
         let target = format!("{}", u64::from(player));
         let session_id = format!("{}", self.session_id);
 
-        // let mut map = HashMap::new();
-        // map.insert("api_key", &self.key);
-        // map.insert("target_steam_id", &target);
-        // map.insert("session_id", &session_id);
+        let mut map = HashMap::new();
+        map.insert("target_steam_id", &target);
+        map.insert("session_id", &session_id);
 
         let client = reqwest::Client::builder().build()?;
-        // let resp = client.execute(client.post(url).json(&map).build()?).await?;
-        let resp = client.execute(client.post(url).build()?).await?;
+        let resp = client.execute(client.post(url).json(&map).build()?).await?;
 
         Ok(resp)
     }
