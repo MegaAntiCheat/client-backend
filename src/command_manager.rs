@@ -109,10 +109,10 @@ pub enum Command {
         reason: KickReason,
     },
     /// Format this like:
-    /// "custom": { "command": "command_name", "args": \["string", "args", "here"\]}
-    /// 
+    /// `"custom": { "command": "command_name", "args": ["string", "args", "here"]}`
+    ///
     /// I.e.
-    /// "custom": { "command": "sm_ban", "args": \["76561198071482715::to_sid2_sm", "0"\]}
+    /// `"custom": { "command": "sm_ban", "args": ["76561198071482715::to_sid2_sm", "0"]}`
     #[serde(rename = "custom")]
     Custom {
         /// The command that is desired to be run, i.e. `sm_ban`, `cc_random`, `voice_enable`, `fov_desired`, etc...
@@ -120,11 +120,11 @@ pub enum Command {
         /// Optional list of string arguments for the command, with some (WIP) format specifiers to encourage the backend to
         /// format or manipulate data for you.
         /// I.e. for `SteamID64`'s, you may specify `<the sid64 value>::to_sid3` to have the backend replace it with the corresponding
-        /// `SteamID3` value. 
+        /// `SteamID3` value.
         /// Other formatters:
         /// - `to_sid2` to replace a `SteamID64` with a `SteamID2`
-        /// - `to_sid2_sm` to replace a `SteamID64` with a `SourceMod` admin-command-formatted `SteamID2` (i.e. 765611... -> "#STEAM_0_...")
-        #[serde(default)] 
+        /// - `to_sid2_sm` to replace a `SteamID64` with a `SourceMod` admin-command-formatted `SteamID2` (i.e. `765611... -> "#STEAM_0_..."`)
+        #[serde(default)]
         args: Vec<String>,
     },
 }
@@ -136,7 +136,7 @@ impl Command {
     }
 
     fn get_steam_id64_as_str(steam_id: SteamID) -> String {
-        return format!("{}", u64::from(steam_id));
+        format!("{}", u64::from(steam_id))
     }
 
     fn is_custom_command(&self) -> bool {
@@ -145,7 +145,7 @@ impl Command {
         }
         false
     }
-    
+
     /// Expects a "::" in the `steamid_str` value
     fn parse_steam_id_argument(steamid_str: &str) -> anyhow::Result<String> {
         if let Some(output_type) = steamid_str.split("::").last() {
@@ -155,21 +155,22 @@ impl Command {
                 "to_sid2" => Ok(sid.steam2()),
                 "to_sid3" => Ok(sid.steam3()),
                 "to_sid2_sm" => Ok(format!("\"#{}\"", sid.steam2())),
-                _ => Ok(Command::get_steam_id64_as_str(sid))
+                _ => Ok(Command::get_steam_id64_as_str(sid)),
             }
         } else {
             Err(anyhow!("String contained no translator arguments"))
         }
-
     }
 
     fn parse_custom_args(&self) -> anyhow::Result<Vec<String>> {
         let Self::Custom { command, args } = self else {
-            return Err(anyhow!("Not a Custom command invocation, no args to parse!"));
+            return Err(anyhow!(
+                "Not a Custom command invocation, no args to parse!"
+            ));
         };
-        
+
         let mut command_parts: Vec<String> = vec![command.into()];
-        for arg in args.iter() {
+        for arg in args {
             if arg.starts_with("765611") && arg.contains("::") {
                 let new_part = Command::parse_steam_id_argument(arg).unwrap_or(arg.into());
                 command_parts.push(new_part);
@@ -181,7 +182,6 @@ impl Command {
     }
 }
 
-
 impl Display for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -192,12 +192,12 @@ impl Display for Command {
             }
             Self::Say(message) => write!(f, "say \"{message}\""),
             Self::SayTeam(message) => write!(f, "say_team \"{message}\""),
-            Self::Custom {command, ..} => {
-                let command = self.parse_custom_args().map_or(command.into(), |x| {
-                    x.join(" ")
-                });
+            Self::Custom { command, .. } => {
+                let command = self
+                    .parse_custom_args()
+                    .map_or(command.into(), |x| x.join(" "));
                 write!(f, "{command}")
-            },
+            }
         }
     }
 }
@@ -253,9 +253,7 @@ impl CommandManagerInner {
                             if self.previous_err_state == ErrorState::Never
                                 && err.kind() == ErrorKind::ConnectionRefused =>
                         {
-                            tracing::warn!(
-                                "{e} (This is expected behaviour if TF2 is not open)"
-                            );
+                            tracing::warn!("{e} (This is expected behaviour if TF2 is not open)");
                         }
                         // We have entered an error state from some other state, or the error
                         // state has changed. Report it!
@@ -282,12 +280,13 @@ impl CommandManagerInner {
                 // connection for spam
                 ErrorState::Current(Error::Rcon(rcon::Error::Auth)) | ErrorState::Okay => false,
                 _ => true,
-            } {
-                // Known issue: if the user changes the rcon_password _in TF2_, this will not
-                // trigger a reconnect
-                self.attempt_reconnect(port, password).await;
+            }
+        {
+            // Known issue: if the user changes the rcon_password _in TF2_, this will not
+            // trigger a reconnect
+            self.attempt_reconnect(port, password).await;
         }
-        
+
         if let Some(rcon) = &mut self.connection {
             tracing::debug!("Running command \"{}\"", cmd);
             let result = rcon.cmd(&format!("{cmd}")).await.map_err(|e| {
@@ -405,7 +404,9 @@ where
         }
         let cmd: &Command = try_get(message)?;
         // Don't run command if its a custom command and custom commands have not been enabled in the preferences.
-        if cmd.is_custom_command() && state.settings.custom_commands_enabled() || !cmd.is_custom_command() {
+        if cmd.is_custom_command() && state.settings.custom_commands_enabled()
+            || !cmd.is_custom_command()
+        {
             self.run_command(cmd, port, pwd.to_owned())
         } else {
             None
