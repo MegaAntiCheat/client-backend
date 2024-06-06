@@ -5,7 +5,6 @@ use std::{
     collections::HashMap,
     fs::{metadata, File},
     io::{Read, Seek},
-    ops::Deref,
     path::{Path, PathBuf},
     sync::{
         mpsc::{self, Receiver, TryRecvError},
@@ -301,14 +300,6 @@ impl DemoManagerSession {
 
             None
         })
-    }
-}
-
-impl Deref for DemoManagerSession {
-    type Target = Arc<Mutex<Result<DemoSession, SessionMissingReason>>>;
-
-    fn deref(&self) -> &Self::Target {
-        &self.0
     }
 }
 
