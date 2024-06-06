@@ -85,7 +85,7 @@ impl FileWatcher {
     /// internal state with any new lines that have been appended since last
     /// call.
     /// 
-    /// Assumptions: self.open_file is both Some and valid 
+    /// Assumptions: `self.open_file` is both Some and valid 
     async fn read_new_file_lines(&mut self) -> Result<()> {
         let Some(mut file) = self.open_file.as_mut() else {
             return Err(anyhow!("this function is uncallable when self.file is None!"));

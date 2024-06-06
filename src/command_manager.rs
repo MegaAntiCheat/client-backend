@@ -109,13 +109,13 @@ pub enum Command {
         reason: KickReason,
     },
     /// Format this like:
-    /// "custom": { "command": "command_name", "args": ["string", "args", "here"]}
+    /// "custom": { "command": "command_name", "args": \["string", "args", "here"\]}
     /// 
     /// I.e.
-    /// "custom": { "command": "sm_ban", "args": ["76561198071482715::to_sid2_sm", "0"]}
+    /// "custom": { "command": "sm_ban", "args": \["76561198071482715::to_sid2_sm", "0"\]}
     #[serde(rename = "custom")]
     Custom {
-        /// The command that is desired to be run, i.e. sm_ban, cc_random, voice_enable, fov_desired, etc...
+        /// The command that is desired to be run, i.e. `sm_ban`, `cc_random`, `voice_enable`, `fov_desired`, etc...
         command: String,
         /// Optional list of string arguments for the command, with some (WIP) format specifiers to encourage the backend to
         /// format or manipulate data for you.
@@ -123,7 +123,7 @@ pub enum Command {
         /// `SteamID3` value. 
         /// Other formatters:
         /// - `to_sid2` to replace a `SteamID64` with a `SteamID2`
-        /// - `to_sid2_sm` to replace a `SteamID64` with a SourceMod admin-command-formatted `SteamID2` (i.e. 765611... -> "#STEAM_0_...")
+        /// - `to_sid2_sm` to replace a `SteamID64` with a `SourceMod` admin-command-formatted `SteamID2` (i.e. 765611... -> "#STEAM_0_...")
         #[serde(default)] 
         args: Vec<String>,
     },
@@ -132,7 +132,7 @@ pub enum Command {
 impl Command {
     fn get_steam_id64(steamid_str: &str) -> Result<SteamID, ParseIntError> {
         let sid_int = steamid_str.parse::<u64>()?;
-        return Ok(SteamID::from(sid_int));
+        Ok(SteamID::from(sid_int))
     }
 
     fn get_steam_id64_as_str(steam_id: SteamID) -> String {
@@ -145,10 +145,11 @@ impl Command {
         }
         false
     }
-
+    
+    /// Expects a "::" in the `steamid_str` value
     fn parse_steam_id_argument(steamid_str: &str) -> anyhow::Result<String> {
         if let Some(output_type) = steamid_str.split("::").last() {
-            let sid_str = steamid_str.split("::").next().unwrap();
+            let sid_str = steamid_str.split("::").next().expect("last exists");
             let sid = Command::get_steam_id64(sid_str)?;
             match output_type {
                 "to_sid2" => Ok(sid.steam2()),
@@ -168,14 +169,14 @@ impl Command {
         };
         
         let mut command_parts: Vec<String> = vec![command.into()];
-        args.iter().for_each(|arg| {
+        for arg in args.iter() {
             if arg.starts_with("765611") && arg.contains("::") {
                 let new_part = Command::parse_steam_id_argument(arg).unwrap_or(arg.into());
                 command_parts.push(new_part);
             } else {
                 command_parts.push(arg.into());
             }
-        });
+        }
         Ok(command_parts)
     }
 }
