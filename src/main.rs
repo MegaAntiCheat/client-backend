@@ -117,7 +117,11 @@ fn main() {
         players,
     };
 
-    check_launch_options(&state.settings);
+    // Steam user overrides usually imply the TF2 dir cannot be found
+    // so don't check launch options.
+    if !state.settings.is_steam_user_overridden() {
+        check_launch_options(&state.settings);
+    }
 
     let web_port = state.settings.webui_port();
 
