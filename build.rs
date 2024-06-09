@@ -1,4 +1,5 @@
 use std::{env, path::Path};
+use embed_resource;
 
 fn main() {
     // If there's a file at `<project root>/ui/index.html`, enable the `include-ui` feature.
@@ -13,4 +14,6 @@ fn main() {
     {
         println!("cargo::rustc-cfg=feature=\"include-ui\"");
     }
+    // Compile and link icon.rc
+    embed_resource::compile("assets/icon.rc", embed_resource::NONE);
 }
