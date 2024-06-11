@@ -79,9 +79,9 @@ pub const REGEX_KILL: &str = r"^(.*)\skilled\s(.*)\swith\s(.*)\.(\s\(crit\))?$";
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PlayerKill {
     pub killer_name: String,
-    pub killer_steamid: Option<String>,
+    pub killer_steamid: Option<SteamID>,
     pub victim_name: String,
-    pub victim_steamid: Option<String>,
+    pub victim_steamid: Option<SteamID>,
     pub weapon: String,
     pub crit: bool,
 }
@@ -98,14 +98,6 @@ impl PlayerKill {
             crit: caps.get(4).is_some(),
         }
     }
-
-    pub fn set_steam_id_killer(&mut self, id: SteamID) {
-        self.killer_steamid = Some(format!("{}", u64::from(id)));
-    }
-
-    pub fn set_steam_id_victim(&mut self, id: SteamID) {
-        self.victim_steamid = Some(format!("{}", u64::from(id)));
-    }
 }
 
 /// Chat message
@@ -117,7 +109,7 @@ pub const REGEX_CHAT: &str = r"^(?:\*DEAD\*)?(?:\(TEAM\))?\s?(.*)\s:\s\s(.*)$";
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ChatMessage {
     pub player_name: String,
-    pub steamid: Option<String>,
+    pub steamid: Option<SteamID>,
     pub message: String,
 }
 
@@ -129,10 +121,6 @@ impl ChatMessage {
             steamid: None,
             message: caps[2].into(),
         }
-    }
-
-    pub fn set_steam_id(&mut self, id: SteamID) {
-        self.steamid = Some(format!("{}", u64::from(id)));
     }
 }
 

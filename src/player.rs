@@ -375,6 +375,14 @@ impl Players {
     }
 
     #[must_use]
+    pub fn get_steamid_from_name(&self, name: &str) -> Option<SteamID> {
+        self.connected
+            .iter()
+            .find(|&s| self.game_info.get(s).is_some_and(|gi| gi.name == name))
+            .copied()
+    }
+
+    #[must_use]
     pub fn get_name_to_steam_ids_map(&self) -> HashMap<String, SteamID> {
         self.connected
             .iter()

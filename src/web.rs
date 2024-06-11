@@ -14,7 +14,7 @@ use axum::{
     Json, Router,
 };
 use chrono::{DateTime, Utc};
-use event_loop::{try_get, Handled, HandlerStruct, Is};
+use event_loop::{try_get, Handled, Is, MessageHandler};
 use futures::Stream;
 use include_dir::Dir;
 use serde::{Deserialize, Serialize};
@@ -59,6 +59,7 @@ pub enum WebRequest {
     /// Tell the client to execute console commands
     PostCommand(RequestedCommands),
 }
+impl<S> event_loop::Message<S> for WebRequest {}
 
 struct PostUserRequest {
     send: UnboundedSender<String>,
@@ -72,7 +73,7 @@ pub struct WebAPIHandler {
     post_user_queue: Vec<PostUserRequest>,
 }
 
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for WebAPIHandler
+impl<IM, OM> MessageHandler<MACState, IM, OM> for WebAPIHandler
 where
     IM: Is<WebRequest> + Is<ProfileLookupResult>,
     OM: Is<Command> + Is<Preferences> + Is<UserUpdates> + Is<ProfileLookupResult>,
@@ -733,5 +734,6 @@ pub async fn broadcast_event(event_json: String) {
         // We have created an iterator of Futures that promise to send the message down the channel
         // So we await them all by calling join_all, which does this, but without promising true concurrency.
         futures::future::join_all(futs).await;
+        drop(subscribers);
     }
 }

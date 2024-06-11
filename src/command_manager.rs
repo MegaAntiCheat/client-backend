@@ -5,7 +5,7 @@ use std::{
     time::Duration,
 };
 
-use event_loop::{try_get, Handled, HandlerStruct, Is};
+use event_loop::{try_get, Handled, Is, MessageHandler};
 use rcon::Connection;
 use serde::Deserialize;
 use thiserror::Error;
@@ -104,6 +104,7 @@ pub enum Command {
     },
     Custom(String),
 }
+impl<S> event_loop::Message<S> for Command {}
 
 impl Display for Command {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -299,7 +300,7 @@ impl Default for CommandManager {
     }
 }
 
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for CommandManager
+impl<IM, OM> MessageHandler<MACState, IM, OM> for CommandManager
 where
     IM: Is<Command> + Is<Refresh>,
     OM: Is<RawConsoleOutput>,
@@ -325,7 +326,7 @@ where
 }
 
 pub struct DumbAutoKick;
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for DumbAutoKick
+impl<IM, OM> MessageHandler<MACState, IM, OM> for DumbAutoKick
 where
     IM: Is<Refresh>,
     OM: Is<Command>,

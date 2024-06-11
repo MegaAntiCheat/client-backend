@@ -6,7 +6,7 @@ use crate::{
     web::broadcast_event,
 };
 use chrono::{DateTime, Utc};
-use event_loop::{try_get, Handled, HandlerStruct, Is};
+use event_loop::{try_get, Handled, Is, MessageHandler};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use steamid_ng::SteamID;
@@ -157,7 +157,7 @@ impl Default for SseEventBroadcaster {
 /// endpoint, but data is shipped when _we_ want and the clients have to respond.
 ///
 /// See `broadcast_event` in `crate::web` for more info
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for SseEventBroadcaster
+impl<IM, OM> MessageHandler<MACState, IM, OM> for SseEventBroadcaster
 where
     IM: Is<DemoMessage> + Is<ConsoleOutput>,
 {
@@ -198,21 +198,13 @@ impl SseEventBroadcaster {
         // We also set the steam_id fields in the events here before we serialise
         match cloned_co {
             ConsoleOutput::Chat(mut m) => {
-                let players = state.players.get_name_to_steam_ids_map();
-                if let Some(id) = players.get(&m.player_name) {
-                    m.set_steam_id(*id);
-                }
+                m.steamid = state.players.get_steamid_from_name(&m.player_name);
                 let event = SerializableEvent::make_from(m);
                 Some(serde_json::to_string(&event).expect("Serialisation failure"))
             }
             ConsoleOutput::Kill(mut m) => {
-                let players = state.players.get_name_to_steam_ids_map();
-                if let Some(id) = players.get(&m.killer_name) {
-                    m.set_steam_id_killer(*id);
-                }
-                if let Some(id) = players.get(&m.victim_name) {
-                    m.set_steam_id_victim(*id);
-                }
+                m.killer_steamid = state.players.get_steamid_from_name(&m.killer_name);
+                m.victim_steamid = state.players.get_steamid_from_name(&m.victim_name);
                 let event = SerializableEvent::make_from(m);
                 Some(serde_json::to_string(&event).expect("Serialisation failure"))
             }
