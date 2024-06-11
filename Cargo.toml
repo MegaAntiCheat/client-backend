@@ -69,3 +69,4 @@ pot = "3.0.0"
 
 [build-dependencies]
 embed-resource = "2.4.2"
+ico = "0.3.0"
