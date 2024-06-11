@@ -158,7 +158,17 @@ where
         // Send of lookup batch
         if try_get::<ProfileLookupBatchTick>(message).is_some() {
             self.batch_buffer.retain(|s| {
-                !self.in_progress.contains(s) && !state.players.steam_info.contains_key(s)
+                // Already retrieving
+                if self.in_progress.contains(s) {
+                    return false;
+                }
+
+                // Already present and reasonably recent
+                !state
+                    .players
+                    .steam_info
+                    .get(s)
+                    .is_some_and(|si| Utc::now().signed_duration_since(si.fetched).num_hours() < 3)
             });
             if self.batch_buffer.is_empty() {
                 return Handled::none();
