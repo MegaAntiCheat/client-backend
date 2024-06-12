@@ -74,7 +74,7 @@ pub struct VoteCastEventWrapped {
 
 impl VoteCastEventWrapped {
     #[must_use]
-    pub fn from_vote_cast_event(event: VoteCastEvent, voter: Option<SteamID>) -> Self {
+    pub const fn from_vote_cast_event(event: VoteCastEvent, voter: Option<SteamID>) -> Self {
         Self {
             voter,
             voter_name: None,

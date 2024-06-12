@@ -6,7 +6,7 @@ use regex::Captures;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
 
-use crate::player::PlayerState;
+use crate::player::{serialize_maybe_steamid_as_string, PlayerState};
 
 /*
     Useful commands:
@@ -79,8 +79,10 @@ pub const REGEX_KILL: &str = r"^(.*)\skilled\s(.*)\swith\s(.*)\.(\s\(crit\))?$";
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct PlayerKill {
     pub killer_name: String,
+    #[serde(serialize_with = "serialize_maybe_steamid_as_string")]
     pub killer_steamid: Option<SteamID>,
     pub victim_name: String,
+    #[serde(serialize_with = "serialize_maybe_steamid_as_string")]
     pub victim_steamid: Option<SteamID>,
     pub weapon: String,
     pub crit: bool,
@@ -109,6 +111,7 @@ pub const REGEX_CHAT: &str = r"^(?:\*DEAD\*)?(?:\(TEAM\))?\s?(.*)\s:\s\s(.*)$";
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct ChatMessage {
     pub player_name: String,
+    #[serde(serialize_with = "serialize_maybe_steamid_as_string")]
     pub steamid: Option<SteamID>,
     pub message: String,
 }

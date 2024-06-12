@@ -697,6 +697,17 @@ pub fn serialize_steamid_as_string<S: Serializer>(
     format!("{}", u64::from(*steamid)).serialize(s)
 }
 
+#[allow(clippy::trivially_copy_pass_by_ref, clippy::missing_errors_doc)]
+pub fn serialize_maybe_steamid_as_string<S: Serializer>(
+    steamid: &Option<SteamID>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    match steamid {
+        Some(steamid) => format!("{}", u64::from(*steamid)).serialize(s),
+        None => s.serialize_none(),
+    }
+}
+
 #[allow(non_snake_case)]
 #[derive(Debug, Serialize)]
 pub struct Player<'a> {
