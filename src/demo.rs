@@ -28,8 +28,11 @@ use thiserror::Error;
 use tokio::sync::{Mutex, MutexGuard};
 
 use crate::{
-    events::UserUpdates, masterbase::DemoSession, new_players::NewPlayers, player_records::Verdict,
-    settings::Settings, state::MACState,
+    events::UserUpdates,
+    masterbase::{DemoSession, ReportReason},
+    new_players::NewPlayers,
+    settings::Settings,
+    state::MACState,
 };
 
 #[allow(clippy::module_name_repetitions)]
@@ -456,44 +459,44 @@ impl DemoManager {
     }
 
     /// Reports any other the players provided who are marked as bots to the masterbase
-    fn report_players<'a, M: Is<DemoMessage>>(
+    fn report_players<M: Is<DemoMessage>>(
         &mut self,
-        players: impl Iterator<Item = &'a SteamID>,
+        players: impl Iterator<Item = (SteamID, ReportReason)>,
     ) -> Option<Handled<M>> {
-        Handled::multiple(
-            players
-                // Report them
-                .map(|&p| {
-                    let mut session = self.session.clone();
-                    Handled::future(async move {
-                        let mut session_guard = session.get().await;
-                        let Ok(session) = &mut *session_guard else {
-                            return None;
-                        };
+        Handled::multiple(players.map(|(s, r)| {
+            let mut session = self.session.clone();
+            Handled::future(async move {
+                let mut session_guard = session.get().await;
+                let Ok(session) = &mut *session_guard else {
+                    return None;
+                };
 
-                        let resp = session.report_player(p).await;
-                        drop(session_guard);
+                let resp = session.report_player(s, r).await;
+                drop(session_guard);
 
-                        match resp {
-                            Ok(resp) if resp.status().is_success() => {
-                                tracing::info!("Reported {} as a bot", u64::from(p));
-                            }
-                            Ok(resp) => {
-                                tracing::error!(
-                                    "Failed to report account {}: {}",
-                                    u64::from(p),
-                                    resp.status()
-                                );
-                            }
-                            Err(e) => {
-                                tracing::error!("Failed to report account {}: {}", u64::from(p), e);
-                            }
-                        }
+                match resp {
+                    Ok(resp) if resp.status().is_success() => {
+                        tracing::info!("Reported {} as {r:?}", u64::from(s));
+                    }
+                    Ok(resp) => {
+                        tracing::error!(
+                            "Failed to report account {} as {r:?}: {}",
+                            u64::from(s),
+                            resp.status()
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to report account {} as {r:?}: {}",
+                            u64::from(s),
+                            e
+                        );
+                    }
+                }
 
-                        None
-                    })
-                }),
-        )
+                None
+            })
+        }))
     }
 
     fn handle_demo_bytes<M: Is<DemoMessage>>(
@@ -552,13 +555,17 @@ impl DemoManager {
 
                 // Once a new session is opened, report any bots already on the server
                 events.push(
-                    self.report_players(state.players.connected.iter().filter(|&p| {
+                    self.report_players(
+                        // Go from SteamID to (SteamID, ReportReason) if the player is marked as a cheater or bot
                         state
                             .players
-                            .records
-                            .get(p)
-                            .is_some_and(|r| r.verdict() == Verdict::Bot)
-                    })),
+                            .connected
+                            .iter()
+                            .filter_map(|&p| state.players.records.get(&p).map(|r| (p, r)))
+                            .filter_map(|(s, r)| {
+                                ReportReason::try_from(r.verdict()).ok().map(|r| (s, r))
+                            }),
+                    ),
                 );
             }
         }
@@ -590,13 +597,13 @@ where
     fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
         // Report newly connecting bots
         if let Some(players) = try_get::<NewPlayers>(message) {
-            return self.report_players(players.0.iter().filter(|&p| {
-                state
-                    .players
-                    .records
-                    .get(p)
-                    .is_some_and(|r| r.verdict() == Verdict::Bot)
-            }));
+            return self.report_players(
+                players
+                    .0
+                    .iter()
+                    .filter_map(|&p| state.players.records.get(&p).map(|r| (p, r)))
+                    .filter_map(|(s, r)| ReportReason::try_from(r.verdict()).ok().map(|r| (s, r))),
+            );
         }
 
         // Report newly marked bots
@@ -605,8 +612,8 @@ where
                 updates
                     .0
                     .iter()
-                    .filter(|(_, u)| u.local_verdict.is_some_and(|v| v == Verdict::Bot))
-                    .map(|(s, _)| s),
+                    .filter_map(|(&s, u)| u.local_verdict.map(|v| (s, v)))
+                    .filter_map(|(s, v)| ReportReason::try_from(v).ok().map(|r| (s, r))),
             );
         }
 

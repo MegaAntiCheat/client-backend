@@ -11,6 +11,8 @@ use thiserror::Error;
 use tokio::{net::TcpStream, sync::mpsc::Sender};
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 
+use crate::player_records::Verdict;
+
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("Request failed: {0}")]
@@ -21,6 +23,24 @@ pub enum Error {
     WebSocket(#[from] tokio_tungstenite::tungstenite::error::Error),
     #[error("Request failed: {0}")]
     Failed(String),
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+pub enum ReportReason {
+    Bot,
+    Cheater,
+}
+
+impl TryFrom<Verdict> for ReportReason {
+    type Error = ();
+
+    fn try_from(value: Verdict) -> Result<Self, Self::Error> {
+        match value {
+            Verdict::Bot => Ok(Self::Bot),
+            Verdict::Cheater => Ok(Self::Cheater),
+            Verdict::Player | Verdict::Suspicious | Verdict::Trusted => Err(()),
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -172,7 +192,11 @@ impl DemoSession {
 
     /// # Errors
     /// If the web request failed for some reason
-    pub async fn report_player(&mut self, player: SteamID) -> Result<Response, Error> {
+    pub async fn report_player(
+        &mut self,
+        player: SteamID,
+        reason: ReportReason,
+    ) -> Result<Response, Error> {
         tracing::debug!("Reporting player {}", u64::from(player));
 
         let params: &[(&str, &str)] = &[("api_key", &self.key)];
@@ -187,9 +211,15 @@ impl DemoSession {
         let target = format!("{}", u64::from(player));
         let session_id = format!("{}", self.session_id);
 
-        let mut map = HashMap::new();
+        let reason = match reason {
+            ReportReason::Bot => "bot",
+            ReportReason::Cheater => "cheater",
+        };
+
+        let mut map: HashMap<&str, &str> = HashMap::new();
         map.insert("target_steam_id", &target);
         map.insert("session_id", &session_id);
+        map.insert("reason", reason);
 
         let client = reqwest::Client::builder().build()?;
         let resp = client.execute(client.post(url).json(&map).build()?).await?;
