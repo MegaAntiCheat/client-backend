@@ -107,10 +107,10 @@ where
     M: Send + Message<S> + 'static,
     H: MessageHandler<S, M, M>,
 {
-    pub sources: Vec<Box<dyn MessageSource<M> + 'static + Send>>,
-    pub handlers: Vec<H>,
-    pub queue: Vec<M>,
-    pub async_tasks: Vec<JoinHandle<Option<M>>>,
+    sources: Vec<Box<dyn MessageSource<M> + 'static + Send>>,
+    handlers: Vec<H>,
+    queue: Vec<M>,
+    async_tasks: Vec<JoinHandle<Option<M>>>,
 
     state: PhantomData<S>,
 }
@@ -171,6 +171,15 @@ where
         out
     }
 
+    /// Queue a message to be run next cycle
+    pub fn queue_message(&mut self, message: M) {
+        self.queue.push(message);
+    }
+
+    /// Run a single cycle of the event loop.
+    /// This checks if any async tasks have completed, adding them to the queue if they are,
+    /// preprocesses any queued messages, runs them through all the handlers, updates the
+    /// state with them, dipatches any futures generated or adds the new messages back into the queue
     #[allow(clippy::future_not_send)]
     pub async fn execute_cycle(&mut self, state: &mut S) -> Option<()> {
         let mut messages = Vec::new();
