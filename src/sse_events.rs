@@ -55,7 +55,7 @@ where
     /// Make a `SerializableEvent` from the type wrapped by `ConsoleOutput`, only if that type
     /// implements the `SerializableConsoleOutput` trait
     pub fn make_from(console_output_child: T) -> Self {
-        SerializableEvent {
+        Self {
             event_type: console_output_child.get_type(),
             uuid: Uuid::new_v4(),
             time: Utc::now(),
@@ -171,7 +171,7 @@ where
         let event_json = if let Some(demo_msg) = try_get::<DemoMessage>(message) {
             self.handle_demo_message(state, demo_msg)
         } else if let Some(con_msg) = try_get::<ConsoleOutput>(message) {
-            self.handle_console_message(state, con_msg)
+            self.handle_console_message(con_msg)
         } else {
             None
         };
@@ -192,19 +192,16 @@ impl SseEventBroadcaster {
     /// Allow unused self (non-static method that can be static) as self may be used in future when we add more
     /// `ConsoleOutput` types to handle.
     #[allow(clippy::unused_self)]
-    fn handle_console_message(&self, state: &MACState, message: &ConsoleOutput) -> Option<String> {
+    fn handle_console_message(&self, message: &ConsoleOutput) -> Option<String> {
         let cloned_co = message.clone();
 
         // We also set the steam_id fields in the events here before we serialise
         match cloned_co {
-            ConsoleOutput::Chat(mut m) => {
-                m.steamid = state.players.get_steamid_from_name(&m.player_name);
+            ConsoleOutput::Chat(m) => {
                 let event = SerializableEvent::make_from(m);
                 Some(serde_json::to_string(&event).expect("Serialisation failure"))
             }
-            ConsoleOutput::Kill(mut m) => {
-                m.killer_steamid = state.players.get_steamid_from_name(&m.killer_name);
-                m.victim_steamid = state.players.get_steamid_from_name(&m.victim_name);
+            ConsoleOutput::Kill(m) => {
                 let event = SerializableEvent::make_from(m);
                 Some(serde_json::to_string(&event).expect("Serialisation failure"))
             }
