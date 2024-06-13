@@ -16,29 +16,25 @@ fn main() {
     if env::var_os("CARGO_CFG_WINDOWS").is_some() {
         match std::fs::File::open("assets/icon.png") {
             Ok(file) => {
-                if env::var_os("CARGO_CFG_WINDOWS").is_some() {
-                    println!("This is windows, creating icon.");
-                    // Create a new, empty icon collection
-                    let mut icon_dir = ico::IconDir::new(ico::ResourceType::Icon);
-                    // Read a PNG file from disk and add it to the collection
-                    let file = std::fs::File::open("assets/icon.png")
-                        .expect("Could not find assets/icon.png");
-                    let image = ico::IconImage::read_png(file).expect("Could not read PNG file");
-                    icon_dir.add_entry(
-                        ico::IconDirEntry::encode(&image)
-                            .expect("Could not add PNG file to icon collection"),
-                    );
-                    // Write the ICO file to disk
-                    let file = std::fs::File::create("assets/icon.ico")
-                        .expect("Could not create assets/icon.ico");
-                    icon_dir
-                        .write(file)
-                        .expect("Could not write assets/icon.ico to disk.");
-                    // Compile and embed icon.rc
-                    embed_resource::compile("assets/icon.rc", embed_resource::NONE);
-                } else {
-                    println!("This is not windows, skipping icon creation.");
-                }
+                println!("This is windows, creating icon.");
+                // Create a new, empty icon collection
+                let mut icon_dir = ico::IconDir::new(ico::ResourceType::Icon);
+                // Read a PNG file from disk and add it to the collection
+                let file =
+                    std::fs::File::open("assets/icon.png").expect("Could not find assets/icon.png");
+                let image = ico::IconImage::read_png(file).expect("Could not read PNG file");
+                icon_dir.add_entry(
+                    ico::IconDirEntry::encode(&image)
+                        .expect("Could not add PNG file to icon collection"),
+                );
+                // Write the ICO file to disk
+                let file = std::fs::File::create("assets/icon.ico")
+                    .expect("Could not create assets/icon.ico");
+                icon_dir
+                    .write(file)
+                    .expect("Could not write assets/icon.ico to disk.");
+                // Compile and embed icon.rc
+                embed_resource::compile("assets/icon.rc", embed_resource::NONE);
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
                 println!("Could not find assets/icon.png, building without icon.");
@@ -47,5 +43,7 @@ fn main() {
                 panic!("Could not open icon file: {e}");
             }
         }
+    } else {
+        println!("This is not windows, skipping icon creation.");
     }
 }
