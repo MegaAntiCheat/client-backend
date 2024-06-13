@@ -19,9 +19,7 @@ fn main() {
                 println!("This is windows, creating icon.");
                 // Create a new, empty icon collection
                 let mut icon_dir = ico::IconDir::new(ico::ResourceType::Icon);
-                // Read a PNG file from disk and add it to the collection
-                let file =
-                    std::fs::File::open("assets/icon.png").expect("Could not find assets/icon.png");
+                // Add PNG file to the collection
                 let image = ico::IconImage::read_png(file).expect("Could not read PNG file");
                 icon_dir.add_entry(
                     ico::IconDirEntry::encode(&image)
