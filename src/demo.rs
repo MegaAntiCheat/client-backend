@@ -25,10 +25,12 @@ use tf_demo_parser::demo::{
     },
 };
 use thiserror::Error;
-use tokio::sync::Mutex;
+use tokio::sync::{Mutex, MutexGuard};
 
 use crate::{
-    masterbase::{new_demo_session, send_late_bytes, DemoSession},
+    events::UserUpdates,
+    masterbase::{DemoSession, ReportReason},
+    new_players::NewPlayers,
     settings::Settings,
     state::MACState,
 };
@@ -213,6 +215,7 @@ impl<M: Is<DemoBytes>> MessageSource<M> for DemoWatcher {
 
 enum SessionMissingReason {
     Uninit,
+    Disabled,
     Error,
     Closed,
 }
@@ -222,8 +225,12 @@ pub struct DemoManager {
     previous_demos: Vec<OpenDemo>,
     current_demo: Option<OpenDemo>,
 
-    session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
+    session: DemoManagerSession,
 }
+
+#[allow(clippy::module_name_repetitions)]
+#[derive(Clone)]
+struct DemoManagerSession(Arc<Mutex<Result<DemoSession, SessionMissingReason>>>);
 
 #[allow(clippy::module_name_repetitions)]
 pub struct OpenDemo {
@@ -241,6 +248,64 @@ impl PartialEq for OpenDemo {
     }
 }
 
+impl DemoManagerSession {
+    pub fn new(missing: SessionMissingReason) -> Self {
+        Self(Arc::new(Mutex::new(Err(missing))))
+    }
+
+    /// Waits until the session is initialised, then returns a lock for it
+    pub async fn get(&mut self) -> MutexGuard<Result<DemoSession, SessionMissingReason>> {
+        loop {
+            let guard: MutexGuard<_> = self.0.lock().await;
+
+            if matches!(*guard, Err(SessionMissingReason::Uninit)) {
+                drop(guard);
+                tokio::time::sleep(Duration::from_millis(5)).await;
+                continue;
+            }
+
+            return guard;
+        }
+    }
+
+    /// Returns an event which opens a new session.
+    /// This event needs to be handled by the event loop to take effect.
+    fn open_new_session<M: Is<DemoMessage>>(
+        &mut self,
+        settings: &Settings,
+        header: &Header,
+        demo_name: &str,
+    ) -> Option<Handled<M>> {
+        let host = settings.masterbase_host().to_owned();
+        let key = settings.masterbase_key().to_owned();
+        let map = header.map.clone();
+        let fake_ip = header.server.clone();
+        let http = settings.use_masterbase_http();
+        let demo_name = demo_name.to_owned();
+        let session = self.0.clone();
+
+        Handled::future(async move {
+            let session = session;
+            let mut maybe_session = session.lock().await;
+            assert!(maybe_session.is_err());
+
+            // Create session
+            match DemoSession::new(host, key, &fake_ip, &map, &demo_name, http).await {
+                Ok(session) => {
+                    tracing::info!("Opened new demo session with Masterbase: {session:?}");
+                    *maybe_session = Ok(session);
+                }
+                Err(e) => {
+                    tracing::error!("Could not open new demo session: {e}");
+                    *maybe_session = Err(SessionMissingReason::Error);
+                }
+            }
+
+            None
+        })
+    }
+}
+
 impl DemoManager {
     /// Create a new `DemoManager`
     #[must_use]
@@ -249,13 +314,13 @@ impl DemoManager {
             previous_demos: Vec::new(),
             current_demo: None,
 
-            session: Arc::new(Mutex::new(Err(SessionMissingReason::Uninit))),
+            session: DemoManagerSession::new(SessionMissingReason::Disabled),
         }
     }
 
     /// Start tracking a new demo file. A demo must be being tracked before
     /// bytes can be appended.
-    pub fn new_demo(&mut self, path: PathBuf, id: usize) {
+    fn new_demo(&mut self, path: PathBuf, id: usize, uploads_enabled: bool) {
         if let Some(old) = self.current_demo.take() {
             self.previous_demos.push(old);
         }
@@ -271,10 +336,14 @@ impl DemoManager {
             offset: 0,
         });
 
-        self.session = Arc::new(Mutex::new(Err(SessionMissingReason::Uninit)));
+        self.session = DemoManagerSession::new(if uploads_enabled {
+            SessionMissingReason::Uninit
+        } else {
+            SessionMissingReason::Disabled
+        });
     }
 
-    pub fn current_demo_path(&self) -> Option<&Path> {
+    fn current_demo_path(&self) -> Option<&Path> {
         self.current_demo.as_ref().map(|d| d.file_path.as_path())
     }
 
@@ -320,73 +389,33 @@ impl DemoManager {
         }
     }
 
-    /// Returns an event which opens a new session.
-    /// This event needs to be handled by the event loop to take effect.
-    fn open_new_session<M: Is<DemoMessage>>(
-        session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
-        settings: &Settings,
-        header: &Header,
-        demo_name: &str,
-    ) -> Option<Handled<M>> {
-        let host = settings.masterbase_host().to_owned();
-        let key = settings.masterbase_key().to_owned();
-        let map = header.map.clone();
-        let fake_ip = header.server.clone();
-        let http = settings.use_masterbase_http();
-        let demo_name = demo_name.to_owned();
-
-        Handled::future(async move {
-            let session = session;
-            let mut maybe_session = session.lock().await;
-            assert!(maybe_session.is_err());
-
-            // Create session
-            match new_demo_session(host, key, &fake_ip, &map, &demo_name, http).await {
-                Ok(session) => {
-                    tracing::info!("Opened new demo session with Masterbase: {session:?}");
-                    *maybe_session = Ok(session);
-                }
-                Err(e) => {
-                    tracing::error!("Could not open new demo session: {e}");
-                    *maybe_session = Err(SessionMissingReason::Error);
-                }
-            }
-
-            None
-        })
-    }
-
     /// Returns an event that uploads the given bytes to the current session.
     /// This event needs to be handled by the event loop to take effect.
-    fn upload_bytes<M: Is<DemoMessage>>(
-        session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
-        bytes: Vec<u8>,
-    ) -> Option<Handled<M>> {
+    fn upload_bytes<M: Is<DemoMessage>>(&mut self, bytes: Vec<u8>) -> Option<Handled<M>> {
         // Loop while session is uninit
+        let mut session = self.session.clone();
         Handled::future(async move {
-            loop {
-                let mut guard = session.lock().await;
-                match &mut *guard {
-                    Ok(session) => {
-                        let len = bytes.len();
-                        if let Err(e) = session.send_bytes(bytes).await {
-                            tracing::error!("Failed to upload demo chunk: {e}");
-                            *guard = Err(SessionMissingReason::Error);
-                            drop(guard);
-                        } else {
-                            tracing::debug!("Uploaded {len} bytes to masterbase.");
-                        }
-                        break;
+            let mut guard = session.get().await;
+            match &mut *guard {
+                Ok(session) => {
+                    let len = bytes.len();
+                    if let Err(e) = session.send_bytes(bytes).await {
+                        tracing::error!("Failed to upload demo chunk: {e}");
+                        *guard = Err(SessionMissingReason::Error);
+                        drop(guard);
+                    } else {
+                        tracing::debug!("Uploaded {len} bytes to masterbase.");
                     }
-                    Err(SessionMissingReason::Uninit) => continue,
-                    Err(SessionMissingReason::Closed) => {
-                        tracing::error!("Tried to upload bytes after demo session was closed.");
-                        break;
-                    }
-                    Err(SessionMissingReason::Error) => break,
                 }
+                Err(SessionMissingReason::Closed) => {
+                    tracing::error!("Tried to upload bytes after demo session was closed.");
+                }
+                Err(
+                    SessionMissingReason::Error
+                    | SessionMissingReason::Disabled
+                    | SessionMissingReason::Uninit,
+                ) => {}
             }
-
             None
         })
     }
@@ -394,19 +423,17 @@ impl DemoManager {
     /// Returns an event that checks for and handles the late bytes for the
     /// current demo.
     /// This event needs to be handled by the event loop to take effect.
-    fn handle_late_bytes<M: Is<DemoMessage>>(
-        session: Arc<Mutex<Result<DemoSession, SessionMissingReason>>>,
-        settings: &Settings,
-        late_bytes: Vec<u8>,
-    ) -> Option<Handled<M>> {
-        let host = settings.masterbase_host().to_owned();
-        let key = settings.masterbase_key().to_owned();
-        let http = settings.use_masterbase_http();
-
+    fn handle_late_bytes<M: Is<DemoMessage>>(&self, late_bytes: Vec<u8>) -> Option<Handled<M>> {
+        let mut session = self.session.clone();
         Handled::future(async move {
-            let send_result = send_late_bytes(&host, &key, http, late_bytes).await;
+            let mut session_lock = session.get().await;
+            let Ok(session) = &mut *session_lock else {
+                // Drop session
+                *session_lock = Err(SessionMissingReason::Closed);
+                return None;
+            };
 
-            match send_result {
+            match session.send_late_bytes(late_bytes).await {
                 Ok(send_response) => {
                     let status = send_response.status();
                     if status.is_success() {
@@ -426,28 +453,57 @@ impl DemoManager {
             }
 
             // Drop session
-            let mut session = session.lock().await;
-            *session = Err(SessionMissingReason::Closed);
-
+            *session_lock = Err(SessionMissingReason::Closed);
             None
         })
     }
-}
 
-impl Default for DemoManager {
-    fn default() -> Self {
-        Self::new()
+    /// Reports any other the players provided who are marked as bots to the masterbase
+    fn report_players<M: Is<DemoMessage>>(
+        &mut self,
+        players: impl Iterator<Item = (SteamID, ReportReason)>,
+    ) -> Option<Handled<M>> {
+        Handled::multiple(players.map(|(s, r)| {
+            let mut session = self.session.clone();
+            Handled::future(async move {
+                let mut session_guard = session.get().await;
+                let Ok(session) = &mut *session_guard else {
+                    return None;
+                };
+
+                let resp = session.report_player(s, r).await;
+                drop(session_guard);
+
+                match resp {
+                    Ok(resp) if resp.status().is_success() => {
+                        tracing::info!("Reported {} as {r:?}", u64::from(s));
+                    }
+                    Ok(resp) => {
+                        tracing::error!(
+                            "Failed to report account {} as {r:?}: {}",
+                            u64::from(s),
+                            resp.status()
+                        );
+                    }
+                    Err(e) => {
+                        tracing::error!(
+                            "Failed to report account {} as {r:?}: {}",
+                            u64::from(s),
+                            e
+                        );
+                    }
+                }
+
+                None
+            })
+        }))
     }
-}
 
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for DemoManager
-where
-    IM: Is<DemoBytes>,
-    OM: Is<DemoMessage>,
-{
-    fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
-        let msg = try_get(message)?;
-
+    fn handle_demo_bytes<M: Is<DemoMessage>>(
+        &mut self,
+        state: &MACState,
+        msg: &DemoBytes,
+    ) -> Option<Handled<M>> {
         tracing::debug!("Got {} bytes for demo {:?}", msg.bytes.len(), msg.file_path);
 
         // New or different demo
@@ -456,7 +512,7 @@ where
             .as_ref()
             .map_or(true, |d| !(d.file_path == msg.file_path && d.id == msg.id))
         {
-            self.new_demo(msg.file_path.clone(), msg.id);
+            self.new_demo(msg.file_path.clone(), msg.id, state.settings.upload_demos);
         }
 
         let demo = self
@@ -492,37 +548,88 @@ where
         // Open new demo session if we've extracted the header
         if let Some(header) = demo.header.as_ref() {
             if !parsed_header {
-                events.push(Self::open_new_session(
-                    self.session.clone(),
-                    &state.settings,
-                    header,
-                    &file_name,
-                ));
+                events.push(
+                    self.session
+                        .open_new_session(&state.settings, header, &file_name),
+                );
+
+                // Once a new session is opened, report any bots already on the server
+                events.push(
+                    self.report_players(
+                        // Go from SteamID to (SteamID, ReportReason) if the player is marked as a cheater or bot
+                        state
+                            .players
+                            .connected
+                            .iter()
+                            .filter_map(|&p| state.players.records.get(&p).map(|r| (p, r)))
+                            .filter_map(|(s, r)| {
+                                ReportReason::try_from(r.verdict()).ok().map(|r| (s, r))
+                            }),
+                    ),
+                );
             }
         }
 
         // Upload bytes
-        let session = self.session.clone();
         let bytes = msg.bytes.clone();
-        events.push(Self::upload_bytes(session, bytes));
+        events.push(self.upload_bytes(bytes));
 
         // Check for late bytes
         if let Ok(Some(late_bytes)) = self.read_late_bytes() {
-            events.push(Self::handle_late_bytes(
-                self.session.clone(),
-                &state.settings,
-                late_bytes,
-            ));
+            events.push(self.handle_late_bytes(late_bytes));
         }
 
         Handled::multiple(events)
     }
 }
 
+impl Default for DemoManager {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<IM, OM> HandlerStruct<MACState, IM, OM> for DemoManager
+where
+    IM: Is<DemoBytes> + Is<NewPlayers> + Is<UserUpdates>,
+    OM: Is<DemoMessage>,
+{
+    fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
+        // Report newly connecting bots
+        if let Some(players) = try_get::<NewPlayers>(message) {
+            return self.report_players(
+                players
+                    .0
+                    .iter()
+                    .filter_map(|&p| state.players.records.get(&p).map(|r| (p, r)))
+                    .filter_map(|(s, r)| ReportReason::try_from(r.verdict()).ok().map(|r| (s, r))),
+            );
+        }
+
+        // Report newly marked bots
+        if let Some(updates) = try_get::<UserUpdates>(message) {
+            return self.report_players(
+                updates
+                    .0
+                    .iter()
+                    .filter_map(|(&s, u)| u.local_verdict.map(|v| (s, v)))
+                    .filter_map(|(s, v)| ReportReason::try_from(v).ok().map(|r| (s, r))),
+            );
+        }
+
+        // Demo bytes
+        if let Some(demo_bytes) = try_get::<DemoBytes>(message) {
+            return self.handle_demo_bytes(state, demo_bytes);
+        }
+
+        None
+    }
+}
+
 impl OpenDemo {
     /// Append the provided bytes to the current demo being watched, and handle
     /// any packets
-    pub fn append_bytes(&mut self, bytes: &[u8]) -> Vec<DemoMessage> {
+    fn append_bytes(&mut self, bytes: &[u8]) -> Vec<DemoMessage> {
         if bytes.is_empty() {
             return Vec::new();
         }

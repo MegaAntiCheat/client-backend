@@ -353,9 +353,9 @@ pub enum UISource {
 impl UISource {
     pub async fn get_ui(&self, path: &str) -> impl IntoResponse {
         match self {
-            UISource::Bundled(dir) => Self::get_bundled_ui(dir, path).into_response(),
-            UISource::Dynamic(dir) => Self::get_dynamic_ui(dir, path).await.into_response(),
-            UISource::None => {
+            Self::Bundled(dir) => Self::get_bundled_ui(dir, path).into_response(),
+            Self::Dynamic(dir) => Self::get_dynamic_ui(dir, path).await.into_response(),
+            Self::None => {
                 (
                     StatusCode::NOT_FOUND,
                     ([(header::CONTENT_TYPE, "text/html")]),
