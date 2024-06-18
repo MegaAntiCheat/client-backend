@@ -546,6 +546,7 @@ fn get_prefs_response(state: &MACState) -> String {
             tf2_directory: Some(settings.tf2_directory().to_string_lossy().into()),
             rcon_password: Some(settings.rcon_password().to_owned()),
             steam_api_key: Some(settings.steam_api_key().to_owned()),
+            query_sourcebans: Some(settings.sourcebans_querying().to_owned()),
             masterbase_key: Some(settings.masterbase_key().to_owned()),
             masterbase_host: Some(settings.masterbase_host().to_owned()),
             rcon_port: Some(settings.rcon_port()),

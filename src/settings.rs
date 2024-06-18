@@ -81,6 +81,7 @@ pub struct Settings {
     rcon_port: u16,
     external: serde_json::Value,
     autokick_bots: bool,
+    get_sourcebans_info: bool,
 
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
@@ -483,6 +484,14 @@ impl Settings {
         self.friends_api_usage
     }
 
+    pub fn set_sourcebans_querying(&mut self, sourcebans_enable: bool) {
+        self.get_sourcebans_info = sourcebans_enable;
+    }
+    #[must_use]
+    pub const fn sourcebans_querying(&self) -> bool {
+        self.get_sourcebans_info
+    }
+
     pub fn set_webui_port(&mut self, port: u16) {
         self.webui_port = port;
     }
@@ -582,6 +591,7 @@ impl Default for Settings {
             masterbase_key: String::new(),
             masterbase_host: "megaanticheat.com".into(),
             friends_api_usage: FriendsAPIUsage::CheatersOnly,
+            get_sourcebans_info: false,
             webui_port: 3621,
             autolaunch_ui: false,
             rcon_port: 27015,

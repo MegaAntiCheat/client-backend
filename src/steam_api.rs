@@ -129,6 +129,7 @@ where
                     tf2_directory: _,
                     rcon_password: _,
                     steam_api_key: Some(new_key),
+                    query_sourcebans: _,
                     masterbase_key: _,
                     masterbase_host: _,
                     rcon_port: _,

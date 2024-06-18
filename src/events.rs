@@ -87,6 +87,7 @@ pub struct InternalPreferences {
     pub masterbase_key: Option<String>,
     pub masterbase_host: Option<String>,
     pub rcon_port: Option<u16>,
+    pub query_sourcebans: Option<bool>,
     pub dumb_autokick: Option<bool>,
 }
 
@@ -123,6 +124,9 @@ impl StateUpdater<MACState> for Preferences {
             }
             if let Some(autokick) = internal.dumb_autokick {
                 state.settings.set_autokick_bots(autokick);
+            }
+            if let Some(query_sb) = internal.query_sourcebans {
+                state.settings.set_sourcebans_querying(query_sb)
             }
         }
 
