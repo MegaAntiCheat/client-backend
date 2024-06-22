@@ -6,7 +6,7 @@ use crate::{
     web::broadcast_event,
 };
 use chrono::{DateTime, Utc};
-use event_loop::{try_get, Handled, HandlerStruct, Is};
+use event_loop::{try_get, Handled, Is, MessageHandler};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use steamid_ng::SteamID;
@@ -55,7 +55,7 @@ where
     /// Make a `SerializableEvent` from the type wrapped by `ConsoleOutput`, only if that type
     /// implements the `SerializableConsoleOutput` trait
     pub fn make_from(console_output_child: T) -> Self {
-        SerializableEvent {
+        Self {
             event_type: console_output_child.get_type(),
             uuid: Uuid::new_v4(),
             time: Utc::now(),
@@ -74,7 +74,7 @@ pub struct VoteCastEventWrapped {
 
 impl VoteCastEventWrapped {
     #[must_use]
-    pub fn from_vote_cast_event(event: VoteCastEvent, voter: Option<SteamID>) -> Self {
+    pub const fn from_vote_cast_event(event: VoteCastEvent, voter: Option<SteamID>) -> Self {
         Self {
             voter,
             voter_name: None,
@@ -157,7 +157,7 @@ impl Default for SseEventBroadcaster {
 /// endpoint, but data is shipped when _we_ want and the clients have to respond.
 ///
 /// See `broadcast_event` in `crate::web` for more info
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for SseEventBroadcaster
+impl<IM, OM> MessageHandler<MACState, IM, OM> for SseEventBroadcaster
 where
     IM: Is<DemoMessage> + Is<ConsoleOutput>,
 {
@@ -171,7 +171,7 @@ where
         let event_json = if let Some(demo_msg) = try_get::<DemoMessage>(message) {
             self.handle_demo_message(state, demo_msg)
         } else if let Some(con_msg) = try_get::<ConsoleOutput>(message) {
-            self.handle_console_message(state, con_msg)
+            self.handle_console_message(con_msg)
         } else {
             None
         };
@@ -192,27 +192,16 @@ impl SseEventBroadcaster {
     /// Allow unused self (non-static method that can be static) as self may be used in future when we add more
     /// `ConsoleOutput` types to handle.
     #[allow(clippy::unused_self)]
-    fn handle_console_message(&self, state: &MACState, message: &ConsoleOutput) -> Option<String> {
+    fn handle_console_message(&self, message: &ConsoleOutput) -> Option<String> {
         let cloned_co = message.clone();
 
         // We also set the steam_id fields in the events here before we serialise
         match cloned_co {
-            ConsoleOutput::Chat(mut m) => {
-                let players = state.players.get_name_to_steam_ids_map();
-                if let Some(id) = players.get(&m.player_name) {
-                    m.set_steam_id(*id);
-                }
+            ConsoleOutput::Chat(m) => {
                 let event = SerializableEvent::make_from(m);
                 Some(serde_json::to_string(&event).expect("Serialisation failure"))
             }
-            ConsoleOutput::Kill(mut m) => {
-                let players = state.players.get_name_to_steam_ids_map();
-                if let Some(id) = players.get(&m.killer_name) {
-                    m.set_steam_id_killer(*id);
-                }
-                if let Some(id) = players.get(&m.victim_name) {
-                    m.set_steam_id_victim(*id);
-                }
+            ConsoleOutput::Kill(m) => {
                 let event = SerializableEvent::make_from(m);
                 Some(serde_json::to_string(&event).expect("Serialisation failure"))
             }

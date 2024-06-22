@@ -1,5 +1,5 @@
 use bitbuffer::{BitError, BitRead, BitReadBuffer, BitReadStream, LittleEndian};
-use event_loop::{try_get, Handled, HandlerStruct, Is, MessageSource};
+use event_loop::{try_get, Handled, Is, MessageHandler, MessageSource};
 use notify::{event::ModifyKind, Config, Event, RecommendedWatcher, RecursiveMode, Watcher};
 use std::{
     collections::HashMap,
@@ -41,6 +41,7 @@ pub struct DemoMessage {
     pub tick: u32,
     pub event: DemoEvent,
 }
+impl<S> event_loop::Message<S> for DemoMessage {}
 
 #[allow(clippy::module_name_repetitions)]
 #[derive(Debug, Clone)]
@@ -64,6 +65,7 @@ pub struct DemoBytes {
     pub id: usize,
     pub bytes: Vec<u8>,
 }
+impl<S> event_loop::Message<S> for DemoBytes {}
 
 #[allow(clippy::module_name_repetitions)]
 pub struct DemoWatcher {
@@ -589,7 +591,7 @@ impl Default for DemoManager {
     }
 }
 
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for DemoManager
+impl<IM, OM> MessageHandler<MACState, IM, OM> for DemoManager
 where
     IM: Is<DemoBytes> + Is<NewPlayers> + Is<UserUpdates>,
     OM: Is<DemoMessage>,
@@ -837,7 +839,7 @@ impl Default for PrintVotes {
     }
 }
 
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for PrintVotes
+impl<IM, OM> MessageHandler<MACState, IM, OM> for PrintVotes
 where
     IM: Is<DemoMessage>,
 {

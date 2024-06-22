@@ -1,4 +1,4 @@
-use event_loop::{Handled, HandlerStruct, Is, MessageSource, StateUpdater};
+use event_loop::{Handled, Is, Message, MessageHandler, MessageSource};
 use regex::Regex;
 use std::path::PathBuf;
 use tokio::sync::mpsc::{error::TryRecvError, UnboundedReceiver};
@@ -18,6 +18,7 @@ use crate::{
 
 #[derive(Debug, Clone)]
 pub struct RawConsoleOutput(pub String);
+impl<S> event_loop::Message<S> for RawConsoleOutput {}
 
 #[allow(clippy::module_name_repetitions)]
 pub struct ConsoleLog {
@@ -69,7 +70,19 @@ pub enum ConsoleOutput {
     G15(Vec<G15Player>),
     DemoStop(DemoStop),
 }
-impl StateUpdater<MACState> for ConsoleOutput {
+impl Message<MACState> for ConsoleOutput {
+    fn preprocess(&mut self, state: &MACState) {
+        match self {
+            Self::Chat(m) => {
+                m.steamid = state.players.get_steamid_from_name(&m.player_name);
+            }
+            Self::Kill(m) => {
+                m.killer_steamid = state.players.get_steamid_from_name(&m.killer_name);
+                m.victim_steamid = state.players.get_steamid_from_name(&m.victim_name);
+            }
+            _ => {}
+        }
+    }
     fn update_state(self, state: &mut MACState) {
         state.handle_console_output(self);
     }
@@ -104,7 +117,7 @@ impl Default for ConsoleParser {
     }
 }
 
-impl<S, IM, OM> HandlerStruct<S, IM, OM> for ConsoleParser
+impl<S, IM, OM> MessageHandler<S, IM, OM> for ConsoleParser
 where
     IM: Is<RawConsoleOutput>,
     OM: Is<ConsoleOutput>,

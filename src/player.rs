@@ -375,6 +375,14 @@ impl Players {
     }
 
     #[must_use]
+    pub fn get_steamid_from_name(&self, name: &str) -> Option<SteamID> {
+        self.connected
+            .iter()
+            .find(|&s| self.game_info.get(s).is_some_and(|gi| gi.name == name))
+            .copied()
+    }
+
+    #[must_use]
     pub fn get_name_to_steam_ids_map(&self) -> HashMap<String, SteamID> {
         self.connected
             .iter()
@@ -687,6 +695,17 @@ pub fn serialize_steamid_as_string<S: Serializer>(
     s: S,
 ) -> Result<S::Ok, S::Error> {
     format!("{}", u64::from(*steamid)).serialize(s)
+}
+
+#[allow(clippy::trivially_copy_pass_by_ref, clippy::missing_errors_doc)]
+pub fn serialize_maybe_steamid_as_string<S: Serializer>(
+    steamid: &Option<SteamID>,
+    s: S,
+) -> Result<S::Ok, S::Error> {
+    match steamid {
+        Some(steamid) => format!("{}", u64::from(*steamid)).serialize(s),
+        None => s.serialize_none(),
+    }
 }
 
 #[allow(non_snake_case)]

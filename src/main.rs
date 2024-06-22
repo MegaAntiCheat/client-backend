@@ -210,14 +210,10 @@ fn main() {
                 PathBuf::from(state.settings.tf2_directory()).join("tf/console.log");
             let console_log = Box::new(ConsoleLog::new(log_file_path).await);
 
-            let lookup_batch_timer =
-                emit_on_timer(Duration::from_millis(500), || ProfileLookupBatchTick).await;
-            let refresh_timer = emit_on_timer(Duration::from_secs(3), || Refresh).await;
-
             let mut event_loop: EventLoop<MACState, Message, Handler> = EventLoop::new()
                 .add_source(console_log)
-                .add_source(refresh_timer)
-                .add_source(lookup_batch_timer)
+                .add_source(emit_on_timer(Duration::from_secs(3), || Refresh).await)
+                .add_source(emit_on_timer(Duration::from_millis(500), || ProfileLookupBatchTick).await)
                 .add_source(Box::new(web_requests))
                 .add_handler(DemoManager::new())
                 .add_handler(CommandManager::new())

@@ -1,4 +1,4 @@
-use event_loop::{try_get, Handled, HandlerStruct, Is};
+use event_loop::{try_get, Handled, Is, MessageHandler};
 use steamid_ng::SteamID;
 
 use super::console::ConsoleOutput;
@@ -8,12 +8,13 @@ use crate::state::MACState;
 
 #[derive(Debug, Clone)]
 pub struct NewPlayers(pub Vec<SteamID>);
+impl<S> event_loop::Message<S> for NewPlayers {}
 
 // Handlers *********************
 
 #[allow(clippy::module_name_repetitions)]
 pub struct ExtractNewPlayers;
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for ExtractNewPlayers
+impl<IM, OM> MessageHandler<MACState, IM, OM> for ExtractNewPlayers
 where
     IM: Is<ConsoleOutput>,
     OM: Is<NewPlayers>,

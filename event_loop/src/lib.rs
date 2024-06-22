@@ -1,9 +1,9 @@
 //! An Event Loop abstraction that can be easily composed of message and handler
 //! types, then run over some state.
 //!
-//! Messages can be any type (implementing [`StateUpdater<S>`] will allow the
+//! Messages can be any type (implementing [`Message<S>`] will allow the
 //! message type to update the state once it has been appropriately handled),
-//! and can be handled by any type implementing [`HandlerStruct<S, IM, OM>`].
+//! and can be handled by any type implementing [`MessageHandler<S, IM, OM>`].
 //! Message sources are of the form `Box<dyn MessageSource<M>>` and are generaly
 //! something like a receiving channel for the message type, or one of the types
 //! that make it up.
@@ -17,24 +17,24 @@
 //! ```
 //! use std::sync::mpsc::{channel, Receiver, Sender};
 //!
-//! use event_loop::{define_events, try_get, EventLoop, HandlerStruct, Is, StateUpdater};
+//! use event_loop::{define_events, try_get, EventLoop, MessageHandler, Is, Message};
 //!
 //! struct State {
 //!     count: u32,
 //! }
 //!
 //! struct Refresh;
-//! impl StateUpdater<State> for Refresh {
+//! impl Message<State> for Refresh {
 //!     fn update_state(self, state: &mut State) { state.count = 0; }
 //! }
 //!
 //! struct Increment;
-//! impl StateUpdater<State> for Increment {
+//! impl Message<State> for Increment {
 //!     fn update_state(self, state: &mut State) { state.count += 1; }
 //! }
 //!
 //! struct Alert;
-//! impl<IM, OM> HandlerStruct<State, IM, OM> for Alert
+//! impl<IM, OM> MessageHandler<State, IM, OM> for Alert
 //! where
 //!     IM: Is<Increment> + Is<Refresh>,
 //! {
@@ -104,13 +104,13 @@ use tokio::{sync::mpsc::UnboundedReceiver, task::JoinHandle};
 pub struct EventLoop<S, M, H>
 where
     S: Send,
-    M: Send + StateUpdater<S> + 'static,
-    H: HandlerStruct<S, M, M>,
+    M: Send + Message<S> + 'static,
+    H: MessageHandler<S, M, M>,
 {
-    pub sources: Vec<Box<dyn MessageSource<M> + 'static + Send>>,
-    pub handlers: Vec<H>,
-    pub queue: Vec<M>,
-    pub async_tasks: Vec<JoinHandle<Option<M>>>,
+    sources: Vec<Box<dyn MessageSource<M> + 'static + Send>>,
+    handlers: Vec<H>,
+    queue: Vec<M>,
+    async_tasks: Vec<JoinHandle<Option<M>>>,
 
     state: PhantomData<S>,
 }
@@ -118,8 +118,8 @@ where
 impl<S, M, H> EventLoop<S, M, H>
 where
     S: Send,
-    M: Send + StateUpdater<S> + 'static,
-    H: HandlerStruct<S, M, M>,
+    M: Send + Message<S> + 'static,
+    H: MessageHandler<S, M, M>,
 {
     #[must_use]
     pub fn new() -> Self {
@@ -144,8 +144,10 @@ where
         self
     }
 
-    pub fn handle_message(&mut self, message: M, state: &mut S) -> Vec<Action<M>> {
+    pub fn handle_message(&mut self, mut message: M, state: &mut S) -> Vec<Action<M>> {
         let mut out = Vec::new();
+
+        message.preprocess(state);
 
         for h in &mut self.handlers {
             match h.handle_message(state, &message) {
@@ -169,6 +171,15 @@ where
         out
     }
 
+    /// Queue a message to be run next cycle
+    pub fn queue_message(&mut self, message: M) {
+        self.queue.push(message);
+    }
+
+    /// Run a single cycle of the event loop.
+    /// This checks if any async tasks have completed, adding them to the queue if they are,
+    /// preprocesses any queued messages, runs them through all the handlers, updates the
+    /// state with them, dipatches any futures generated or adds the new messages back into the queue
     #[allow(clippy::future_not_send)]
     pub async fn execute_cycle(&mut self, state: &mut S) -> Option<()> {
         let mut messages = Vec::new();
@@ -217,11 +228,11 @@ where
     }
 }
 
-pub trait HandlerStruct<S, IM, OM> {
+pub trait MessageHandler<S, IM, OM> {
     fn handle_message(&mut self, state: &S, message: &IM) -> Option<Handled<OM>>;
 }
 
-impl<S, IM, OM, T> HandlerStruct<S, IM, OM> for &T {
+impl<S, IM, OM, T> MessageHandler<S, IM, OM> for &T {
     fn handle_message(&mut self, _state: &S, _message: &IM) -> Option<Handled<OM>> {
         None
     }
@@ -230,8 +241,8 @@ impl<S, IM, OM, T> HandlerStruct<S, IM, OM> for &T {
 impl<S, M, H> Default for EventLoop<S, M, H>
 where
     S: Send,
-    M: Send + StateUpdater<S> + 'static,
-    H: HandlerStruct<S, M, M>,
+    M: Send + Message<S> + 'static,
+    H: MessageHandler<S, M, M>,
 {
     fn default() -> Self {
         Self::new()
@@ -286,14 +297,19 @@ impl<M> Handled<M> {
 }
 
 #[allow(unused_variables)]
-pub trait StateUpdater<S>: Sized {
-    fn update_state(self, state: &mut S);
-}
-
-#[allow(unused_variables)]
-impl<M, S> StateUpdater<S> for &M {
+pub trait Message<S>: Sized {
+    fn preprocess(&mut self, state: &S) {}
     fn update_state(self, state: &mut S) {}
 }
+
+// #[allow(unused_variables)]
+// impl<M, S> Message<S> for &M {}
+
+// #[allow(unused_variables)]
+// impl<M, S> Message<S> for M {
+//     fn preprocess(&mut self, state: &S) {}
+//     fn update_state(self, state: &mut S) {}
+// }
 
 pub trait MessageSource<M> {
     fn next_message(&mut self) -> Option<M>;
@@ -343,10 +359,18 @@ macro_rules! define_events {
         }
 
         // Impl update_state
-        impl event_loop::StateUpdater<$state> for $message_enum {
+        impl event_loop::Message<$state> for $message_enum {
+            fn preprocess(&mut self, state: &$state) {
+                use $message_enum::*;
+                use event_loop::Message as MessageTrait;
+                match self {
+                    $message_enum::None => {},
+                    $($message(i) => i.preprocess(state)),+
+                }
+            }
             fn update_state(self, state: &mut $state) {
                 use $message_enum::*;
-                use event_loop::StateUpdater;
+                use event_loop::Message as MessageTrait;
                 match self {
                     $message_enum::None => {},
                     $($message(i) => i.update_state(state)),+
@@ -401,8 +425,8 @@ macro_rules! define_events {
             $($handler($handler)),+
         }
 
-        // Impl HandlerStruct<State, Message>
-        impl event_loop::HandlerStruct<$state, $message_enum, $message_enum> for $handler_enum {
+        // Impl MessageHandler<State, Message>
+        impl event_loop::MessageHandler<$state, $message_enum, $message_enum> for $handler_enum {
             fn handle_message(&mut self, state: &$state, message: &$message_enum) -> Option<event_loop::Handled<$message_enum>> {
                 match self {
                     $($handler_enum::$handler(inner) => inner.handle_message(state, message)),+

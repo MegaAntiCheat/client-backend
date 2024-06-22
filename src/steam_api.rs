@@ -1,7 +1,7 @@
 use std::collections::{HashMap, VecDeque};
 
 use chrono::Utc;
-use event_loop::{try_get, Handled, HandlerStruct, Is, StateUpdater};
+use event_loop::{try_get, Handled, Is, Message, MessageHandler};
 use steamid_ng::SteamID;
 use tappet::{
     response_types::{
@@ -39,12 +39,13 @@ pub enum SteamAPIError {
 
 #[derive(Debug, Clone, Copy)]
 pub struct ProfileLookupBatchTick;
+impl<S> event_loop::Message<S> for ProfileLookupBatchTick {}
 
 type ProfileResult = Result<Vec<(SteamID, Result<SteamInfo, SteamAPIError>)>, SteamAPIError>;
 
 #[derive(Debug)]
 pub struct ProfileLookupResult(pub ProfileResult);
-impl StateUpdater<MACState> for ProfileLookupResult {
+impl Message<MACState> for ProfileLookupResult {
     fn update_state(self, state: &mut MACState) {
         let results = match &self.0 {
             Err(e) => {
@@ -79,7 +80,7 @@ pub struct FriendLookupResult {
     steamid: SteamID,
     result: Result<Vec<Friend>, SteamAPIError>,
 }
-impl StateUpdater<MACState> for FriendLookupResult {
+impl Message<MACState> for FriendLookupResult {
     fn update_state(self, state: &mut MACState) {
         match self.result {
             Err(_) => {
@@ -115,7 +116,7 @@ impl Default for LookupProfiles {
     }
 }
 
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for LookupProfiles
+impl<IM, OM> MessageHandler<MACState, IM, OM> for LookupProfiles
 where
     IM: Is<NewPlayers> + Is<ProfileLookupBatchTick> + Is<Preferences>,
     OM: Is<ProfileLookupResult>,
@@ -304,7 +305,7 @@ impl Default for LookupFriends {
     }
 }
 
-impl<IM, OM> HandlerStruct<MACState, IM, OM> for LookupFriends
+impl<IM, OM> MessageHandler<MACState, IM, OM> for LookupFriends
 where
     IM: Is<NewPlayers> + Is<FriendLookupResult> + Is<UserUpdates> + Is<Preferences>,
     OM: Is<FriendLookupResult>,
