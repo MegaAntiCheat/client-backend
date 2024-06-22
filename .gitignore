@@ -9,3 +9,4 @@ bundle/
 !/ui/.gitkeep
 /ui_temp
 shell.sh
+/assets/icon.ico
