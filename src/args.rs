@@ -18,6 +18,9 @@ pub struct Args {
     /// Override the default tf2 directory
     #[arg(short = 'd', long)]
     pub tf2_dir: Option<String>,
+    /// Override the Steam User
+    #[arg(long)]
+    pub steam_user: Option<String>,
     /// Override the configured/default rcon password
     #[arg(short, long)]
     pub rcon_pword: Option<String>,

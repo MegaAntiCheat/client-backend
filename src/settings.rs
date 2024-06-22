@@ -166,6 +166,19 @@ impl Settings {
             }
         }
 
+        if settings.override_steam_user.is_none() {
+            let steam_user = Self::load_current_steam_user()
+                .map_err(|e| tracing::error!("Failed to load steam user: {:?}", e))
+                .ok();
+            if let Some(steam_user) = &steam_user {
+                tracing::info!(
+                    "Identified current steam user as {}",
+                    u64::from(*steam_user)
+                );
+                settings.steam_user = Some(*steam_user);
+            }
+        }
+
         settings
     }
 
@@ -250,6 +263,9 @@ impl Settings {
 
     /// Pull all values from the args struct and set to our override values,
     /// make sure to add tracing for any values overridden!
+    ///
+    /// # Panics
+    /// Will panic if provided the --steam-user flag but not a valid Steam ID 64
     #[allow(clippy::cognitive_complexity)]
     pub fn apply_args(&mut self, args: &Args) {
         // Override (and log if) the Port used to host the middleware API (default 3621)
@@ -340,6 +356,16 @@ impl Settings {
             }
         }
 
+        if let Some(steam_usr_str) = args.steam_user.as_ref() {
+            self.override_steam_user = SteamID::try_from(steam_usr_str.as_str()).ok();
+            if self.override_steam_user.is_none() {
+                tracing::error!(
+                    "Unrecognised SteamID '{steam_usr_str}' provided in --steam-user flag"
+                );
+                panic!("No steam user.");
+            }
+        }
+
         self.minimal_demo_parsing = args.minimal_demo_parsing;
         self.upload_demos = !args.dont_upload_demos;
         self.masterbase_http = args.masterbase_http;
@@ -387,13 +413,20 @@ impl Settings {
     pub const fn config_path(&self) -> Option<&PathBuf> {
         self.config_path.as_ref()
     }
+
     pub fn set_steam_user(&mut self, user: SteamID) {
         self.steam_user = Some(user);
     }
     #[must_use]
-    pub const fn steam_user(&self) -> Option<SteamID> {
-        self.steam_user
+    pub fn steam_user(&self) -> Option<SteamID> {
+        self.steam_user.or(self.override_steam_user)
     }
+
+    #[must_use]
+    pub const fn is_steam_user_overridden(&self) -> bool {
+        self.override_steam_user.is_some()
+    }
+
     pub fn set_tf2_directory(&mut self, dir: PathBuf) {
         self.tf2_directory = dir;
     }
@@ -563,18 +596,9 @@ impl Default for Settings {
         let config_path = Self::locate_config_file_path()
             .map_err(|e| tracing::error!("Failed to create config directory: {:?}", e))
             .ok();
-        let steam_user = Self::load_current_steam_user()
-            .map_err(|e| tracing::error!("Failed to load steam user: {:?}", e))
-            .ok();
-        if let Some(steam_user) = &steam_user {
-            tracing::info!(
-                "Identified current steam user as {}",
-                u64::from(*steam_user)
-            );
-        }
 
         Self {
-            steam_user,
+            steam_user: None,
             config_path,
             tf2_directory: PathBuf::default(),
             rcon_password: "mac_rcon".into(),
