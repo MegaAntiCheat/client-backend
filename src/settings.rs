@@ -81,6 +81,7 @@ pub struct Settings {
     rcon_port: u16,
     external: serde_json::Value,
     autokick_bots: bool,
+    steamhistory_api_key: String,
     get_sourcebans_info: bool,
 
     #[serde(skip)]
@@ -99,6 +100,8 @@ pub struct Settings {
     override_masterbase_api_key: Option<String>,
     #[serde(skip)]
     override_masterbase_host: Option<String>,
+    #[serde(skip)]
+    override_steamhistory_api_key: Option<String>,
 
     #[serde(skip)]
     web_ui_source: UISource,
@@ -281,6 +284,16 @@ impl Settings {
             );
             val.to_owned()
         });
+
+        self.override_steamhistory_api_key = args.steamhistory_key.as_deref().map(|val| {
+            tracing::info!(
+                "Overrode configured steamhistory API key {:?}->{:?}",
+                self.steamhistory_api_key,
+                val
+            );
+            val.to_owned()
+        });
+
         // Override (and log if) the TF2 game directory. (Can be configured, but by
         // default we search via steam library for it)
         self.override_tf2_dir = args.tf2_dir.as_ref().map(|val| {
@@ -492,6 +505,14 @@ impl Settings {
         self.get_sourcebans_info
     }
 
+    pub fn set_steamhistory_api_key(&mut self, steamhistory_api_key: String) {
+        self.steamhistory_api_key = steamhistory_api_key;
+    }
+    #[must_use]
+    pub fn get_steamhistory_api_key(&self) -> &str {
+        self.override_steamhistory_api_key.as_ref().unwrap_or(&self.steamhistory_api_key)
+    }
+
     pub fn set_webui_port(&mut self, port: u16) {
         self.webui_port = port;
     }
@@ -592,6 +613,7 @@ impl Default for Settings {
             masterbase_host: "megaanticheat.com".into(),
             friends_api_usage: FriendsAPIUsage::CheatersOnly,
             get_sourcebans_info: false,
+            steamhistory_api_key: String::new(),
             webui_port: 3621,
             autolaunch_ui: false,
             rcon_port: 27015,
@@ -603,6 +625,7 @@ impl Default for Settings {
             override_rcon_port: None,
             override_masterbase_api_key: None,
             override_masterbase_host: None,
+            override_steamhistory_api_key: None,
             external: serde_json::Value::Object(Map::new()),
             upload_demos: true,
             minimal_demo_parsing: false,

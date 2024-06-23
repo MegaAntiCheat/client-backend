@@ -27,6 +27,9 @@ pub struct Args {
     /// Override the configured Steam API key,
     #[arg(short, long)]
     pub api_key: Option<String>,
+    /// Override the configured steamhistory.net API key
+    #[arg(long)]
+    pub steamhistory_key: Option<String>,
     /// Override the configured masterbase key
     #[arg(long)]
     pub mb_key: Option<String>,

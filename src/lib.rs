@@ -14,6 +14,7 @@ pub mod server;
 pub mod settings;
 pub mod state;
 pub mod steam_api;
+pub mod steamhistory_api;
 pub mod web;
 
 pub use clap;
