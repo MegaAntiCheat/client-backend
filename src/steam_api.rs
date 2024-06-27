@@ -243,17 +243,16 @@ impl LookupFriends {
     ) -> Option<Handled<M>> {
         // Need all friends if there's a cheater/bot on the server with a private
         // friends list
-        let need_all_friends =
-            force
-                || state.players.connected.iter().any(|p| {
-                    state.players.records.get(p).is_some_and(|r| {
-                        r.verdict() == Verdict::Cheater || r.verdict() == Verdict::Bot
-                    }) && state
+        let need_all_friends = force
+            || state.players.connected.iter().any(|p| {
+                let verdict = state.players.verdict(*p);
+                (verdict == Verdict::Cheater || verdict == Verdict::Bot)
+                    && state
                         .players
                         .friend_info
                         .get(p)
                         .is_some_and(|f| f.public == Some(false))
-                });
+            });
 
         let mut queued_friendlist_req: Vec<SteamID> = Vec::new();
 
@@ -328,10 +327,10 @@ where
         // Lookup all players if it failed to get the friends list of a cheater and
         // we're using CheatersOnly policy
         if let Some(FriendLookupResult { steamid, result }) = try_get(message) {
-            let is_bot_or_cheater =
-                state.players.records.get(steamid).is_some_and(|r| {
-                    r.verdict() == Verdict::Bot || r.verdict() == Verdict::Cheater
-                });
+            let is_bot_or_cheater = {
+                let verdict = state.players.verdict(*steamid);
+                verdict == Verdict::Bot || verdict == Verdict::Cheater
+            };
 
             let out = if is_bot_or_cheater && result.is_err() {
                 self.handle_players::<OM>(
@@ -380,7 +379,7 @@ where
                     } else {
                         out.push(self.handle_players(
                             state,
-                            &vec![*k],
+                            &[*k],
                             state.settings.friends_api_usage(),
                             state.settings.steam_api_key(),
                             true,

@@ -13,7 +13,7 @@ use crate::{
         g15::{self, G15Player},
         regexes::StatusLine,
     },
-    player_records::{default_custom_data, PlayerRecords, Verdict},
+    player_records::{default_custom_data, PlayerRecord, PlayerRecords, Verdict},
     settings::{ConfigFilesError, Settings},
 };
 
@@ -64,6 +64,14 @@ impl Players {
         }
 
         players
+    }
+
+    /// Retrieve the local verdict for a player
+    #[must_use]
+    pub fn verdict(&self, steamid: SteamID) -> Verdict {
+        self.records
+            .get(&steamid)
+            .map_or(Verdict::Player, PlayerRecord::verdict)
     }
 
     /// Check if a player has a particular tag set

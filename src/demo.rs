@@ -461,7 +461,7 @@ impl DemoManager {
     }
 
     /// Reports any other the players provided who are marked as bots to the masterbase
-    fn report_players<M: Is<DemoMessage>>(
+    fn report_players<M>(
         &mut self,
         players: impl Iterator<Item = (SteamID, ReportReason)>,
     ) -> Option<Handled<M>> {
@@ -563,10 +563,8 @@ impl DemoManager {
                             .players
                             .connected
                             .iter()
-                            .filter_map(|&p| state.players.records.get(&p).map(|r| (p, r)))
-                            .filter_map(|(s, r)| {
-                                ReportReason::try_from(r.verdict()).ok().map(|r| (s, r))
-                            }),
+                            .map(|&p| (p, state.players.verdict(p)))
+                            .filter_map(|(s, r)| ReportReason::try_from(r).ok().map(|r| (s, r))),
                     ),
                 );
             }
@@ -603,8 +601,8 @@ where
                 players
                     .0
                     .iter()
-                    .filter_map(|&p| state.players.records.get(&p).map(|r| (p, r)))
-                    .filter_map(|(s, r)| ReportReason::try_from(r.verdict()).ok().map(|r| (s, r))),
+                    .map(|&p| (p, state.players.verdict(p)))
+                    .filter_map(|(s, r)| ReportReason::try_from(r).ok().map(|r| (s, r))),
             );
         }
 
