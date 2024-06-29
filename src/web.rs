@@ -58,6 +58,8 @@ pub enum WebRequest {
     GetPlayerlist(UnboundedSender<String>),
     /// Tell the client to execute console commands
     PostCommand(RequestedCommands),
+    GetChat(UnboundedSender<String>),
+    GetKillfeed(UnboundedSender<String>),
 }
 impl<S> event_loop::Message<S> for WebRequest {}
 
@@ -84,15 +86,19 @@ where
         state: &MACState,
         message: &IM,
     ) -> Option<event_loop::Handled<OM>> {
+        fn send(tx: &UnboundedSender<String>, payload: String) {
+            if tx.send(payload).is_err() {
+                tracing::error!("Failed to send response to API task.");
+            }
+        }
+
         if let Some(lookup_result) = try_get::<ProfileLookupResult>(message) {
             self.handle_profile_lookup(state, lookup_result);
         }
 
         match try_get::<WebRequest>(message)? {
             WebRequest::GetGame(tx) => {
-                if tx.send(get_game_response(state)).is_err() {
-                    tracing::error!("Failed to send response to API task.");
-                }
+                send(tx, get_game_response(state));
             }
             WebRequest::PostUser(users, tx) => {
                 return self.handle_post_user_request(state, users, tx.clone());
@@ -101,27 +107,27 @@ where
                 return Handled::single(OM::from(UserUpdates(users.clone())));
             }
             WebRequest::GetPrefs(tx) => {
-                if tx.send(get_prefs_response(state)).is_err() {
-                    tracing::error!("Failed to send response to API task.");
-                }
+                send(tx, get_prefs_response(state));
             }
             WebRequest::PutPrefs(prefs) => {
                 return Handled::single(OM::from(prefs.clone()));
             }
             WebRequest::GetHistory(page, tx) => {
-                if tx.send(get_history_response(state, page)).is_err() {
-                    tracing::error!("Failed to send response to API task.");
-                }
+                send(tx, get_history_response(state, page));
             }
             WebRequest::GetPlayerlist(tx) => {
-                if tx.send(get_playerlist_response(state)).is_err() {
-                    tracing::error!("Failed to send response to API task.");
-                }
+                send(tx, get_playerlist_response(state));
             }
             WebRequest::PostCommand(cmds) => {
                 return Handled::multiple(
                     cmds.commands.iter().map(|cmd| Handled::single(cmd.clone())),
                 );
+            }
+            WebRequest::GetChat(tx) => {
+                send(tx, get_chat_response(state));
+            }
+            WebRequest::GetKillfeed(tx) => {
+                send(tx, get_killfeed_response(state));
             }
         }
 
@@ -308,6 +314,8 @@ pub async fn web_main(web_state: WebState, port: u16) {
         .route("/mac/history/v1", get(get_history))
         .route("/mac/playerlist/v1", get(get_playerlist))
         .route("/mac/commands/v1", post(post_commands))
+        .route("/mac/chat/v1", get(get_chat))
+        .route("/mac/killfeed/v1", get(get_killfeed))
         .layer(tower_http::cors::CorsLayer::permissive())
         .with_state(web_state);
 
@@ -669,6 +677,42 @@ fn get_playerlist_response(state: &MACState) -> String {
         .collect();
 
     serde_json::to_string(&records_mapped).expect("Epic serialization fail")
+}
+
+// Chat
+
+async fn get_chat(State(state): State<WebState>) -> impl IntoResponse {
+    tracing::debug!("API: GET chat");
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    if state.request.send(WebRequest::GetChat(tx)).is_err() {
+        tracing::error!("Couldn't send API request to main thread.");
+    }
+    (rx.recv().await).map_or_else(
+        || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
+        |resp| (StatusCode::OK, HEADERS, resp),
+    )
+}
+
+fn get_chat_response(state: &MACState) -> String {
+    serde_json::to_string(state.server.chat_history()).expect("Epic serialization fail")
+}
+
+// Killfeed
+
+async fn get_killfeed(State(state): State<WebState>) -> impl IntoResponse {
+    tracing::debug!("API: GET killfeed");
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    if state.request.send(WebRequest::GetKillfeed(tx)).is_err() {
+        tracing::error!("Couldn't send API request to main thread.");
+    }
+    (rx.recv().await).map_or_else(
+        || (StatusCode::SERVICE_UNAVAILABLE, HEADERS, String::new()),
+        |resp| (StatusCode::OK, HEADERS, resp),
+    )
+}
+
+fn get_killfeed_response(state: &MACState) -> String {
+    serde_json::to_string(state.server.kill_history()).expect("Epic serialization fail")
 }
 
 // Commands
