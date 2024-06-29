@@ -102,6 +102,58 @@ impl PlayerKill {
     }
 }
 
+pub const REGEX_KILLBIND: &str = r"^(.*) suicided\.$"; 
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PlayerKillbind {
+    pub player_name: String,
+    #[serde(serialize_with = "serialize_maybe_steamid_as_string")]
+    pub steamid: Option<SteamID>,
+}
+
+impl PlayerKillbind {
+    #[must_use]
+    pub fn parse(caps: &Captures) -> Self {
+        Self {
+            player_name: caps[1].into(),
+            steamid: None,
+        }
+    }
+}
+
+/// Join Party message
+/// Matches:
+///    0: Party ID
+/// Joining a party ID of 0 is equivalent to leaving an existing party
+pub const REGEX_JOIN_PARTY: &str = r"^\[PartyClient\] Joining party (\d+)$";
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PartyJoin {
+    pub party_id: String,
+}
+impl PartyJoin {
+    #[must_use]
+    pub fn parse(caps: &Captures) -> Self {
+        Self {
+            party_id: caps[1].into(),
+        }
+    }
+}
+
+pub const REGEX_JOIN_SERVER: &str = r"^Connected to (\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):(\d{1,5})$";
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ServerJoin {
+    pub server_ip: String,
+    pub server_port: String,
+}
+impl ServerJoin {
+    #[must_use]
+    pub fn parse(caps: &Captures) -> Self {
+        Self {
+            server_ip: caps[1].into(),
+            server_port: caps[2].into(),
+        }
+    }
+}
+
 /// Chat message
 /// Matches:
 ///    0: Player

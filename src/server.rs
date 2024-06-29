@@ -87,7 +87,7 @@ impl Server {
     ///   server.
     pub fn handle_console_output(&mut self, response: ConsoleOutput) {
         use ConsoleOutput::{
-            Chat, DemoStop, Hostname, Kill, Map, PlayerCount, ServerIP, Status, G15,
+            Chat, Hostname, Kill, Map, PlayerCount, ServerIP
         };
         match response {
             Chat(chat) => self.handle_chat(chat),
@@ -105,7 +105,7 @@ impl Server {
                 self.max_players = Some(playercount.max);
                 self.num_players = Some(playercount.players);
             }
-            G15(_) | Status(_) | DemoStop(_) => {}
+            _ => {}
         }
     }
 

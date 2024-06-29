@@ -32,16 +32,10 @@ where
             ConsoleOutput::Status(s) => {
                 steamids.push(s.steamid);
             }
-            ConsoleOutput::Chat(_)
-            | ConsoleOutput::Kill(_)
-            | ConsoleOutput::Hostname(_)
-            | ConsoleOutput::ServerIP(_)
-            | ConsoleOutput::Map(_)
-            | ConsoleOutput::PlayerCount(_)
-            | ConsoleOutput::DemoStop(_) => {}
             ConsoleOutput::G15(ps) => {
                 steamids.extend(ps.iter().filter_map(|p| p.steamid));
             }
+            _ => {}
         }
 
         if steamids.is_empty() {

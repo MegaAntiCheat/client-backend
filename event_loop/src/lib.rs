@@ -296,6 +296,7 @@ impl<M> Handled<M> {
     }
 }
 
+
 #[allow(unused_variables)]
 pub trait Message<S>: Sized {
     fn preprocess(&mut self, state: &S) {}
