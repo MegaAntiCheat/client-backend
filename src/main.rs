@@ -106,7 +106,7 @@ fn main() {
     let settings = Settings::load_or_create(&args);
     settings.save_ok();
 
-    let playerlist = PlayerRecords::load_or_create(&args);
+    let mut playerlist = PlayerRecords::load_or_create(&args);
     playerlist.save_ok();
 
     let players = Players::new(playerlist, settings.steam_user());

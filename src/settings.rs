@@ -635,7 +635,12 @@ pub fn merge_json_objects(a: &mut Value, b: Value) {
     if let Value::Object(a) = a {
         if let Value::Object(b) = b {
             for (k, v) in b {
-                if v.is_null() {
+                // Remove if null or empty
+                if v.is_null()
+                    || v.as_str().is_some_and(str::is_empty)
+                    || v.as_array().is_some_and(Vec::is_empty)
+                    || v.as_object().is_some_and(Map::is_empty)
+                {
                     a.remove(&k);
                 } else {
                     merge_json_objects(a.entry(k).or_insert(Value::Null), v);

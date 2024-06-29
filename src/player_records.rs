@@ -106,7 +106,8 @@ impl PlayerRecords {
     ///
     /// # Errors
     /// If it failed to serialize or write back to the file.
-    pub fn save(&self) -> Result<(), ConfigFilesError> {
+    pub fn save(&mut self) -> Result<(), ConfigFilesError> {
+        self.prune();
         let contents = serde_json::to_string(self).context("Failed to serialize playerlist.")?;
 
         let err_map = |e| ConfigFilesError::IO(self.path.to_string_lossy().into(), e);
@@ -119,7 +120,7 @@ impl PlayerRecords {
     }
 
     /// Attempt to save the `PlayerRecords`, log errors and ignore result
-    pub fn save_ok(&self) {
+    pub fn save_ok(&mut self) {
         if let Err(e) = self.save() {
             tracing::error!("Failed to save playerlist: {:?}", e);
             return;
@@ -193,12 +194,15 @@ impl PlayerRecord {
     /// Returns true if the record does not hold any meaningful information
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.verdict == Verdict::Player && {
-            self.custom_data.is_null()
-                || self.custom_data.as_object().is_some_and(Map::is_empty)
-                || self.custom_data.as_array().is_some_and(Vec::is_empty)
-                || self.custom_data.as_str().is_some_and(str::is_empty)
+        fn value_is_empty(v: &serde_json::Value) -> bool {
+            v.is_null()
+                || v.as_str().is_some_and(str::is_empty)
+                || v.as_array().is_some_and(|a| a.iter().all(value_is_empty))
+                || v.as_object()
+                    .is_some_and(|m| m.values().all(value_is_empty))
         }
+
+        self.verdict == Verdict::Player && value_is_empty(&self.custom_data)
     }
 }
 
