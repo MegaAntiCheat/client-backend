@@ -14,6 +14,8 @@ pub struct Server {
     max_players: Option<u32>,
     num_players: Option<u32>,
     gamemode: Option<Gamemode>,
+    chat_history: Vec<ChatMessage>,
+    kill_history: Vec<PlayerKill>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -36,6 +38,9 @@ impl Server {
             num_players: None,
 
             gamemode: None,
+
+            chat_history: Vec::new(),
+            kill_history: Vec::new(),
         }
     }
 
@@ -69,6 +74,16 @@ impl Server {
     #[must_use]
     pub const fn gamemode(&self) -> Option<&Gamemode> {
         self.gamemode.as_ref()
+    }
+
+    #[must_use]
+    pub fn chat_history(&self) -> &[ChatMessage] {
+        &self.chat_history
+    }
+
+    #[must_use]
+    pub fn kill_history(&self) -> &[PlayerKill] {
+        &self.kill_history
     }
 }
 
@@ -112,14 +127,14 @@ impl Server {
     #[allow(clippy::unused_self)]
     #[allow(clippy::needless_pass_by_value)]
     fn handle_chat(&mut self, chat: ChatMessage) {
-        // TODO
         tracing::debug!("Chat: {:?}", chat);
+        self.chat_history.push(chat);
     }
 
     #[allow(clippy::unused_self)]
     #[allow(clippy::needless_pass_by_value)]
     fn handle_kill(&mut self, kill: PlayerKill) {
-        // TODO
         tracing::debug!("Kill: {:?}", kill);
+        self.kill_history.push(kill);
     }
 }
