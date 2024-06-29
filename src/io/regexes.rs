@@ -2,6 +2,7 @@
 #![allow(unused_variables)]
 
 use anyhow::{Context, Ok, Result};
+use chrono::{DateTime, Utc};
 use regex::Captures;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
@@ -86,6 +87,7 @@ pub struct PlayerKill {
     pub victim_steamid: Option<SteamID>,
     pub weapon: String,
     pub crit: bool,
+    pub timestamp: DateTime<Utc>,
 }
 
 impl PlayerKill {
@@ -98,6 +100,7 @@ impl PlayerKill {
             victim_steamid: None,
             weapon: caps[3].into(),
             crit: caps.get(4).is_some(),
+            timestamp: Utc::now(),
         }
     }
 }
@@ -114,6 +117,7 @@ pub struct ChatMessage {
     #[serde(serialize_with = "serialize_maybe_steamid_as_string")]
     pub steamid: Option<SteamID>,
     pub message: String,
+    pub timestamp: DateTime<Utc>,
 }
 
 impl ChatMessage {
@@ -123,6 +127,7 @@ impl ChatMessage {
             player_name: caps[1].into(),
             steamid: None,
             message: caps[2].into(),
+            timestamp: Utc::now(),
         }
     }
 }
