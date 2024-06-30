@@ -93,6 +93,14 @@ impl Message<MACState> for FriendLookupResult {
     }
 }
 
+#[derive(Debug)]
+pub enum ProfileLookupRequest {
+    Single(SteamID),
+    Multiple(Vec<SteamID>),
+}
+
+impl<S> Message<S> for ProfileLookupRequest {}
+
 // Handlers *************************
 
 pub struct LookupProfiles {
@@ -118,7 +126,7 @@ impl Default for LookupProfiles {
 
 impl<IM, OM> MessageHandler<MACState, IM, OM> for LookupProfiles
 where
-    IM: Is<NewPlayers> + Is<ProfileLookupBatchTick> + Is<Preferences>,
+    IM: Is<NewPlayers> + Is<ProfileLookupBatchTick> + Is<Preferences> + Is<ProfileLookupRequest>,
     OM: Is<ProfileLookupResult>,
 {
     fn handle_message(&mut self, state: &MACState, message: &IM) -> Option<Handled<OM>> {
@@ -154,6 +162,14 @@ where
         // Request new players
         if let Some(NewPlayers(new_players)) = try_get::<NewPlayers>(message) {
             self.batch_buffer.extend(new_players);
+        }
+
+        // Request specifically-requested accounts
+        if let Some(lookup) = try_get::<ProfileLookupRequest>(message) {
+            match lookup {
+                ProfileLookupRequest::Single(p) => self.batch_buffer.push_back(*p),
+                ProfileLookupRequest::Multiple(ps) => self.batch_buffer.extend(ps),
+            }
         }
 
         // Send of lookup batch
