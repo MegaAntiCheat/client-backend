@@ -514,6 +514,13 @@ pub struct SteamInfo {
     pub fetched: DateTime<Utc>,
 }
 
+impl SteamInfo {
+    #[must_use]
+    pub fn expired(&self) -> bool {
+        Utc::now().signed_duration_since(self.fetched).num_hours() > 3
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ProfileVisibility {
     Private = 1,

@@ -170,7 +170,12 @@ impl WebAPIHandler {
             .iter()
             .filter(|&s| {
                 !self.profile_requests_in_progress.contains(s)
-                    || !state.players.steam_info.contains_key(s)
+                    // Filter for no steam info or expired steam info
+                    || state
+                        .players
+                        .steam_info
+                        .get(s)
+                        .map_or(true, SteamInfo::expired)
             })
             .copied()
             .collect();
