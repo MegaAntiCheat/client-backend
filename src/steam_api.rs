@@ -185,7 +185,7 @@ where
                     .players
                     .steam_info
                     .get(s)
-                    .is_some_and(|si| Utc::now().signed_duration_since(si.fetched).num_hours() < 3)
+                    .is_some_and(|si| !si.expired())
             });
             if self.batch_buffer.is_empty() {
                 return Handled::none();
