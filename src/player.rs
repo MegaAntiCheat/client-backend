@@ -1,6 +1,5 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    fmt::Display,
     ops::{Deref, DerefMut},
     path::{Path, PathBuf},
 };

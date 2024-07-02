@@ -52,7 +52,8 @@ use events::{Preferences, Refresh, UserUpdates};
 use new_players::{ExtractNewPlayers, NewPlayers};
 use sse_events::SseEventBroadcaster;
 use steam_api::{
-    FriendLookupResult, LookupFriends, LookupProfiles, ProfileLookupBatchTick, ProfileLookupResult,
+    FriendLookupResult, LookupFriends, LookupProfiles, ProfileLookupBatchTick,
+    ProfileLookupRequest, ProfileLookupResult,
 };
 use web::{WebAPIHandler, WebRequest};
 
@@ -71,6 +72,7 @@ define_events!(
         ProfileLookupBatchTick,
         ProfileLookupResult,
         FriendLookupResult,
+        ProfileLookupRequest,
 
         Preferences,
         UserUpdates,
