@@ -321,10 +321,9 @@ pub async fn web_main(web_state: WebState, port: u16) {
 
     let addr = SocketAddr::from(([127, 0, 0, 1], port));
     tracing::info!("Starting web interface at http://{addr}");
-    match axum::Server::try_bind(&addr) {
+    match tokio::net::TcpListener::bind(&addr).await {
         Ok(builder) => {
-            builder
-                .serve(api.into_make_service())
+            axum::serve(builder, api.into_make_service())
                 .await
                 .expect("Server wasn't meant to exit.");
         }

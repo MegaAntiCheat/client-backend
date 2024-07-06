@@ -167,7 +167,7 @@ impl DemoSession {
             });
         }
 
-        let (ws_client, _) = tokio_tungstenite::connect_async(url).await?;
+        let (ws_client, _) = tokio_tungstenite::connect_async(url.as_str()).await?;
 
         Ok(Self {
             session_id,
