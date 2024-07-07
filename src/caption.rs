@@ -102,7 +102,7 @@ impl Caption {
             .value
             .get_obj()
             .context("Missing object in VDF")?
-            .get("Tokens")
+            .get("Language")
             .context("Language not found")?
             .first()
             .context("Language value missing")?
