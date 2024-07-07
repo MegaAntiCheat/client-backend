@@ -38,11 +38,11 @@ fn get_nested_value<'a>(
     for &key in keys {
         let obj = current.get_obj().context("Expected an object")?;
 
-        let next = obj.get(key).context(format!("No key found for {}", key))?;
+        let next = obj.get(key).context(format!("No key found for {key}"))?;
 
         current = next
             .first()
-            .context(format!("No first key found for {}", key))?;
+            .context(format!("No first key found for {key}"))?;
     }
     Ok(current)
 }
@@ -93,7 +93,7 @@ impl LaunchOptions {
             .get_str()
             .context("Expected a string for launch options")?
             .split_whitespace()
-            .map(|s| s.to_string())
+            .map(std::string::ToString::to_string)
             .collect();
 
         Ok(Self {
@@ -104,13 +104,14 @@ impl LaunchOptions {
     /// Returns a vector of the launch options NOT found in the target apps
     /// launch options, but are defined as required according to
     /// [`TF2_REQUIRED_OPTS`].
-    pub fn check_missing_args(&self) -> Result<Vec<&str>, anyhow::Error> {
+    #[must_use]
+    pub fn check_missing_args(&self) -> std::vec::Vec<&str> {
         let missing_args: Vec<&str> = TF2_REQUIRED_OPTS
             .iter()
-            .filter(|&opt| !self.launch_options.contains(&opt.to_string()))
-            .map(|s| *s)
+            .filter(|&opt| !self.launch_options.contains(&(*opt).to_string()))
+            .copied()
             .collect();
 
-        Ok(missing_args)
+        missing_args
     }
 }

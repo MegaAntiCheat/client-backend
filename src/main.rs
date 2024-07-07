@@ -269,22 +269,15 @@ fn check_launch_options(settings: &Settings) {
     if let Some(opts) = launch_opts {
         // Warn about missing launch options for TF2
         match opts.check_missing_args() {
-            Ok(missing_opts) if !missing_opts.is_empty() => {
+            missing_opts if !missing_opts.is_empty() => {
                 tracing::warn!(
                     "Please add the following launch options to your TF2 to allow the MAC client to interface correctly with TF2."
                 );
                 tracing::warn!("Missing launch options: \"{}\"", missing_opts.join(" "));
             }
 
-            Ok(_) => {
+            _ => {
                 tracing::info!("All required launch arguments are present!");
-            }
-
-            Err(missing_opts_err) => {
-                tracing::error!(
-                    "Failed to verify app launch options: {:?} (App may continue to function normally)",
-                    missing_opts_err
-                );
             }
         }
     }
