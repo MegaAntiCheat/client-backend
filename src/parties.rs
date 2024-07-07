@@ -7,6 +7,8 @@ pub struct Parties {
     parties: Vec<HashSet<SteamID>>,
 }
 
+/// Groups accounts by those who are friends. Usually indicative of people who are
+/// partied together in a casual match.
 impl Parties {
     #[must_use]
     pub const fn new() -> Self {
@@ -20,6 +22,8 @@ impl Parties {
         &self.parties
     }
 
+    /// Given a set of players and all of their friends, as well as a list to limit which accounts will be analysed,
+    /// create a set of groups where all the members in a group are friends with each other.
     pub fn find_parties(&mut self, friends: &HashMap<SteamID, FriendInfo>, connected: &[SteamID]) {
         let are_friends = |a: SteamID, b: SteamID| {
             friends
@@ -29,9 +33,9 @@ impl Parties {
 
         let mut parties: Vec<HashSet<_>> = Vec::new();
 
-        // Iterate (connected) players
+        // For all the (connected) players
         for (&s, fi) in friends.iter().filter(|(s, _)| connected.contains(s)) {
-            // Iterate parties, seeing if there's any parties the player is friends with all members
+            // See if there's any parties where the player is friends with all members
             // If yes, create a copy of that party with itself added
             let new_parties: Vec<_> = parties
                 .iter()
@@ -45,14 +49,13 @@ impl Parties {
 
             parties.extend(new_parties);
 
-            // Iterate (connected) friends
-            // Create a new party for each pair of friends
+            // For all of the (connected) friends
+            // Create a new party containing themself and that friend
             let new_parties: Vec<_> = fi
                 .friends()
                 .iter()
                 .map(|f| f.steamid)
                 .filter(|s2| connected.contains(s2))
-                // .filter(|&s2| parties.iter().all(|p| !(p.contains(&s) || p.contains(&s2))))
                 .map(|s2| {
                     let mut new_party = HashSet::new();
                     new_party.insert(s);
@@ -64,10 +67,9 @@ impl Parties {
             parties.extend(new_parties);
         }
 
-        // Finalise parties
         self.parties.clear();
 
-        // Iterate parties
+        // Add parties back
         'outer: for new_p in parties {
             let mut to_remove = Vec::new();
 
@@ -78,6 +80,7 @@ impl Parties {
                 }
 
                 // If the party is a superset of one of the parties in the final list, replace it
+                // (and any others which it is also a superset of)
                 if new_p.is_superset(other_p) {
                     to_remove.push(i);
                 }
@@ -88,7 +91,7 @@ impl Parties {
                 self.parties.remove(i);
             });
 
-            // Otherwise add it
+            // Finally add this set
             self.parties.push(new_p);
         }
     }
