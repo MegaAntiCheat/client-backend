@@ -5,7 +5,7 @@
 .env
 *.log
 bundle/
-/ui/*
+/ui
 !/ui/.gitkeep
 /ui_temp
 shell.sh
