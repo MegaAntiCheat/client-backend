@@ -8,6 +8,7 @@ pub mod io;
 pub mod launchoptions;
 pub mod masterbase;
 pub mod new_players;
+pub mod parties;
 pub mod player;
 pub mod player_records;
 pub mod server;
