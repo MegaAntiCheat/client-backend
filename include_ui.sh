@@ -89,6 +89,7 @@ if [ "$UPDATE_FLAG" -eq 0 ]; then
 
     npm exec pnpm i
     npm exec pnpm run build
+    mkdir -p ../ui/
     cp dist/* ../ui/
 
     echo "Removing temp files"
