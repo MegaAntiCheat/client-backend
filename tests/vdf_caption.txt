@@ -1,0 +1,9 @@
+"lang"
+{
+        "Language"      "english"
+        "Tokens"
+        {
+                "DIAG_TEXT_01"  "<clr:255,125,240>A test caption!"
+                "DIAG_TEXT_02"  "<clr:55,250,240>Another test caption!"
+        }
+}
