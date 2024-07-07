@@ -666,7 +666,7 @@ impl GameInfo {
     }
 
     pub(crate) fn next_cycle(&mut self) {
-        const DISCONNECTED_THRESHOLD: u32 = 1;
+        const DISCONNECTED_THRESHOLD: u32 = 2;
 
         self.last_seen += 1;
         if self.last_seen > DISCONNECTED_THRESHOLD {
@@ -675,7 +675,7 @@ impl GameInfo {
     }
 
     pub(crate) const fn should_prune(&self) -> bool {
-        const CYCLE_LIMIT: u32 = 5;
+        const CYCLE_LIMIT: u32 = 6;
         self.last_seen > CYCLE_LIMIT
     }
 
