@@ -36,6 +36,7 @@ mod io;
 mod launchoptions;
 mod masterbase;
 mod new_players;
+mod parties;
 mod player;
 mod player_records;
 mod server;

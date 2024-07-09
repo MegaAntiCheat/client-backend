@@ -13,6 +13,7 @@ use crate::{
         g15::{self, G15Player},
         regexes::StatusLine,
     },
+    parties::Parties,
     player_records::{default_custom_data, PlayerRecord, PlayerRecords, Verdict},
     settings::{ConfigFilesError, Settings},
 };
@@ -29,11 +30,14 @@ pub struct Players {
     pub friend_info: HashMap<SteamID, FriendInfo>,
     pub records: PlayerRecords,
     pub tags: HashMap<SteamID, HashSet<String>>,
+    pub parties: Parties,
 
     pub connected: Vec<SteamID>,
     pub history: VecDeque<SteamID>,
 
     pub user: Option<SteamID>,
+
+    parties_needs_update: bool,
 }
 
 #[allow(dead_code)]
@@ -46,10 +50,13 @@ impl Players {
             friend_info: HashMap::new(),
             tags: HashMap::new(),
             records,
+            parties: Parties::new(),
 
             connected: Vec::new(),
             history: VecDeque::new(),
             user,
+
+            parties_needs_update: false,
         };
 
         match players.load_steam_info() {
@@ -119,6 +126,8 @@ impl Players {
     /// Sets the friends list and friends list visibility, returning any old
     /// friends that have been removed
     fn set_friends(&mut self, steamid: SteamID, friends: Vec<Friend>) -> Vec<SteamID> {
+        self.parties_needs_update = true;
+
         let friend_info = self.friend_info.entry(steamid).or_default();
 
         friend_info.public = Some(true);
@@ -241,6 +250,10 @@ impl Players {
             .copied()
             .collect();
 
+        if !unaccounted_players.is_empty() {
+            self.parties_needs_update = true;
+        }
+
         self.connected.retain(|s| !unaccounted_players.contains(s));
 
         // Remove any of them from the history as they will be added more recently
@@ -260,6 +273,12 @@ impl Players {
         // Mark all remaining players as unaccounted, they will be marked as accounted
         // again when they show up in status or another console command.
         self.game_info.values_mut().for_each(GameInfo::next_cycle);
+
+        if self.parties_needs_update {
+            self.parties
+                .find_parties(&self.friend_info, &self.connected);
+            self.parties_needs_update = false;
+        }
     }
 
     /// Gets a struct containing all the relevant data on a player in a
@@ -322,6 +341,7 @@ impl Players {
             // Add to connected players if they aren't already
             if !self.connected.contains(&steamid) {
                 self.connected.push(steamid);
+                self.parties_needs_update = true;
             }
 
             // Update game info
@@ -348,6 +368,7 @@ impl Players {
         // Add to connected players if they aren't already
         if !self.connected.contains(&steamid) {
             self.connected.push(steamid);
+            self.parties_needs_update = true;
         }
 
         if let Some(game_info) = self.game_info.get_mut(&steamid) {
@@ -645,7 +666,7 @@ impl GameInfo {
     }
 
     pub(crate) fn next_cycle(&mut self) {
-        const DISCONNECTED_THRESHOLD: u32 = 1;
+        const DISCONNECTED_THRESHOLD: u32 = 2;
 
         self.last_seen += 1;
         if self.last_seen > DISCONNECTED_THRESHOLD {
@@ -654,7 +675,7 @@ impl GameInfo {
     }
 
     pub(crate) const fn should_prune(&self) -> bool {
-        const CYCLE_LIMIT: u32 = 5;
+        const CYCLE_LIMIT: u32 = 6;
         self.last_seen > CYCLE_LIMIT
     }
 
@@ -678,7 +699,7 @@ pub struct Friend {
 #[derive(Debug, Serialize, Default)]
 pub struct FriendInfo {
     pub public: Option<bool>,
-    friends: Vec<Friend>,
+    pub friends: Vec<Friend>,
 }
 
 impl FriendInfo {
