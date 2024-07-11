@@ -49,7 +49,7 @@ pub enum DemoEvent {
     VoteStarted(VoteStartedEvent),
     VoteOptions(Box<VoteOptionsEvent>),
     VoteCast(VoteCastEvent, Option<SteamID>),
-    LastestTick,
+    LatestTick,
 }
 
 #[allow(clippy::module_name_repetitions)]
@@ -908,7 +908,7 @@ where
                 let initiator = event.initiator;
                 tracing::info!("{issue} - called by {initiator}");
             }
-            DemoEvent::LastestTick => {}
+            DemoEvent::LatestTick => {}
         }
 
         None
