@@ -260,7 +260,7 @@ impl SseEventBroadcaster {
                 let res = VoteRelatedEvent::make_from(event);
                 Some(serde_json::to_string(&res).expect("Serialisation failure"))
             }
-            DemoEvent::LastestTick => None,
+            DemoEvent::LatestTick => None,
         }
     }
 }
