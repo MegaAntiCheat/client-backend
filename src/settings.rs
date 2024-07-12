@@ -229,7 +229,7 @@ impl Settings {
                 let mut latest_timestamp = 0;
                 let mut latest_user_sid64: Option<SteamID> = None;
 
-                for (user_sid64, user_data_values) in users_obj {
+                for (user_sid64, user_data_values) in users_obj.iter() {
                     user_data_values
                         .iter()
                         .filter_map(|value| value.get_obj())
