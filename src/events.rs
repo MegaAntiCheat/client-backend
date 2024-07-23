@@ -128,6 +128,9 @@ impl Message<MACState> for Preferences {
             if let Some(autokick) = internal.dumb_autokick {
                 state.settings.set_autokick_bots(autokick);
             }
+            if let Some(tos_agreement_date) = internal.tos_agreement_date {
+                state.settings.set_tos_agreement_date(tos_agreement_date);
+            }
         }
 
         if let Some(external) = self.external {
