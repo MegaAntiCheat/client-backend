@@ -563,6 +563,7 @@ fn get_prefs_response(state: &MACState) -> String {
             masterbase_host: Some(settings.masterbase_host().to_owned()),
             rcon_port: Some(settings.rcon_port()),
             dumb_autokick: Some(settings.autokick_bots()),
+            tos_agreement_date: Some(settings.tos_agreement_date().to_owned()),
         }),
         external: Some(settings.external_preferences().clone()),
     };

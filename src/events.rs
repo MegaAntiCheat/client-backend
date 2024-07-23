@@ -91,6 +91,7 @@ pub struct InternalPreferences {
     pub masterbase_host: Option<String>,
     pub rcon_port: Option<u16>,
     pub dumb_autokick: Option<bool>,
+    pub tos_agreement_date: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]

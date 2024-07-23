@@ -81,6 +81,7 @@ pub struct Settings {
     rcon_port: u16,
     external: serde_json::Value,
     autokick_bots: bool,
+    tos_agreement_date: String,
 
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
@@ -532,6 +533,14 @@ impl Settings {
         self.override_rcon_port.unwrap_or(self.rcon_port)
     }
 
+    pub fn set_tos_agreement_date(&mut self, date: String) {
+        self.tos_agreement_date = date;
+    }
+    #[must_use]
+    pub fn tos_agreement_date(&self) -> &str {
+        &self.tos_agreement_date
+    }
+
     pub fn update_external_preferences(&mut self, prefs: serde_json::Value) {
         merge_json_objects(&mut self.external, prefs);
     }
@@ -609,6 +618,7 @@ impl Default for Settings {
             webui_port: 3621,
             autolaunch_ui: false,
             rcon_port: 27015,
+            tos_agreement_date: String::new(), 
             override_tf2_dir: None,
             override_rcon_password: None,
             override_steam_api_key: None,

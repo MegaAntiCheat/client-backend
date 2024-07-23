@@ -134,14 +134,8 @@ where
         if let Some(Preferences {
             internal:
                 Some(InternalPreferences {
-                    friends_api_usage: _,
-                    tf2_directory: _,
-                    rcon_password: _,
                     steam_api_key: Some(new_key),
-                    masterbase_key: _,
-                    masterbase_host: _,
-                    rcon_port: _,
-                    dumb_autokick: _,
+                    ..
                 }),
             external: _,
         }) = try_get(message)
