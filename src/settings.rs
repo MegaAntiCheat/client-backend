@@ -6,6 +6,7 @@ use std::{
 
 use anyhow::{anyhow, Context, Result};
 use atomic_write_file::AtomicWriteFile;
+use chrono::{DateTime, NaiveDate, Utc};
 use directories_next::ProjectDirs;
 use include_dir::Dir;
 use keyvalues_parser::Vdf;
@@ -21,6 +22,18 @@ use crate::{args::Args, gamefinder, player_records::Verdict, web::UISource};
 static BUNDLED_UI: Option<Dir> = Some(include_dir::include_dir!("$CARGO_MANIFEST_DIR/ui"));
 #[cfg(not(feature = "include-ui"))]
 static BUNDLED_UI: Option<Dir> = None;
+
+#[must_use]
+#[allow(clippy::missing_panics_doc)]
+pub fn last_tos_update() -> DateTime<Utc> {
+    DateTime::<Utc>::from_naive_utc_and_offset(
+        NaiveDate::from_ymd_opt(2024, 7, 27)
+            .expect("Invalid date")
+            .and_hms_opt(0, 0, 0)
+            .expect("Invalid date"),
+        Utc,
+    )
+}
 
 #[derive(Debug, Error)]
 pub enum ConfigFilesError {
@@ -81,7 +94,7 @@ pub struct Settings {
     rcon_port: u16,
     external: serde_json::Value,
     autokick_bots: bool,
-    tos_agreement_date: String,
+    tos_agreement_date: Option<DateTime<Utc>>,
 
     #[serde(skip)]
     override_tf2_dir: Option<PathBuf>,
@@ -103,8 +116,6 @@ pub struct Settings {
     #[serde(skip)]
     web_ui_source: UISource,
 
-    #[serde(skip)]
-    pub upload_demos: bool,
     #[serde(skip)]
     minimal_demo_parsing: bool,
     #[serde(skip)]
@@ -368,7 +379,6 @@ impl Settings {
         }
 
         self.minimal_demo_parsing = args.minimal_demo_parsing;
-        self.upload_demos = !args.dont_upload_demos;
         self.masterbase_http = args.masterbase_http;
     }
 
@@ -533,12 +543,12 @@ impl Settings {
         self.override_rcon_port.unwrap_or(self.rcon_port)
     }
 
-    pub fn set_tos_agreement_date(&mut self, date: String) {
+    pub fn set_tos_agreement_date(&mut self, date: Option<DateTime<Utc>>) {
         self.tos_agreement_date = date;
     }
     #[must_use]
-    pub fn tos_agreement_date(&self) -> &str {
-        &self.tos_agreement_date
+    pub const fn tos_agreement_date(&self) -> Option<DateTime<Utc>> {
+        self.tos_agreement_date
     }
 
     pub fn update_external_preferences(&mut self, prefs: serde_json::Value) {
@@ -556,8 +566,12 @@ impl Settings {
         self.minimal_demo_parsing
     }
     #[must_use]
-    pub const fn upload_demos(&self) -> bool {
-        self.upload_demos
+    pub fn upload_demos(&self) -> bool {
+        // Masterbase key set and TOS agreed to since last TOS update
+        !self.masterbase_key.is_empty()
+            && self.tos_agreement_date.is_some_and(|date| {
+                date.signed_duration_since(last_tos_update()).num_seconds() >= 0
+            })
     }
     #[must_use]
     pub const fn use_masterbase_http(&self) -> bool {
@@ -618,7 +632,7 @@ impl Default for Settings {
             webui_port: 3621,
             autolaunch_ui: false,
             rcon_port: 27015,
-            tos_agreement_date: String::new(), 
+            tos_agreement_date: None,
             override_tf2_dir: None,
             override_rcon_password: None,
             override_steam_api_key: None,
@@ -628,7 +642,6 @@ impl Default for Settings {
             override_masterbase_api_key: None,
             override_masterbase_host: None,
             external: serde_json::Value::Object(Map::new()),
-            upload_demos: true,
             minimal_demo_parsing: false,
             masterbase_http: false,
             autokick_bots: false,

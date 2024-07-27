@@ -44,13 +44,6 @@ pub struct Args {
     /// performance)
     #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
     pub minimal_demo_parsing: bool,
-    /// Don't monitor or parse demos (may improve performance, but also prevents
-    /// demo uploads)
-    #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
-    pub dont_parse_demos: bool,
-    /// Don't upload demos to the masterbase
-    #[arg(long, action = ArgAction::SetTrue, default_value_t=false)]
-    pub dont_upload_demos: bool,
     /// Use http (inscure) connections to the masterbase
     #[arg(long, action=ArgAction::SetTrue, default_value_t=false)]
     pub masterbase_http: bool,
