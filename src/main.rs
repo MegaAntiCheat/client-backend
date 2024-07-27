@@ -161,7 +161,6 @@ fn main() {
                     // Not authorized, invalid key
                     Ok(Ok(r)) if r.status() == StatusCode::UNAUTHORIZED => {
                         tracing::warn!("Your Masterbase key is not valid, demo uploads will be disabled. Please provision a new one at https://megaanticheat.com/provision");
-                        state.settings.set_masterbase_key(String::new());
                     }
                     // Forbidden, no session was open
                     Ok(Ok(r)) if r.status() == StatusCode::FORBIDDEN => {
