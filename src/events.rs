@@ -133,14 +133,12 @@ impl Message<MACState> for Preferences {
             if let Some(tos_agreement_date) = internal.tos_agreement_date {
                 if tos_agreement_date.is_empty() {
                     state.settings.set_tos_agreement_date(None);
-                }
-
-                match DateTime::parse_from_rfc3339(&tos_agreement_date) {
-                    Ok(date) => state.settings.set_tos_agreement_date(Some(date.to_utc())),
-                    Err(e) => {
-                        tracing::error!(
-                            "Failed to set date of agreement to TOS ({tos_agreement_date}): {e}"
-                        );
+                } else {
+                    match DateTime::parse_from_rfc3339(&tos_agreement_date) {
+                        Ok(date) => state.settings.set_tos_agreement_date(Some(date.to_utc())),
+                        Err(e) => {
+                            tracing::error!("Failed to set date of agreement to TOS ({tos_agreement_date}): {e}");
+                        }
                     }
                 }
             }
