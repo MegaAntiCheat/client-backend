@@ -65,7 +65,7 @@ impl Message<MACState> for ProfileLookupResult {
                 }
                 Err(e) => {
                     tracing::error!(
-                        "Faield to lookup profile for {}: {}",
+                        "Failed to lookup profile for {}: {}",
                         u64::from(*steamid),
                         e
                     );
