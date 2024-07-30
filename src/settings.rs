@@ -27,7 +27,7 @@ static BUNDLED_UI: Option<Dir> = None;
 #[allow(clippy::missing_panics_doc)]
 pub fn last_tos_update() -> DateTime<Utc> {
     DateTime::<Utc>::from_naive_utc_and_offset(
-        NaiveDate::from_ymd_opt(2024, 7, 27)
+        NaiveDate::from_ymd_opt(2024, 7, 30)
             .expect("Invalid date")
             .and_hms_opt(0, 0, 0)
             .expect("Invalid date"),
