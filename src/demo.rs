@@ -514,7 +514,7 @@ impl DemoManager {
             .as_ref()
             .map_or(true, |d| !(d.file_path == msg.file_path && d.id == msg.id))
         {
-            self.new_demo(msg.file_path.clone(), msg.id, state.settings.upload_demos);
+            self.new_demo(msg.file_path.clone(), msg.id, state.settings.upload_demos());
         }
 
         let demo = self

@@ -1,5 +1,6 @@
 use std::{collections::HashMap, path::PathBuf, time::Duration};
 
+use chrono::DateTime;
 use event_loop::Message;
 use serde::{Deserialize, Serialize};
 use steamid_ng::SteamID;
@@ -91,6 +92,7 @@ pub struct InternalPreferences {
     pub masterbase_host: Option<String>,
     pub rcon_port: Option<u16>,
     pub dumb_autokick: Option<bool>,
+    pub tos_agreement_date: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -126,6 +128,19 @@ impl Message<MACState> for Preferences {
             }
             if let Some(autokick) = internal.dumb_autokick {
                 state.settings.set_autokick_bots(autokick);
+            }
+
+            if let Some(tos_agreement_date) = internal.tos_agreement_date {
+                if tos_agreement_date.is_empty() {
+                    state.settings.set_tos_agreement_date(None);
+                } else {
+                    match DateTime::parse_from_rfc3339(&tos_agreement_date) {
+                        Ok(date) => state.settings.set_tos_agreement_date(Some(date.to_utc())),
+                        Err(e) => {
+                            tracing::error!("Failed to set date of agreement to TOS ({tos_agreement_date}): {e}");
+                        }
+                    }
+                }
             }
         }
 

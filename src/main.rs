@@ -135,7 +135,6 @@ fn main() {
         .expect("Failed to build async runtime")
         .block_on(async {
             if state.settings.masterbase_key().is_empty() {
-                state.settings.upload_demos = false;
                 tracing::warn!("No masterbase key is set. If you would like to enable demo uploads, please provision a key at https://megaanticheat.com/provision");
             }
 
@@ -162,7 +161,6 @@ fn main() {
                     // Not authorized, invalid key
                     Ok(Ok(r)) if r.status() == StatusCode::UNAUTHORIZED => {
                         tracing::warn!("Your Masterbase key is not valid, demo uploads will be disabled. Please provision a new one at https://megaanticheat.com/provision");
-                        state.settings.upload_demos = false;
                     }
                     // Forbidden, no session was open
                     Ok(Ok(r)) if r.status() == StatusCode::FORBIDDEN => {
@@ -174,6 +172,15 @@ fn main() {
                     Err(_) => {
                         tracing::error!("Connection to masterbase timed out after {TIMEOUT} seconds");
                     }
+                }
+            }
+
+            // Info about demo uploads
+            if !state.settings.masterbase_key().is_empty() {
+                if state.settings.upload_demos() {
+                    tracing::info!("Demo uploading is enabled.");
+                } else {
+                    tracing::warn!("Demo uploading is not enabled. If you would like to use all the Masterbase features, you will need to agree to the TOS.");
                 }
             }
 
@@ -196,11 +203,11 @@ fn main() {
 
             // Demo watcher and manager
             let demo_path = state.settings.tf2_directory().join("tf");
-            let demo_watcher = if args.dont_parse_demos { None } else { DemoWatcher::new(&demo_path)
+            let demo_watcher = DemoWatcher::new(&demo_path)
                 .map_err(|e| {
                     tracing::error!("Could not initialise demo watcher: {e}");
                 })
-                .ok()};
+                .ok();
 
             // Web API
             let (web_state, web_requests) = WebState::new(state.settings.web_ui_source());
@@ -232,9 +239,7 @@ fn main() {
                 event_loop = event_loop.add_handler(PrintVotes::new());
             }
 
-            if args.dont_parse_demos {
-                tracing::info!("Demo parsing has been disabled. This also prevents uploading demos to the masterbase.");
-            } else if let Some(dw) = demo_watcher {
+            if let Some(dw) = demo_watcher {
                 event_loop = event_loop.add_source(Box::new(dw));
             }
 
