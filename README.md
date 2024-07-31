@@ -16,8 +16,16 @@ net_start
 5. Launch TF2
 6. Run the application
 7. Click on the link in your console window or visit `localhost:3621` in your browser
-8. Get yourself a Steam Web API key from [here](https://steamcommunity.com/dev/apikey)
-9. You should get a webpage with the UI in it, when you connect to a match it should show all the players in the match!
+8. You should get a webpage with the UI in it, prompting for a Steam API key and an RCON password.
+9. Get yourself a Steam Web API key from [here](https://steamcommunity.com/dev/apikey)
+10. Enter the RCON password you set in your autoexec.
+11. When you connect to a match it should show all the players in the match!
+12. Navigate to https://megaanticheat.com/provision to get a Masterbase API key. You will need to sign in with your Steam account.
+13. In the MegaAntiCheat UI, go to the preferences menu on the left sidebar.
+14. Put your Masterbase API key into the respective text field.
+15. Click the "Agree to TOS" checkbox and read the terms and conditions before agreeing.
+16. Now any demo files you record will be automatically streamed to our central server!
+17. Enable automatic demo recordings by going into TF2's advanced options and setting "Recording Mode" to "Auto-record all matches"
 
 ## Troubleshooting
 
