@@ -104,6 +104,12 @@ define_events!(
 fn main() {
     let _guard = init_tracing();
 
+    // Enable ANSI support for Windows
+    let ansi_res = ansi_term::enable_ansi_support();
+    if let Err(code) = ansi_res {
+        tracing::warn!("Failed to enable ANSI support. Error code: {:?}", code);
+    }
+
     let args = Args::parse();
 
     let settings = Settings::load_or_create(&args);
