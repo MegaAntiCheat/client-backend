@@ -66,6 +66,7 @@ tokio-tungstenite = { version = "0.23.1", features = ["native-tls"] }
 atomic-write-file = "0.1.4"
 uuid = { version = "1.9.1", features = ["serde", "v4"] }
 pot = "3.0.0"
+ansi_term = "0.12.1"
 
 [build-dependencies]
 embed-resource = "2.4.2"

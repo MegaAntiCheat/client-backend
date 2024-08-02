@@ -100,9 +100,20 @@ define_events!(
     },
 );
 
+#[cfg(target_os = "windows")]
+fn enable_ansi() {
+    let ansi_res = ansi_term::enable_ansi_support();
+    if let Err(code) = ansi_res {
+        tracing::warn!("Failed to enable ANSI support. Error code: {:?}", code);
+    }
+}
+
 #[allow(clippy::too_many_lines)]
 fn main() {
     let _guard = init_tracing();
+
+    #[cfg(target_os = "windows")]
+    enable_ansi();
 
     let args = Args::parse();
 
