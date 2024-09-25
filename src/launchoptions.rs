@@ -1,9 +1,8 @@
 use std::{fs::File, io::Read, path::PathBuf};
 
 use anyhow::{Context, Result};
-use regex::Regex;
+use keyvalues_parser::Vdf;
 use steamid_ng::SteamID;
-use substring::Substring;
 use tracing::Level;
 
 use crate::gamefinder::{locate_steam_launch_configs, TF2_GAME_ID};
@@ -21,9 +20,31 @@ pub const TF2_REQUIRED_OPTS: [&str; 4] = ["-condebug", "-conclearlog", "-usercon
 /// provides an interface to read and write launch options based on a set of
 /// required options.
 pub struct LaunchOptions {
-    launch_args_regex: Regex,
-    app_data: Option<String>,
-    new_app_data: Option<String>,
+    launch_options: Vec<String>,
+}
+
+/// Get the value of a nested key in a VDF object.
+/// # Errors
+/// Will raise `anyhow::Error` under the following conditions:
+/// - The object is not a VDF object
+/// - The key we are looking for does not exist
+/// - The key does not have a corresponding value
+fn get_nested_value<'a>(
+    vdf: &'a Vdf,
+    keys: &[&str],
+) -> Result<&'a keyvalues_parser::Value<'a>, anyhow::Error> {
+    let mut current = &vdf.value;
+
+    for &key in keys {
+        let obj = current.get_obj().context("Expected an object")?;
+
+        let next = obj.get(key).context(format!("No key found for {key}"))?;
+
+        current = next
+            .first()
+            .context(format!("No first key found for {key}"))?;
+    }
+    Ok(current)
 }
 
 impl LaunchOptions {
@@ -38,8 +59,8 @@ impl LaunchOptions {
     ///   non-`ErrorKind::Interrupted` during read)
     /// - Failed to parse the `localconfig.vdf` file. (File is
     ///   corrupted/broken/incomplete)
-    /// - Target app ID does not exist in `localconfig.vdf` file or the object
-    ///   is corrupted.
+    /// - The `LaunchOptions` key does not exist in the target app's data or
+    ///  the value is not a string. (No user configured launch options)
     #[allow(clippy::missing_panics_doc)]
     pub fn new(user: SteamID) -> Result<Self, anyhow::Error> {
         let span = tracing::span!(Level::INFO, "LaunchOptions");
@@ -56,75 +77,41 @@ impl LaunchOptions {
         }
         let binding = &String::from_utf8_lossy(&data);
 
-        let apps_regex =
-            Regex::new(r#"\t{4}"[aA]pps"([\s\S]+)\t{5}}"#).expect("Apps regex construction");
+        let localconfig = Vdf::parse(binding).context("Failed to parse localconfig.vdf")?;
 
-        let caps = apps_regex
-            .captures(binding)
-            .context("No capture groups found -  no apps list present in localconfig.vdf.")?;
+        let keys = [
+            "Software",
+            "Valve",
+            "Steam",
+            "apps",
+            &TF2_GAME_ID.to_string(),
+            "LaunchOptions",
+        ];
+        let launch_options = get_nested_value(&localconfig, &keys)?;
 
-        let mut matched_app_block: Option<String> = None;
-        let open_match = format!("\t\t\t\t\t\"{TF2_GAME_ID}\"");
-
-        let mat_opt = caps.get(1);
-        if let Some(mat) = mat_opt {
-            let latter_portion = mat
-                .as_str()
-                .find(&open_match)
-                .context("Could not find specified app in localconfig.vdf for the current user.")?;
-            let latter = mat.as_str().substring(latter_portion, mat.end());
-            let first_app_close = latter
-                .find("\n\t\t\t\t\t}")
-                .context("Failed to find object closing statement for the matched app block.")?;
-            let app_match = latter.substring(0, first_app_close);
-
-            if matched_app_block.is_none() {
-                matched_app_block = Some(app_match.to_string());
-            }
-        }
-
-        let launch_options_regex = Regex::new(r#"\t{6}"LaunchOptions"\t{2}"([^"]*)""#)
-            .expect("Constructing launch options regex");
+        let launch_options_vec: Vec<String> = launch_options
+            .get_str()
+            .context("Expected a string for launch options")?
+            .split_whitespace()
+            .map(std::string::ToString::to_string)
+            .collect();
 
         Ok(Self {
-            launch_args_regex: launch_options_regex,
-            app_data: matched_app_block,
-            new_app_data: None,
+            launch_options: launch_options_vec,
         })
     }
 
     /// Returns a vector of the launch options NOT found in the target apps
     /// launch options, but are defined as required according to
     /// [`TF2_REQUIRED_OPTS`].
-    ///
-    /// # Errors
-    /// Will raise `anyhow::Error` under the following conditions:
-    /// - Target app exists but has no `LaunchOptions` key (no user configured
-    ///   launch options).
-    /// - No app data is stored in this object (`self.app_data` is None).
-    pub fn check_missing_args(&self) -> Result<Vec<&str>, anyhow::Error> {
-        let span = tracing::span!(Level::TRACE, "MissingLaunchOptions");
-        let _enter = span.enter();
-        tracing::debug!("Checking for missing launch arguments in specified app...");
-        let mut missing_args: Vec<&str> = Vec::new();
-        let data_ref = match self.new_app_data {
-            Some(_) => &self.new_app_data,
-            None => &self.app_data,
-        };
-        let app_data = data_ref.clone().context("No data currently stored.")?;
-        let Some(current_args) = self.launch_args_regex.find(&app_data) else {
-            missing_args.extend(&TF2_REQUIRED_OPTS);
-            return Ok(missing_args);
-        };
+    #[must_use]
+    pub fn check_missing_args(&self) -> std::vec::Vec<&str> {
+        let missing_args: Vec<&str> = TF2_REQUIRED_OPTS
+            .iter()
+            .filter(|&opt| !self.launch_options.contains(&(*opt).to_string()))
+            .copied()
+            .collect();
 
-        let mat_str = current_args.as_str();
-        for opt in &TF2_REQUIRED_OPTS {
-            if !mat_str.contains(opt) {
-                tracing::debug!("Launch Arguments: Missing argument identified -> {}", opt);
-                missing_args.insert(0, opt);
-            }
-        }
-
-        Ok(missing_args)
+        missing_args
     }
 }
