@@ -90,6 +90,7 @@ pub struct Settings {
     masterbase_host: String,
     autolaunch_ui: bool,
     friends_api_usage: FriendsAPIUsage,
+    request_playtime: bool,
     webui_port: u16,
     rcon_port: u16,
     external: serde_json::Value,
@@ -591,6 +592,15 @@ impl Settings {
         &self.web_ui_source
     }
 
+    #[must_use]
+    pub const fn request_playtime(&self) -> bool {
+        self.request_playtime
+    }
+
+    pub fn set_request_playtime(&mut self, request_playtime: bool) {
+        self.request_playtime = request_playtime;
+    }
+
     /// Attempts to find (and create) a directory to be used for configuration
     /// files
     ///
@@ -629,6 +639,7 @@ impl Default for Settings {
             masterbase_key: String::new(),
             masterbase_host: "megaanticheat.com".into(),
             friends_api_usage: FriendsAPIUsage::CheatersOnly,
+            request_playtime: true,
             webui_port: 3621,
             autolaunch_ui: false,
             rcon_port: 27015,

@@ -18,8 +18,8 @@ use event_loop::{try_get, Handled, Is, MessageHandler};
 use futures::Stream;
 use include_dir::Dir;
 use serde::{Deserialize, Serialize};
+use steam_rs::Steam;
 use steamid_ng::SteamID;
-use tappet::SteamAPI;
 use tokio::sync::{
     mpsc::{UnboundedReceiver, UnboundedSender},
     Mutex,
@@ -184,12 +184,18 @@ impl WebAPIHandler {
             .extend_from_slice(&request.waiting_users);
 
         // Make steam api requests
-        let client = Arc::new(SteamAPI::new(state.settings.steam_api_key()));
+        let client = Arc::new(Steam::new(state.settings.steam_api_key()));
         let out = Handled::multiple(request.waiting_users.chunks(100).map(|accounts| {
             let accounts = accounts.to_vec();
             let client = client.clone();
+            let request_playtime = state.settings.request_playtime();
             Handled::future(async move {
-                Some(ProfileLookupResult(request_steam_info(&client, &accounts).await).into())
+                Some(
+                    ProfileLookupResult(
+                        request_steam_info(client, &accounts, request_playtime).await,
+                    )
+                    .into(),
+                )
             })
         }));
 
@@ -564,6 +570,7 @@ fn get_prefs_response(state: &MACState) -> String {
             rcon_port: Some(settings.rcon_port()),
             dumb_autokick: Some(settings.autokick_bots()),
             tos_agreement_date: settings.tos_agreement_date().map(|date| date.to_rfc3339()),
+            request_playtime: Some(settings.request_playtime()),
         }),
         external: Some(settings.external_preferences().clone()),
     };

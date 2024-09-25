@@ -527,11 +527,12 @@ pub struct SteamInfo {
     pub pfp_url: String,
     pub pfp_hash: String,
     pub profile_visibility: ProfileVisibility,
-    pub time_created: Option<i64>,
+    pub time_created: Option<u64>,
     pub country_code: Option<String>,
-    pub vac_bans: i64,
-    pub game_bans: i64,
-    pub days_since_last_ban: Option<i64>,
+    pub vac_bans: u32,
+    pub game_bans: u32,
+    pub days_since_last_ban: Option<u32>,
+    pub playtime: Option<u64>,
     pub fetched: DateTime<Utc>,
 }
 
@@ -549,8 +550,8 @@ pub enum ProfileVisibility {
     Public = 3,
 }
 
-impl From<i32> for ProfileVisibility {
-    fn from(value: i32) -> Self {
+impl From<u8> for ProfileVisibility {
+    fn from(value: u8) -> Self {
         match value {
             2 => Self::FriendsOnly,
             3 => Self::Public,

@@ -42,7 +42,6 @@ serde = { version = "1.0.203", features = ["rc"] }
 serde_json = "1.0.120"
 serde_yaml = "0.9.34"
 steamid-ng = "1.0.0"
-tappet = { git = "https://github.com/saskenuba/SteamHelper-rs", rev = "208a6ad5e2484f9cea101110dc8e29d220475821" }
 thiserror = "1.0.61"
 tokio = { version = "1.38.0", features = ["full", "time"] }
 tokio-stream = "0.1.15"
@@ -67,6 +66,7 @@ atomic-write-file = "0.1.4"
 uuid = { version = "1.9.1", features = ["serde", "v4"] }
 pot = "3.0.0"
 ansi_term = "0.12.1"
+steam-rs = { git = "https://github.com/Bash-09/steam-rs" } # Steam API
 
 [build-dependencies]
 embed-resource = "2.4.2"

@@ -93,6 +93,7 @@ pub struct InternalPreferences {
     pub rcon_port: Option<u16>,
     pub dumb_autokick: Option<bool>,
     pub tos_agreement_date: Option<String>,
+    pub request_playtime: Option<bool>,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -141,6 +142,10 @@ impl Message<MACState> for Preferences {
                         }
                     }
                 }
+            }
+
+            if let Some(request_playtime) = internal.request_playtime {
+                state.settings.set_request_playtime(request_playtime);
             }
         }
 
