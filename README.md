@@ -12,7 +12,7 @@ ip 0.0.0.0
 rcon_password <password>
 net_start
 ```
-4. If you use mastercomfig, you will have to put your `autoexec.cfg` inside the `overrides` folder instead ([more information](https://docs.mastercomfig.com/9.9.3/customization/custom_configs))
+4. If you use mastercomfig, you will have to put your `autoexec.cfg` inside the `overrides` folder instead ([more information](https://docs.mastercomfig.com/latest/customization/custom_configs))
 5. Launch TF2
 6. Run the application
 7. Click on the link in your console window or visit `localhost:1984` in your browser
