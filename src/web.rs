@@ -799,7 +799,7 @@ async fn get_masterbase_broadcasts(State(state): State<WebState>) -> impl IntoRe
 
 // Check for updates
 
-pub const MAC_VERSION: &str = "v0.2.0";
+pub const MAC_VERSION: &str = "v0.2.1";
 pub const UPDATE_REPO: &str = "MegaAntiCheat/client-backend";
 
 #[derive(Serialize, Debug)]
