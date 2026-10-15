@@ -246,12 +246,17 @@ impl Settings {
                         .iter()
                         .filter_map(|value| value.get_obj())
                         .for_each(|user_data_obj| {
-                            if let Some(timestamp) = user_data_obj
-                                .get("Timestamp")
-                                .and_then(|timestamp_values| timestamp_values.first())
+                            // Steam writes this key as "Timestamp" on Windows but
+                            // lowercase "timestamp" on Linux, so match it
+                            // case-insensitively.
+                            let timestamp = user_data_obj
+                                .iter()
+                                .find(|(key, _)| key.eq_ignore_ascii_case("timestamp"))
+                                .and_then(|(_, timestamp_values)| timestamp_values.first())
                                 .and_then(|timestamp_vdf| timestamp_vdf.get_str())
-                                .and_then(|timestamp_str| timestamp_str.parse::<i64>().ok())
-                            {
+                                .and_then(|timestamp_str| timestamp_str.parse::<i64>().ok());
+
+                            if let Some(timestamp) = timestamp {
                                 if timestamp > latest_timestamp {
                                     if let Ok(user_steamid) =
                                         user_sid64.parse::<u64>().map(SteamID::from)
